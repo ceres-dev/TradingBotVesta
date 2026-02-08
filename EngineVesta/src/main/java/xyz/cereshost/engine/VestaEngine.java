@@ -53,7 +53,6 @@ import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.*;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.BiFunction;
 
 public class VestaEngine {
@@ -94,12 +93,10 @@ public class VestaEngine {
         try (PtModel model = (PtModel) Model.newInstance(Main.NAME_MODEL, device, "PyTorch")) {
             PtNDManager manager = (PtNDManager) model.getNDManager();
 
-            Pair<float[][][], float[][]> combined = BuilderData.fullBuild(symbols,  Main.MAX_MONTH_TRAINING, 1);
-            System.gc();
-            LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(30));
+            Pair<float[][][], float[][]> combined = BuilderData.buildTrainingData(symbols,  Main.MAX_MONTH_TRAINING, 1);
             float[][][] xCombined = combined.getKey();
             float[][] yCombined = combined.getValue();
-
+            System.gc();
             Vesta.info("Datos combinados:");
             Vesta.info("  Total de muestras: " + xCombined.length);
             Vesta.info("  Lookback: " + xCombined[0].length);
@@ -169,18 +166,18 @@ public class VestaEngine {
 
 
             // Entrenar
-            int iteration =  Main.MAX_MONTH_TRAINING/SPLIT_DATASET;
-            Vesta.info("Iniciando entrenamiento con " + EPOCH*EPOCH_SUB*iteration + " epochs...");
+            int maxMonthTraining =  Main.MAX_MONTH_TRAINING;
+            Vesta.info("Iniciando entrenamiento con " + EPOCH*EPOCH_SUB*maxMonthTraining + " epochs...");
             rootManager = manager;
             System.gc();
-            ChunkDataset sampleTraining = computeDataset(EngineUtils.getSingleSplitWithLabels(result.getX_train_norm(), result.getY_train_norm(), iteration, 0), batchSize, manager);
+            ChunkDataset sampleTraining = computeDataset(EngineUtils.getSingleSplitWithLabels(result.getX_train_norm(), result.getY_train_norm(), maxMonthTraining, 0), batchSize, manager);
             ChunkDataset sampleVal = computeDataset(new Pair<>(result.getX_val_norm(), result.getY_val_norm()), batchSize, manager);
             metricsListener.startTraining();
             for (int epoch = 0; epoch < EPOCH; epoch++) {
-                for (int idx = 0; idx < iteration; idx++) {
+                for (int idx = 0; idx < maxMonthTraining; idx++) {
                     final int finalIdx = idx;
                     CompletableFuture<ChunkDataset> sampleTrainingNext = CompletableFuture.supplyAsync(() ->
-                            computeDataset(EngineUtils.getSingleSplitWithLabels(result.getX_train_norm(), result.getY_train_norm(), iteration, (finalIdx + 1) % iteration), batchSize, manager), EXECUTOR_TRAINING);
+                            computeDataset(EngineUtils.getSingleSplitWithLabels(result.getX_train_norm(), result.getY_train_norm(), maxMonthTraining, (finalIdx + 1) % maxMonthTraining), batchSize, manager), EXECUTOR_TRAINING);
                     EasyTrain.fit(trainer, EPOCH_SUB, sampleTraining.dataset(), sampleVal.dataset());
                     NDArray xT = sampleTraining.x();
                     NDArray yT = sampleTraining.y();
@@ -252,7 +249,7 @@ public class VestaEngine {
         }
     }
 
-    private static @NotNull BiFunction<long[], long[], float[][][]> getSlice3D(float[][][] xCombined) {
+    public static @NotNull BiFunction<long[], long[], float[][][]> getSlice3D(float[][][] xCombined) {
         final float[][][] finalXCombined = xCombined;
         BiFunction<long[], long[], float[][][]> slice3D = (long[] range, long[] dummy) -> {
             long start = range[0];
@@ -267,7 +264,7 @@ public class VestaEngine {
         return slice3D;
     }
 
-    private static @NotNull splitSample getSplitSample(BiFunction<long[], long[], float[][][]> slice3D, long trainSize, long valSize, long samples, float[][] yCombined) throws InterruptedException, ExecutionException {
+    public static @NotNull splitSample getSplitSample(BiFunction<long[], long[], float[][][]> slice3D, long trainSize, long valSize, long samples, float[][] yCombined) throws InterruptedException, ExecutionException {
         // Crear splits en arrays Java antes de normalizar
         CompletableFuture<float[][][]> X_train_arr = CompletableFuture.supplyAsync(() -> slice3D.apply(new long[]{0, trainSize}, null), EXECUTOR);
         CompletableFuture<float[][][]> X_val_arr =   CompletableFuture.supplyAsync(() -> slice3D.apply(new long[]{trainSize, trainSize + valSize}, null), EXECUTOR);
@@ -280,10 +277,10 @@ public class VestaEngine {
         return new splitSample(X_train_arr.get(), X_val_arr.get(), X_test_arr.get(), y_train_arr.get(), y_val_arr.get(), y_test_arr.get());
     }
 
-    private record splitSample(float[][][] X_train_arr, float[][][] X_val_arr, float[][][] X_test_arr, float[][] y_train_arr, float[][] y_val_arr, float[][] y_test_arr) {
+    public record splitSample(float[][][] X_train_arr, float[][][] X_val_arr, float[][][] X_test_arr, float[][] y_train_arr, float[][] y_val_arr, float[][] y_test_arr) {
     }
 
-    private static @NotNull Normalize getNormalize(splitSample split) throws InterruptedException, ExecutionException {
+    public static @NotNull Normalize getNormalize(splitSample split) throws InterruptedException, ExecutionException {
 
         float[][][] X_train_arr = split.X_train_arr;
         float[][][] X_val_arr = split.X_val_arr;
@@ -319,7 +316,7 @@ public class VestaEngine {
 
     @Getter
     @Data
-    private static final class Normalize {
+    public static final class Normalize {
         private final XNormalizer xNormalizer;
         private final YNormalizer yNormalizer;
         private final float[][][] X_train_norm;
@@ -558,11 +555,11 @@ public class VestaEngine {
                 .add(Activation.leakyReluBlock(0.1f));
     }
 
-    private static ChunkDataset computeDataset(Pair<float[][][], float[][]> pair, int batchSize, NDManager manager) {
-        NDArray X_train = EngineUtils.concat3DArrayToNDArray(pair.getKey(), manager, 1024);
-        NDArray y_train = manager.create(pair.getValue());
-        Arrays.fill(pair.getValue(), null);
-        Arrays.fill(pair.getKey(), null);
+    private static ChunkDataset computeDataset(Pair<float[][][], float[][]> pairNormalize, int batchSize, NDManager manager) {
+        NDArray X_train = EngineUtils.concat3DArrayToNDArray(pairNormalize.getKey(), manager, 1024);
+        NDArray y_train = manager.create(pairNormalize.getValue());
+        Arrays.fill(pairNormalize.getValue(), null);
+        Arrays.fill(pairNormalize.getKey(), null);
         return new ChunkDataset(X_train, y_train, new ArrayDataset.Builder()
                 .setData(X_train)
                 .optLabels(y_train)
