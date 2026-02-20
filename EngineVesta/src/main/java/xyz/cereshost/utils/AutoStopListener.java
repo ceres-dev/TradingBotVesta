@@ -11,9 +11,10 @@ public class AutoStopListener extends TrainingListenerAdapter {
     private float maxLast = Float.MAX_VALUE;
     private float lossLast = Float.MAX_VALUE;
 
-    private static final float THRESHOLD_STOP = 6f;
-    private static final int MAX_GAMMA = 3;
-    private static final int MAX_BETA = 25;
+    private static final float THRESHOLD_STOP = 8f;
+    private static final int MAX_GAMMA = 15;
+    private static final int MAX_BETA = 35;
+    private static final int MIN_EPOCH = 2;
     private final Runnable onStop;
 
     public AutoStopListener(){
@@ -31,11 +32,10 @@ public class AutoStopListener extends TrainingListenerAdapter {
     public void onEpoch(Trainer trainer) {
         var result = trainer.getTrainingResult();
 
-        float minValidation = result.getValidateEvaluation("relative_diff");
-        float maxValidation = result.getValidateEvaluation("distance_diff");
+        float minValidation = result.getValidateEvaluation("min_diff");
+        float maxValidation = result.getValidateEvaluation("max_diff");
         float lossValidation = result.getValidateLoss();
-
-        if (minLast != Float.MAX_VALUE &&  maxLast!= Float.MAX_VALUE &&  lossLast != Float.MAX_VALUE) {
+        if (minLast != Float.MAX_VALUE &&  maxLast!= Float.MAX_VALUE &&  lossLast != Float.MAX_VALUE && MIN_EPOCH < result.getEpoch()) {
             float diffMin = ((minValidation - minLast)/ minLast)*100;
             float diffMax = ((maxValidation - maxLast)/ maxLast)*100;
             float diffLoss = ((lossValidation - lossLast)/ lossLast)*100;

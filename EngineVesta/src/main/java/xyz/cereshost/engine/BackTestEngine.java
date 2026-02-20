@@ -1,5 +1,7 @@
 package xyz.cereshost.engine;
 
+import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
@@ -15,7 +17,6 @@ import xyz.cereshost.trading.TradingBackTest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 
 @Getter
 public class BackTestEngine {
@@ -62,17 +63,20 @@ public class BackTestEngine {
             // Obtener predicción
             List<Candle> window = allCandles.subList(i - lookBack, i + 1);
             PredictionEngine.PredictionResult prediction = engine.predictNextPriceDetail(window, market.getSymbol());
+            stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
 
             // Consultar estrategia
             strategy.executeStrategy(prediction, operations);
 
             if (operations.getLastOpenOperation().isEmpty())stats.nothing++;
             for (TradingBackTest.OpenOperationBackTest setup : operations.getLastOpenOperation()){
-                if (setup != null && setup.getDireccion() != Trading.DireccionOperation.NEUTRAL) {
-                    switch (setup.getDireccion()) {
-                        case LONG -> stats.longs++;
-                        case SHORT -> stats.shorts++;
-                    }
+                if (setup != null) {
+                    if (setup.getDireccion() != Trading.DireccionOperation.NEUTRAL) {
+                        switch (setup.getDireccion()) {
+                            case LONG -> stats.longs++;
+                            case SHORT -> stats.shorts++;
+                        }
+                    } else stats.nothing++;
                 } else stats.nothing++;
             }
 
@@ -113,7 +117,7 @@ public class BackTestEngine {
 
         // F. Registrar estadísticas
         TradeResult resultObj = new TradeResult(netPnL, pnlPercent, closeOperation.getExitPrice(), closeOperation.getReason(), closeOperation.getEntryTime(), closeOperation.getExitTime());
-        stats.addTrade(resultObj, balance);
+        stats.addComplenteTrade(resultObj, balance);
         extraStats.add(new CompleteTrade(
                 openOperation.getEntryPrice(),
                 openOperation.getTpPrice(),
@@ -246,6 +250,7 @@ public class BackTestEngine {
 
         private List<TradeResult> trades = new ArrayList<>();
         private List<CompleteTrade> TradesComplete = new ArrayList<>();
+        private List<InCompleteTrade> allTrades = new ArrayList<>();
 
         public BackTestStats(Market market) {
             this.market = market;
@@ -281,7 +286,7 @@ public class BackTestEngine {
         // Para calcular Hold Time promedio
         long totalHoldTimeMillis = 0;
 
-        public void addTrade(TradeResult result, double currentBalance) {
+        public void addComplenteTrade(TradeResult result, double currentBalance) {
             trades.add(result);
             if (totalTrades == 0) {
                 initialBalance = currentBalance - result.pnl; // Reconstruir inicial
@@ -341,36 +346,72 @@ public class BackTestEngine {
         }
 
         public double getRatioAvg() {
-            return TradesComplete.stream().mapToDouble(CompleteTrade::ratio).average().orElse(0);
+            return TradesComplete.stream().mapToDouble(CompleteTrade::getRatio).average().orElse(0);
         }
 
         public double getRatioMin(){
-            return TradesComplete.stream().mapToDouble(CompleteTrade::ratio).min().orElse(0);
+            return TradesComplete.stream().mapToDouble(CompleteTrade::getRatio).min().orElse(0);
         }
 
         public double getRatioMax(){
-            return TradesComplete.stream().mapToDouble(CompleteTrade::ratio).max().orElse(0);
+            return TradesComplete.stream().mapToDouble(CompleteTrade::getRatio).max().orElse(0);
         }
     }
 
     public record TradeResult(double pnl, double pnlPercent, double exitPrice, Trading.ExitReason reason, long entryTime, long exitTime) {}
 
-    public record CompleteTrade(
-            double entryPrice,
-            double tpPrice,
-            double slPrice,
-            float tpPercent,
-            float slPercent,
-            Trading.DireccionOperation direction,
-            double exitPrice,
-            Trading.ExitReason exitReason,
-            long entryTime,
-            long exitTime,
-            double pnl,
-            float balance,
-            float ratio,
-            float pnlPercent
-    ) {}
+    @EqualsAndHashCode(callSuper = true)
+    @Data
+    public static final class CompleteTrade extends InCompleteTrade {
+
+        private final float tpPercent;
+        private final float slPercent;
+        private final Trading.DireccionOperation direction;
+        private final double exitPrice;
+        private final Trading.ExitReason exitReason;
+        private final long exitTime;
+        private final double pnl;
+        private final float balance;
+        private final float ratio;
+        private final float pnlPercent;
+
+        public CompleteTrade(
+                double entryPrice,
+                double tpPrice,
+                double slPrice,
+                float tpPercent,
+                float slPercent,
+                Trading.DireccionOperation direction,
+                double exitPrice,
+                Trading.ExitReason exitReason,
+                long entryTime,
+                long exitTime,
+                double pnl,
+                float balance,
+                float ratio,
+                float pnlPercent
+        ) {
+            super(entryPrice, tpPrice, slPrice, entryTime);
+            this.tpPercent = tpPercent;
+            this.slPercent = slPercent;
+            this.direction = direction;
+            this.exitPrice = exitPrice;
+            this.exitReason = exitReason;
+            this.exitTime = exitTime;
+            this.pnl = pnl;
+            this.balance = balance;
+            this.ratio = ratio;
+            this.pnlPercent = pnlPercent;
+        }
+    }
+
+    @Data
+    public static class InCompleteTrade {
+        private final double entryPrice;
+        private final double tpPrice;
+        private final double slPrice;
+        private final long entryTime;
+    }
 
     // Mantener compatibilidad con tu código existente
     public record BackTestResult(

@@ -6,6 +6,7 @@ import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartFrame;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
+import org.jfree.chart.annotations.XYBoxAnnotation;
 import org.jfree.chart.axis.DateAxis;
 import org.jfree.chart.axis.NumberAxis;
 import org.jfree.chart.axis.ValueAxis;
@@ -33,11 +34,24 @@ import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.jfree.chart.axis.NumberAxis.createIntegerTickUnits;
 import static xyz.cereshost.engine.PredictionEngine.THRESHOLD_RELATIVE;
 
 public class ChartUtils {
+
+    private static boolean chartsDisabledLogged = false;
+
+    private static boolean chartsEnabled() {
+        boolean enabled = !GraphicsEnvironment.isHeadless() && !Boolean.getBoolean("vesta.charts.disabled");
+        if (!enabled && !chartsDisabledLogged) {
+            Vesta.info("Charts deshabilitados (headless o vesta.charts.disabled=true).");
+            chartsDisabledLogged = true;
+        }
+        return enabled;
+    }
 
 
     public static XYSeriesCollection plot(
@@ -72,6 +86,10 @@ public class ChartUtils {
         xAxis.setNumberFormatOverride(new DecimalFormat("0"));
         xAxis.setAutoTickUnitSelection(true);
         xAxis.setStandardTickUnits(createIntegerTickUnits());
+
+        if (!chartsEnabled()) {
+            return dataset;
+        }
         
         ChartFrame frame = new ChartFrame(title, chart);
         darkMode(chart);
@@ -166,6 +184,9 @@ public class ChartUtils {
             Vesta.error("No hay velas para mostrar");
             return;
         }
+        if (!chartsEnabled()) {
+            return;
+        }
 
         try {
             // Preparar datos para JFreeChart
@@ -237,21 +258,181 @@ public class ChartUtils {
         }
     }
 
+    public record PredictionPoint(long time, double tpPrice, double slPrice) {}
+
+    public static void animateCandlePredictions(
+            String title,
+            List<CandleSimple> candles,
+            List<BackTestEngine.InCompleteTrade> trades,
+            int windowSize,
+            int delayMs
+    ) {
+        animateCandlePredictions(title, candles, trades, windowSize, delayMs, 0, 15);
+    }
+
+    public static void animateCandlePredictions(
+            String title,
+            List<CandleSimple> candles,
+            List<BackTestEngine.InCompleteTrade> trades,
+            int windowSize,
+            int delayMs,
+            double zoomOutFactor,
+            double horizonZoomOutFactor
+    ) {
+        if (candles == null || candles.isEmpty()) {
+            Vesta.error("No hay velas para animar");
+            return;
+        }
+        if (!chartsEnabled()) {
+            return;
+        }
+
+        List<PredictionPoint> preds = new ArrayList<>();
+        for (BackTestEngine.InCompleteTrade trade : trades) {
+            preds.add(new PredictionPoint(trade.getEntryTime(), trade.getTpPrice(), trade.getSlPrice()));
+        }
+
+        List<CandleSimple> sorted = new ArrayList<>(candles);
+        sorted.sort(Comparator.comparingLong(CandleSimple::openTime));
+
+        preds.sort(Comparator.comparingLong(PredictionPoint::time));
+
+        int safeDelay = Math.max(10, delayMs);
+        double safeZoomOut = Math.max(0.0, zoomOutFactor);
+        double safeHorizonZoomOut = Math.max(0.0, horizonZoomOutFactor);
+
+        DefaultHighLowDataset dataset = buildHighLowDataset(sorted, 0, 0, title);
+        JFreeChart chart = ChartFactory.createCandlestickChart(
+                title,
+                "Fecha",
+                "Precio",
+                dataset,
+                true
+        );
+
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis axis = (DateAxis) plot.getDomainAxis();
+        axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
+
+        XYSeries maxSeries = new XYSeries("Max");
+        XYSeries minSeries = new XYSeries("Min");
+        XYSeries priceSeries = new XYSeries("Precio");
+        XYSeriesCollection predDataset = new XYSeriesCollection();
+        predDataset.addSeries(maxSeries);
+        predDataset.addSeries(minSeries);
+        predDataset.addSeries(priceSeries);
+
+        XYLineAndShapeRenderer predRenderer = new XYLineAndShapeRenderer(true, false);
+        predRenderer.setSeriesPaint(0, new Color(0, 255, 0, 200));
+        predRenderer.setSeriesPaint(1, new Color(255, 0, 0, 200));
+        predRenderer.setSeriesPaint(2, new Color(0, 120, 255, 220));
+        predRenderer.setSeriesStroke(0, new BasicStroke(1.5f));
+        predRenderer.setSeriesStroke(1, new BasicStroke(1.5f));
+        predRenderer.setSeriesStroke(2, new BasicStroke(1.2f));
+        plot.setDataset(1, predDataset);
+        plot.setRenderer(1, predRenderer);
+
+        darkMode(chart);
+
+        ChartFrame frame = new ChartFrame(title, chart);
+        frame.pack();
+        frame.setVisible(true);
+
+        Thread animator = new Thread(() -> {
+            int predIndex = 0;
+            PredictionPoint activePrediction = null;
+            XYBoxAnnotation[] shadeHolder = new XYBoxAnnotation[1];
+            for (int i = 0; i < sorted.size(); i++) {
+                int endIndex = i;
+                int horizonExtra = (int) Math.round(windowSize * safeHorizonZoomOut);
+                int startIndex = Math.max(0, endIndex - windowSize + 1 - horizonExtra);
+                int endIndexWindow = Math.min(sorted.size() - 1, endIndex + horizonExtra);
+                long currentTime = sorted.get(endIndex).openTime();
+                double currentPrice = sorted.get(endIndex).close();
+
+                while (predIndex < preds.size() && preds.get(predIndex).time() <= currentTime) {
+                    activePrediction = preds.get(predIndex);
+                    predIndex++;
+                }
+
+                PredictionPoint predictionFinal = activePrediction;
+                int startFinal = startIndex;
+                int endFinal = endIndexWindow;
+                long currentTimeFinal = currentTime;
+                long windowEndTimeFinal = sorted.get(Math.min(sorted.size() - 1, i + windowSize)).openTime();
+                double currentPriceFinal = currentPrice;
+
+                SwingUtilities.invokeLater(() -> {
+                    DefaultHighLowDataset windowDataset = buildHighLowDataset(sorted, startFinal, endFinal, title);
+                    plot.setDataset(0, windowDataset);
+                    updateAxisRange(plot, sorted, startFinal, endFinal, predictionFinal, safeZoomOut);
+
+                    maxSeries.clear();
+                    minSeries.clear();
+                    priceSeries.clear();
+                    if (predictionFinal != null) {
+                        long startTime = sorted.get(startFinal).openTime();
+                        long lineStart = Math.max(startTime, predictionFinal.time());
+                        long lineEnd = Math.max(currentTimeFinal, windowEndTimeFinal);
+                        double low = Math.min(predictionFinal.tpPrice(), predictionFinal.slPrice());
+                        double high = Math.max(predictionFinal.tpPrice(), predictionFinal.slPrice());
+                        maxSeries.add(lineStart, high);
+                        maxSeries.add(lineEnd, high);
+                        minSeries.add(lineStart, low);
+                        minSeries.add(lineEnd, low);
+
+                        if (shadeHolder[0] != null) {
+                            plot.removeAnnotation(shadeHolder[0]);
+                        }
+
+                        XYBoxAnnotation shade = new XYBoxAnnotation(
+                                lineStart,
+                                low,
+                                lineEnd,
+                                high,
+                                new BasicStroke(0.5f),
+                                new Color(0, 120, 255, 40),
+                                new Color(0, 120, 255, 20)
+                        );
+                        plot.addAnnotation(shade);
+                        shadeHolder[0] = shade;
+                    } else if (shadeHolder[0] != null) {
+                        plot.removeAnnotation(shadeHolder[0]);
+                        shadeHolder[0] = null;
+                    }
+
+                    long priceStart = sorted.get(startFinal).openTime();
+                    long priceLineStart = Math.max(priceStart, currentTimeFinal);
+                    long priceLineEnd = Math.max(currentTimeFinal, windowEndTimeFinal);
+                    priceSeries.add(priceLineStart, currentPriceFinal);
+                    priceSeries.add(priceLineEnd, currentPriceFinal);
+                });
+
+                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(safeDelay));
+            }
+        });
+        animator.setDaemon(true);
+        animator.start();
+    }
+
     /**
      * Muestra la distribución de datos con dos salidas (TP y SL)
      */
     public static void showTPSLDistribution(String title, float[][] y, String symbol) {
+        if (!chartsEnabled()) {
+            return;
+        }
         try {
             // Extraer TP y SL de los datos de salida
-            List<Float> tpValues = new ArrayList<>();
-            List<Float> slValues = new ArrayList<>();
+            List<Float> maxValues = new ArrayList<>();
+            List<Float> minValues = new ArrayList<>();
             int j = 0;
             for (float[] floats : y) {
                 if (floats.length >= 2) {
-                    float tp = floats[0];
-                    float sl = floats[2];
-                    tpValues.add(tp);
-                    slValues.add(-sl);
+                    float max = floats[0];
+                    float min = floats[1];
+                    maxValues.add(max);
+                    minValues.add(-min);
                 }
             }
 
@@ -259,9 +440,9 @@ public class ChartUtils {
             XYSeries tpSeries = new XYSeries("Distancia");
             XYSeries slSeries = new XYSeries("Relativo");
 
-            for (int i = 0; i < tpValues.size(); i++) {
-                tpSeries.add(i, tpValues.get(i));
-                slSeries.add(i, slValues.get(i));
+            for (int i = 0; i < maxValues.size(); i++) {
+                tpSeries.add(i, maxValues.get(i));
+                slSeries.add(i, minValues.get(i));
             }
 
             XYSeriesCollection dataset = new XYSeriesCollection();
@@ -305,6 +486,9 @@ public class ChartUtils {
     }
 
     public static void showDirectionDistribution(String title, float[][] y, String symbol) {
+        if (!chartsEnabled()) {
+            return;
+        }
         try {
             // Contar ocurrencias de cada dirección
             int longCount = 0;
@@ -450,6 +634,9 @@ public class ChartUtils {
             Vesta.error("No hay resultados para mostrar");
             return;
         }
+        if (!chartsEnabled()) {
+            return;
+        }
 
         try {
             // Separar datos para TP y SL
@@ -560,6 +747,9 @@ public class ChartUtils {
      */
     public static void plotRatioDistribution(String title, List<EngineUtils.ResultEvaluate> results) {
         if (results == null || results.isEmpty()) return;
+        if (!chartsEnabled()) {
+            return;
+        }
 
         // Calcular ratios
         List<Float> realRatios = new ArrayList<>();
@@ -622,11 +812,14 @@ public class ChartUtils {
 
     public static void plotRatioVsROI(String title, List<BackTestEngine.CompleteTrade> extraStats) {
         if (extraStats == null || extraStats.isEmpty()) return;
+        if (!chartsEnabled()) {
+            return;
+        }
 
         try {
             // Ordenar por ratio (de menor a mayor)
             List<BackTestEngine.CompleteTrade> sortedStats = new ArrayList<>(extraStats);
-            sortedStats.sort(Comparator.comparingDouble(BackTestEngine.CompleteTrade::ratio));
+            sortedStats.sort(Comparator.comparingDouble(BackTestEngine.CompleteTrade::getRatio));
 
             // Crear dataset para ROI vs Ratio
             XYSeriesCollection dataset = new XYSeriesCollection();
@@ -635,8 +828,8 @@ public class ChartUtils {
 
             double cumulativeROI = 0;
             for (BackTestEngine.CompleteTrade stat : sortedStats) {
-                double roi = stat.pnlPercent() * 100; // Convertir a porcentaje
-                float ratio = stat.ratio();
+                double roi = stat.getPnlPercent() * 100; // Convertir a porcentaje
+                float ratio = stat.getRatio();
 
                 roiSeries.add(ratio, roi);
 
@@ -677,25 +870,6 @@ public class ChartUtils {
             frame.setLocationRelativeTo(null);
             frame.setVisible(true);
 
-            // Calcular estadísticas
-            double avgRatio = sortedStats.stream()
-                    .mapToDouble(BackTestEngine.CompleteTrade::ratio)
-                    .average()
-                    .orElse(0);
-
-            double positiveROICount = sortedStats.stream()
-                    .filter(s -> s.pnlPercent() > 0)
-                    .count();
-
-            double winRate = (positiveROICount / sortedStats.size()) * 100;
-
-//            Vesta.info("Estadísticas Ratio vs ROI:");
-//            Vesta.info("  Ratio promedio: " + avgRatio);
-//            Vesta.info("  Ratio mínimo: " + sortedStats.get(0).ratio());
-//            Vesta.info("  Ratio máximo: " + sortedStats.get(sortedStats.size() - 1).ratio());
-//            Vesta.info("  Win Rate: " + String.format("%.2f", winRate) + "%");
-//            Vesta.info("  ROI total acumulado: " + String.format("%.2f", cumulativeROI) + "%");
-
         } catch (Exception e) {
             Vesta.error("Error en plotRatioVsROI: " + e.getMessage());
             e.printStackTrace();
@@ -711,6 +885,9 @@ public class ChartUtils {
             List<BackTestEngine.CompleteTrade> ExtraData
     ) {
         if ( ExtraData == null || ExtraData.isEmpty()) return;
+        if (!chartsEnabled()) {
+            return;
+        }
 
         try {
             // Crear lista combinada de datos
@@ -718,9 +895,9 @@ public class ChartUtils {
             for (int i = 0; i < ExtraData.size(); i++) {
                 BackTestEngine.CompleteTrade stat = ExtraData.get(i);
                 // Calcular magnitud del TP (en porcentaje de log return)
-                float tpMagnitude = Math.abs(stat.tpPercent() * 10000); // Convertir a puntos base
-                float slMagnitude = Math.abs(stat.slPercent() * 10000); // Convertir a puntos base
-                float roi = (float) (stat.pnlPercent() * 100); // Convertir a porcentaje
+                float tpMagnitude = Math.abs(stat.getTpPercent() * 10000); // Convertir a puntos base
+                float slMagnitude = Math.abs(stat.getSlPercent() * 10000); // Convertir a puntos base
+                float roi = (float) (stat.getPnlPercent() * 100); // Convertir a porcentaje
 
                 dataList.add(new TPSLROIData(tpMagnitude, slMagnitude, roi));
             }
@@ -923,6 +1100,9 @@ public class ChartUtils {
      * Gráfico de dispersión predicción vs realidad
      */
     public static void plotPredictionVsRealScatter(List<EngineUtils.ResultEvaluate> predictions, String title) {
+        if (!chartsEnabled()) {
+            return;
+        }
         try {
             XYSeries longSeries = new XYSeries("LONG");
             XYSeries neutralSeries = new XYSeries("NEUTRAL");
@@ -988,6 +1168,9 @@ public class ChartUtils {
      * Distribución de errores por dirección
      */
     public static void plotErrorDistributionByDirection(List<EngineUtils.ResultEvaluate> predictions, String title) {
+        if (!chartsEnabled()) {
+            return;
+        }
         try {
             List<Float> longErrors = new ArrayList<>();
             List<Float> neutralErrors = new ArrayList<>();
@@ -1036,7 +1219,7 @@ public class ChartUtils {
 
             ChartPanel chartPanel = new ChartPanel(chart);
             chartPanel.setPreferredSize(new Dimension(700, 500));
-
+            darkMode(chart);
             JFrame frame = new JFrame("Distribución de Errores - " + title);
             frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
             frame.getContentPane().add(chartPanel);
@@ -1097,6 +1280,9 @@ public class ChartUtils {
     public static void showCandleChartWithTrades(String title, List<CandleSimple> candles, String symbol, List<BackTestEngine.CompleteTrade> trades) {
         if (candles == null || candles.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
+            return;
+        }
+        if (!chartsEnabled()) {
             return;
         }
 
@@ -1192,6 +1378,66 @@ public class ChartUtils {
         }
     }
 
+    private static DefaultHighLowDataset buildHighLowDataset(
+            List<CandleSimple> candles,
+            int startIndex,
+            int endIndex,
+            String seriesKey
+    ) {
+        int itemCount = endIndex - startIndex + 1;
+        Date[] dates = new Date[itemCount];
+        double[] highs = new double[itemCount];
+        double[] lows = new double[itemCount];
+        double[] opens = new double[itemCount];
+        double[] closes = new double[itemCount];
+        double[] volumes = new double[itemCount];
+
+        for (int i = 0; i < itemCount; i++) {
+            CandleSimple candle = candles.get(startIndex + i);
+            dates[i] = new Date(candle.openTime());
+            opens[i] = candle.open();
+            highs[i] = candle.high();
+            lows[i] = candle.low();
+            closes[i] = candle.close();
+            volumes[i] = candle.volumen().baseVolume();
+        }
+        return new DefaultHighLowDataset(seriesKey, dates, highs, lows, opens, closes, volumes);
+    }
+
+    private static void updateAxisRange(
+            XYPlot plot,
+            List<CandleSimple> candles,
+            int startIndex,
+            int endIndex,
+            PredictionPoint prediction,
+            double zoomOutFactor
+    ) {
+        double min = Double.MAX_VALUE;
+        double max = -Double.MAX_VALUE;
+        for (int i = startIndex; i <= endIndex; i++) {
+            CandleSimple candle = candles.get(i);
+            min = Math.min(min, candle.low());
+            max = Math.max(max, candle.high());
+        }
+        if (prediction != null) {
+            min = Math.min(min, Math.min(prediction.tpPrice(), prediction.slPrice()));
+            max = Math.max(max, Math.max(prediction.tpPrice(), prediction.slPrice()));
+        }
+        if (!Double.isFinite(min) || !Double.isFinite(max)) {
+            return;
+        }
+        double range = max - min;
+        double basePadding = range > 0 ? range * 0.05 : Math.max(Math.abs(max) * 0.01, 0.0001);
+        double padding = basePadding + (range > 0 ? range * zoomOutFactor : Math.abs(max) * zoomOutFactor);
+        NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
+        rangeAxis.setRange(min - padding, max + padding);
+
+        DateAxis domainAxis = (DateAxis) plot.getDomainAxis();
+        long startTime = candles.get(startIndex).openTime();
+        long endTime = candles.get(endIndex).openTime();
+        domainAxis.setRange(new Date(startTime), new Date(endTime));
+    }
+
     private static void addTradeAnnotations(XYPlot plot, List<BackTestEngine.CompleteTrade> trades,
                                             Map<Long, Integer> timeToIndex, List<CandleSimple> candles) {
 
@@ -1211,26 +1457,26 @@ public class ChartUtils {
 
         for (BackTestEngine.CompleteTrade trade : trades) {
             // Encontrar el índice de la vela más cercana al tiempo de entrada
-            int entryIndex = findClosestCandleIndex(candles, trade.entryTime());
-            int exitIndex = findClosestCandleIndex(candles, trade.exitTime());
+            int entryIndex = findClosestCandleIndex(candles, trade.getEntryTime());
+            int exitIndex = findClosestCandleIndex(candles, trade.getExitTime());
 
             if (entryIndex >= 0) {
                 CandleSimple entryCandle = candles.get(entryIndex);
                 double entryX = entryCandle.openTime();
 
                 // Agregar marker de entrada
-                if (trade.direction() == Trading.DireccionOperation.LONG) {
-                    entryLongSeries.add(entryX, trade.entryPrice());
-                } else if (trade.direction() == Trading.DireccionOperation.SHORT) {
-                    entryShortSeries.add(entryX, trade.entryPrice());
+                if (trade.getDirection() == Trading.DireccionOperation.LONG) {
+                    entryLongSeries.add(entryX, trade.getEntryPrice());
+                } else if (trade.getDirection() == Trading.DireccionOperation.SHORT) {
+                    entryShortSeries.add(entryX, trade.getEntryPrice());
                 }
 
                 // Agregar líneas de TP y SL
-                tpLinesSeries.add(entryX, trade.tpPrice());
-                tpLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).openTime() : entryX + 3600000, trade.tpPrice());
+                tpLinesSeries.add(entryX, trade.getTpPrice());
+                tpLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).openTime() : entryX + 3600000, trade.getTpPrice());
 
-                slLinesSeries.add(entryX, trade.slPrice());
-                slLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).openTime() : entryX + 3600000, trade.slPrice());
+                slLinesSeries.add(entryX, trade.getSlPrice());
+                slLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).openTime() : entryX + 3600000, trade.getSlPrice());
             }
 
             // Agregar marker de salida
@@ -1238,17 +1484,17 @@ public class ChartUtils {
                 CandleSimple exitCandle = candles.get(exitIndex);
                 double exitX = exitCandle.openTime();
 
-                switch (trade.exitReason()) {
+                switch (trade.getExitReason()) {
                     case LONG_TAKE_PROFIT:
                     case SHORT_TAKE_PROFIT:
-                        exitProfitSeries.add(exitX, trade.exitPrice());
+                        exitProfitSeries.add(exitX, trade.getExitPrice());
                         break;
                     case LONG_STOP_LOSS:
                     case SHORT_STOP_LOSS:
-                        exitLossSeries.add(exitX, trade.exitPrice());
+                        exitLossSeries.add(exitX, trade.getExitPrice());
                         break;
                     default:
-                        exitOtherSeries.add(exitX, trade.exitPrice());
+                        exitOtherSeries.add(exitX, trade.getExitPrice());
                         break;
                 }
             }
@@ -1368,16 +1614,16 @@ public class ChartUtils {
         if (trades != null && !trades.isEmpty()) {
             // Contar estadísticas
             long longWins = trades.stream()
-                    .filter(t -> t.direction() == Trading.DireccionOperation.LONG && t.pnl() > 0)
+                    .filter(t -> t.getDirection() == Trading.DireccionOperation.LONG && t.getPnl() > 0)
                     .count();
             long longLosses = trades.stream()
-                    .filter(t -> t.direction() == Trading.DireccionOperation.LONG && t.pnl() <= 0)
+                    .filter(t -> t.getDirection() == Trading.DireccionOperation.LONG && t.getPnl() <= 0)
                     .count();
             long shortWins = trades.stream()
-                    .filter(t -> t.direction() == Trading.DireccionOperation.SHORT && t.pnl() > 0)
+                    .filter(t -> t.getDirection() == Trading.DireccionOperation.SHORT && t.getPnl() > 0)
                     .count();
             long shortLosses = trades.stream()
-                    .filter(t -> t.direction() == Trading.DireccionOperation.SHORT && t.pnl() <= 0)
+                    .filter(t -> t.getDirection() == Trading.DireccionOperation.SHORT && t.getPnl() <= 0)
                     .count();
 
             String legendText = String.format(
@@ -1420,21 +1666,21 @@ public class ChartUtils {
         for (int i = 0; i < trades.size(); i++) {
             BackTestEngine.CompleteTrade trade = trades.get(i);
 
-            String direction = trade.direction() == Trading.DireccionOperation.LONG ? "LONG" :
-                    trade.direction() == Trading.DireccionOperation.SHORT ? "SHORT" : "NEUT";
+            String direction = trade.getDirection() == Trading.DireccionOperation.LONG ? "LONG" :
+                    trade.getDirection() == Trading.DireccionOperation.SHORT ? "SHORT" : "NEUT";
 
-            String exitReason = trade.exitReason().name()
+            String exitReason = trade.getExitReason().name()
                     .replace("LONG_", "")
                     .replace("SHORT_", "")
                     .replace("_", " ");
 
             data[i][0] = i + 1;
             data[i][1] = direction;
-            data[i][2] = priceFormat.format(trade.entryPrice());
-            data[i][3] = priceFormat.format(trade.tpPrice());
-            data[i][4] = priceFormat.format(trade.slPrice());
-            data[i][5] = priceFormat.format(trade.exitPrice());
-            data[i][6] = pnlFormat.format(trade.pnlPercent());
+            data[i][2] = priceFormat.format(trade.getEntryPrice());
+            data[i][3] = priceFormat.format(trade.getTpPrice());
+            data[i][4] = priceFormat.format(trade.getSlPrice());
+            data[i][5] = priceFormat.format(trade.getExitPrice());
+            data[i][6] = pnlFormat.format(trade.getPnlPercent());
             data[i][7] = exitReason;
         }
 
@@ -1474,9 +1720,9 @@ public class ChartUtils {
 
         // Agregar estadísticas rápidas
         if (!trades.isEmpty()) {
-            double totalPnL = trades.stream().mapToDouble(t -> t.pnlPercent()).sum();
+            double totalPnL = trades.stream().mapToDouble(t -> t.getPnlPercent()).sum();
             double avgPnL = totalPnL / trades.size();
-            long wins = trades.stream().filter(t -> t.pnl() > 0).count();
+            long wins = trades.stream().filter(t -> t.getPnl() > 0).count();
             double winRate = (double) wins / trades.size() * 100;
 
             JLabel statsLabel = new JLabel(String.format(

@@ -16,6 +16,7 @@ import ai.djl.nn.transformer.ScaledDotProductAttentionBlock;
 import ai.djl.training.ParameterStore;
 import ai.djl.util.PairList;
 import xyz.cereshost.engine.VestaEngine;
+import xyz.cereshost.utils.EngineUtils;
 
 
 /**
@@ -32,7 +33,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
     private final int oftenClearCache; // Cada cuanto limpia la cache
 
     // Sub-bloques componentes
-    private final ScaledDotProductAttentionBlock attentionBlock;
+    private final ScaledDotProductAttentionOptimizableBlock attentionBlock;
     private final Linear attentionOutputDense;
     private final LayerNorm layerNorm1;
     private final LayerNorm layerNorm2;
@@ -41,6 +42,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
     //private NDArray causalMask; // Máscara causal precomputada
     private final Linear inputProjection; // Proyección de entrada para ajustar dimensiones
     private NDManager manager = null;
+    private NDArray positionalEncoding = null;
 
     /**
      * Constructor para crear un bloque Temporal Transformer configurable.
@@ -66,7 +68,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
                 .build();
 
         // 1. Bloque de atención escalada multi-cabeza
-        this.attentionBlock = ScaledDotProductAttentionBlock.builder()
+        this.attentionBlock = ScaledDotProductAttentionOptimizableBlock.builder()
                 .setHeadCount(numHeads)
                 .setEmbeddingSize(modelDim)
                 .optAttentionProbsDropoutProb(dropoutRate)
@@ -152,6 +154,14 @@ public class TemporalTransformerBlock extends AbstractBlock {
 
             long batchSize = projectedInput.getShape().get(0);
             long seqLength = projectedInput.getShape().get(1);
+            if (seqLength > maxSequenceLength) {
+                throw new IllegalArgumentException("Sequence length (" + seqLength + ") exceeds maxSequenceLength (" + maxSequenceLength + ")");
+            }
+
+            ensurePositionalEncoding(VestaEngine.getRootManager(), projectedInput.getDataType());
+            NDArray posSlice = positionalEncoding.get(new NDIndex("0:1, 0:" + seqLength + ", :")).toDevice(manager.getDevice(), false);
+            NDArray projectedInputWithPos = projectedInput.add(posSlice);
+
             long maskSide = Math.max(seqLength, maxSequenceLength);
             if (maskSide > Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("Sequence length (" + seqLength + ") exceeds supported int range");
@@ -177,9 +187,10 @@ public class TemporalTransformerBlock extends AbstractBlock {
             NDArray slicedMask3d = slicedMask2d.expandDims(0); // [1,seq,seq]
 
             // EXPANDIR A BATCH (OBLIGATORIO EN DJL)
-            currentMask = slicedMask3d.repeat(0, (int) batchSize); // [B,seq,seq]
+//            currentMask = slicedMask3d.repeat(0, (int) batchSize); // [B,seq,seq]
+            currentMask = slicedMask3d.broadcast(new Shape(batchSize, seqLength, seqLength)); // [B,seq,seq]
             currentMask = currentMask.toDevice(manager.getDevice(), false);
-            NDList attentionInput = new NDList(projectedInput, currentMask);
+            NDList attentionInput = new NDList(projectedInputWithPos, currentMask);
 
             NDList attentionOutput = attentionBlock.forward(parameterStore, attentionInput, training);
             attentionContext = attentionOutput.singletonOrThrow();
@@ -194,7 +205,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
                     parameterStore, listProjectedAttention, training
             ).singletonOrThrow();
 
-            NDArray attentionPlusResidual = projectedInput.add(attentionResidual);
+            NDArray attentionPlusResidual = projectedInputWithPos.add(attentionResidual);
             NDList listAttentionPlusResidual = new NDList(attentionPlusResidual);
             attentionOutputNorm = layerNorm1.forward(
                     parameterStore,
@@ -208,6 +219,8 @@ public class TemporalTransformerBlock extends AbstractBlock {
             listAttentionPlusResidual.close();
             listAttentionContext.close();
             listProjectedAttention.close();
+            projectedInputWithPos.close();
+            posSlice.close();
 
             // === 2. Feed-Forward Network ===
             NDList listAttentionOutputNorm = new NDList(attentionOutputNorm);
@@ -270,6 +283,30 @@ public class TemporalTransformerBlock extends AbstractBlock {
                 // Ignorar errores al cerrar
             }
         }
+    }
+
+    private void ensurePositionalEncoding(NDManager rootManager, DataType dtype) {
+        if (positionalEncoding != null && positionalEncoding.getDataType() == dtype) {
+            return;
+        }
+        if (positionalEncoding != null) {
+            try {
+                positionalEncoding.close();
+            } catch (Exception ignored) {}
+            positionalEncoding = null;
+        }
+        NDManager mgr = rootManager != null ? rootManager : NDManager.newBaseManager();
+        float[][][] pe = new float[1][maxSequenceLength][modelDim];
+        for (int pos = 0; pos < maxSequenceLength; pos++) {
+            for (int i = 0; i < modelDim; i += 2) {
+                double divTerm = Math.pow(10000.0, (double) i / modelDim);
+                pe[0][pos][i] = (float) Math.sin(pos / divTerm);
+                if (i + 1 < modelDim) {
+                    pe[0][pos][i + 1] = (float) Math.cos(pos / divTerm);
+                }
+            }
+        }
+        positionalEncoding = EngineUtils.create3D(mgr, pe);
     }
 
     @Override

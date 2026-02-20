@@ -115,9 +115,8 @@ public class IOMarket {
                     double quoteQty = trade.get("quoteQty").asDouble();
                     double price = trade.get("price").asDouble();
                     boolean isBuyerMaker = trade.get("isBuyerMaker").asBoolean();
-                    long id = trade.get("id").asLong();
                     long time = trade.get("time").asLong();
-                    trades.add(new Trade(id, time,(float) price, (float) quoteQty, isBuyerMaker));
+                    trades.add(new Trade(time,(float) price, (float) quoteQty, isBuyerMaker));
                 }
 
                 Market market = new Market(s);
@@ -558,7 +557,6 @@ public class IOMarket {
                         if (line.isEmpty() || Character.isLetter(line.charAt(0))) continue; // Skip Header
                         Trade trade = parseTradeLine(line);
                         if (trade == null) continue;
-                        out.writeLong(trade.id());
                         out.writeLong(trade.time());
                         out.writeDouble(trade.price());
                         out.writeDouble(trade.qty());

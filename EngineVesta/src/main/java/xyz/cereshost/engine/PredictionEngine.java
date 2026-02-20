@@ -51,8 +51,8 @@ public class PredictionEngine {
 
     /**
      * Hace la inferencia en el modelo.
-     * Devuelve los valores desnormalizados para el output 0 (magnitud) y raw para el output 2 (ratio).
-     * Formato: [magnitud, 0, ratio, 0, 0]
+     * Devuelve los valores desnormalizados para los outputs 0 (upMove) y 1 (downMove).
+     * Formato: [upMove, downMove, 0, 0, 0]
      */
     public float[] predictRaw(float[][][] inputSequence) {
         try (NDManager manager = NDManager.newBaseManager(device)) {
@@ -95,17 +95,17 @@ public class PredictionEngine {
             for (int i = 0; i < batch; i++) {
                 int base = i * 5;
                 output2D[i][0] = normalizedOutput[base];
-                output2D[i][1] = 0f;
-                output2D[i][2] = normalizedOutput[base + 2];
+                output2D[i][1] = normalizedOutput[base + 1];
+                output2D[i][2] = 0f;
                 output2D[i][3] = 0f;
                 output2D[i][4] = 0f;
             }
 
-            // Des normalizar solo output 0 (magnitud)
+            // Des normalizar outputs 0 y 1 (upMove/downMove)
             float[][] denormalized = yNormalizer.inverseTransform(output2D);
-            float mag = denormalized[0][0];
-            float ratio = output2D[0][2];
-            return new float[]{mag, 0f, ratio, 0f, 0f};
+            float upMove = denormalized[0][0];
+            float downMove = denormalized[0][1];
+            return new float[]{upMove, downMove, 0f, 0f, 0f};
         } catch (Exception e) {
             Vesta.error("Error en predictRaw: " + e.getMessage());
             e.printStackTrace();
@@ -127,31 +127,27 @@ public class PredictionEngine {
         for (int j = 0; j < lookBack; j++) {
             X[0][j] = BuilderData.extractFeatures(subList.get(j + 1), subList.get(j));
         }
-        float[][][] XWithSymbol = BuilderData.addSymbolFeature(X, symbol);
 
         // Inferencia
-        float[] rawPredictions = predictRaw(XWithSymbol); // Output del modelo
+        float[] rawPredictions = predictRaw(X); // Output del modelo
 
-        float totalMoveRatio = rawPredictions[0];
-        float ratioRaw = rawPredictions[2];
+        float upMoveRatio = rawPredictions[0];
+        float downMoveRatio = rawPredictions[1];
 
         float currentPrice = (float) subList.getLast().close();
         if (currentPrice <= 0f) {
             return new PredictionResult(currentPrice, currentPrice, currentPrice, 0f, 0f, 0f, 0);
         }
 
-        float ratio = PredictionUtils.clampRatio(ratioRaw);
-        float totalMove = Math.max(0f, totalMoveRatio) * currentPrice;
-
-        float[] moves = PredictionUtils.splitMoves(totalMove, ratio);
-        float upMove = moves[0];
-        float downMove = moves[1];
+        float upMove = Math.max(0f, upMoveRatio) * currentPrice;
+        float downMove = Math.max(0f, downMoveRatio) * currentPrice;
 
         float maxDownMove = currentPrice * 0.999f;
         if (downMove > maxDownMove) {
             downMove = maxDownMove;
         }
 
+        float ratio = ratioFromMoves(upMove, downMove);
         int direction = PredictionUtils.directionFromRatioRaw(ratio);
 
         float tpLogReturn = 0f;
@@ -174,6 +170,13 @@ public class PredictionEngine {
         return new PredictionResult(
                 currentPrice, tpPrice, slPrice, tpLogReturn, slLogReturn, confidence, direction
         );
+    }
+
+    private static float ratioFromMoves(float upMove, float downMove) {
+        float maxMove = Math.max(upMove, downMove);
+        if (!Float.isFinite(maxMove) || maxMove <= 0f) return 0f;
+        float ratio = (upMove - downMove) / maxMove;
+        return PredictionUtils.clampRatio(ratio);
     }
 
     @Data

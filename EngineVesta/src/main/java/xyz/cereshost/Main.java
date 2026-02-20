@@ -6,15 +6,14 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.common.Vesta;
 import xyz.cereshost.engine.BackTestEngine;
 import xyz.cereshost.io.IOMarket;
-import xyz.cereshost.io.IOdata;
 import xyz.cereshost.strategy.AlfaStrategy;
+import xyz.cereshost.utils.BuilderData;
 import xyz.cereshost.utils.ChartUtils;
 import xyz.cereshost.utils.EngineUtils;
+import xyz.cereshost.utils.ModelDiagnostics;
 import xyz.cereshost.engine.PredictionEngine;
 import xyz.cereshost.engine.VestaEngine;
 import xyz.cereshost.packet.PacketHandler;
-import xyz.cereshost.strategy.BetaStrategy;
-import xyz.cereshost.strategy.DefaultStrategy;
 import xyz.cereshost.trading.Trading;
 
 import java.io.IOException;
@@ -27,14 +26,11 @@ public class Main {
 
     public static final String NAME_MODEL = "VestaIA";
 
-    public static final List<String> SYMBOLS_TRAINING = List.of(/*"SOLUSDT/*/ "ETHUSDT"/* "BNBUSDT"*/);
-    public static final String SYMBOL = "ETHUSDT";
-    @NotNull
-    public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZIP;
-    @NotNull
-    public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZIP;
-
-    public static final int MAX_MONTH_TRAINING = 14;//4 12+8;
+    @NotNull public static final List<String> SYMBOLS_TRAINING = List.of("ETHUSDT");
+    @NotNull public static final String SYMBOL = "ETHUSDT";
+    @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZIP;
+    @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZIP;
+    public static final int MAX_MONTH_TRAINING = 24;
 
 
     @Getter
@@ -42,20 +38,14 @@ public class Main {
 
     public static void main(String[] args) throws IOException, TranslateException, InterruptedException, ExecutionException {
         instance = new Main();
-
-        System.setProperty("org.slf4j.simpleLogger.showThreadName", "false");
-        System.setProperty("org.slf4j.simpleLogger.showLogName", "false");
-        System.setProperty("org.slf4j.simpleLogger.log.ai.djl.pytorch", "WARN");
-        System.setProperty("org.slf4j.simpleLogger.log.ai.djl.mxnet", "WARN");
-        System.setProperty("org.slf4j.simpleLogger.log.ai.djl.tensorflow", "WARN");
+//        System.setProperty("java.awt.headless","true");
         new PacketHandler();
         switch (args[0]) {
             case "training" -> {
-                List<String> symbols = SYMBOLS_TRAINING;// Vesta.MARKETS_NAMES;
+                List<String> symbols = SYMBOLS_TRAINING;
                 //checkEngines();
 
-
-                VestaEngine.TrainingTestsResults result = VestaEngine.trainingModel(List.of(SYMBOL));
+                VestaEngine.TrainingTestsResults result = VestaEngine.trainingModel(symbols);
                 EngineUtils.ResultsEvaluate evaluateResult = result.evaluate();
                 BackTestEngine.BackTestResult backtestResult = result.backtest();
 
@@ -106,6 +96,7 @@ public class Main {
             case "backtest" -> showDataBackTest(new BackTestEngine(IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, SYMBOL).limit(3), PredictionEngine.loadPredictionEngine("VestaIA"), new AlfaStrategy()).run());
             case "trading" -> new TradingLoopBinance(SYMBOL, PredictionEngine.loadPredictionEngine("VestaIA"), new AlfaStrategy()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
+            case "diagnose" -> ModelDiagnostics.run();
         }
     }
 
@@ -116,14 +107,15 @@ public class Main {
         ChartUtils.plotRatioVsROI("BackTest Ratio/ROI (Walk-Forward)", stats.getTradesComplete());
         ChartUtils.plotTPSLMagnitudeVsROI("BackTest Magnitud/ROI (Walk-Forward)", stats.getTradesComplete());
         ChartUtils.plot("BackTest Ratio (Walk-Forward)", "Trades", List.of(
-                new ChartUtils.DataPlot("Ratio", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::ratio).toList())
+                new ChartUtils.DataPlot("Ratio", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::getRatio).toList())
         ));
         ChartUtils.plot("BackTest Balance (Walk-Forward)", "Trades", List.of(
-                new ChartUtils.DataPlot("Balance", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::balance).toList())
+                new ChartUtils.DataPlot("Balance", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::getBalance).toList())
         ));
         ChartUtils.plot("BackTest ROI (Walk-Forward)", "Trades", List.of(
-                new ChartUtils.DataPlot("ROI%", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::pnlPercent).toList())
+                new ChartUtils.DataPlot("ROI%", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::getPnlPercent).toList())
         ));
+        ChartUtils.animateCandlePredictions(stats.getMarket().getSymbol(), stats.getMarket().getCandleSimples().stream().toList(), stats.getAllTrades(), BuilderData.DEFAULT_FUTURE_WINDOW, 200);
         ChartUtils.showCandleChartWithTrades("Trades", stats.getMarket().getCandleSimples().stream().toList(), stats.getMarket().getSymbol(), stats.getTradesComplete());
         double winRate = stats.getTotalTrades() > 0 ? (double) stats.getWins() / stats.getTotalTrades() * 100 : 0;
         double avgHoldMinutes = stats.getTotalTrades() > 0 ? (stats.getTotalHoldTimeMillis() / 1000.0 / 60.0) / stats.getTotalTrades() : 0;

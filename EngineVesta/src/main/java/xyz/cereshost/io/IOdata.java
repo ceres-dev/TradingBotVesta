@@ -3,6 +3,7 @@ package xyz.cereshost.io;
 import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.util.Pair;
+import com.google.gson.JsonIOException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.Main;
@@ -232,7 +233,7 @@ public class IOdata {
     /**
      * Cargar ambos normalizadores
      */
-    public static Pair<XNormalizer, YNormalizer> loadNormalizers() throws IOException {
+    public static Pair<XNormalizer, YNormalizer> loadNormalizers() throws IOException, JsonIOException, FileNotFoundException {
         XNormalizer xNorm = loadXNormalizer();
         YNormalizer yNorm = loadYNormalizer();
         return new Pair<>(xNorm, yNorm);
@@ -364,7 +365,15 @@ public class IOdata {
                 if (name.endsWith(".zip") || name.endsWith(".bin")) cacheFiles.add(path);
             }
         }
-        return new TrainingData(cacheFiles, cacheProperties.sizeData, cacheProperties.lookback, cacheProperties.features, cacheProperties.outputs);
+        TrainingData trainingData = new TrainingData(cacheFiles, cacheProperties.sizeData, cacheProperties.lookback, cacheProperties.features, cacheProperties.outputs);
+        try {
+            Pair<XNormalizer, YNormalizer> normalizer = loadNormalizers();
+            trainingData.setXNormalizer(normalizer.getKey());
+            trainingData.setYNormalizer(normalizer.getValue());
+        }catch (JsonIOException | FileNotFoundException ignore){
+            trainingData.prepareNormalize();
+        }
+        return trainingData;
     }
 
 

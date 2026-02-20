@@ -32,7 +32,6 @@ public class TradeSerializable implements SerializableBin<Trade>, SerializableCS
             out.writeInt(TRADE_BIN_MAGIC);
             out.writeInt(BIN_VERSION);
             for (Trade trade : trades) {
-                out.writeLong(trade.id());
                 out.writeLong(trade.time());
                 out.writeDouble(trade.price());
                 out.writeDouble(trade.qty());
@@ -54,12 +53,11 @@ public class TradeSerializable implements SerializableBin<Trade>, SerializableCS
         Deque<Trade> list = new ArrayDeque<>(250_000);
         while (true) {
             try {
-                long id = in.readLong();
                 long time = in.readLong();
                 double price = in.readDouble();
                 double qty = in.readDouble();
                 boolean isBuyerMaker = in.readBoolean();
-                list.add(new Trade(id, time, (float) price, (float) qty, isBuyerMaker));
+                list.add(new Trade(time, (float) price, (float) qty, isBuyerMaker));
             } catch (EOFException eof) {
                 break;
             }
@@ -91,7 +89,6 @@ public class TradeSerializable implements SerializableBin<Trade>, SerializableCS
         if (p5 == -1) p5 = line.length(); // Por si es la ultima columna
 
         return new Trade(
-                Long.parseLong(line.substring(0, p0)),             // id (col 0)
                 Long.parseLong(line.substring(p3 + 1, p4)),        // time (col 4)
                 Float.parseFloat(line.substring(p0 + 1, p1)),     // price (col 1)
                 Float.parseFloat(line.substring(p1 + 1, p2)),     // qty (col 2)

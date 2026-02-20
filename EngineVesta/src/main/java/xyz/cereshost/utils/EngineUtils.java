@@ -325,32 +325,25 @@ public class EngineUtils {
                     int targetIdx = i * targetCols;
                     int predIdx = i * predCols;
 
-                    // Extraer Target: output0 (magnitud total) y output2 (ratio)
-                    float rawRealMag = yTestFlat[targetIdx];
-                    float rawRealRatio = yTestFlat[targetIdx + 2];
+                    // Extraer Target: output0 (upMove) y output1 (downMove)
+                    float rawRealUp = yTestFlat[targetIdx];
+                    float rawRealDown = yTestFlat[targetIdx + 1];
 
                     // Extraer Prediccion
-                    float rawPredMag = yPredFlat[predIdx];
-                    float rawPredRatio = yPredFlat[predIdx + 2];
+                    float rawPredUp = yPredFlat[predIdx];
+                    float rawPredDown = yPredFlat[predIdx + 1];
 
-                    // 5. Desnormalizacion (solo output0)
-                    float[][] denormTarget = yNormalizer.inverseTransform(new float[][]{{rawRealMag, 0, 0, 0, 0}});
-                    float[][] denormPred = yNormalizer.inverseTransform(new float[][]{{rawPredMag, 0, 0, 0, 0}});
+                    // 5. Desnormalizacion (outputs 0 y 1)
+                    float[][] denormTarget = yNormalizer.inverseTransform(new float[][]{{rawRealUp, rawRealDown, 0, 0, 0}});
+                    float[][] denormPred = yNormalizer.inverseTransform(new float[][]{{rawPredUp, rawPredDown, 0, 0, 0}});
 
-                    float realTotal = Math.max(0f, denormTarget[0][0]);
-                    float predTotal = Math.max(0f, denormPred[0][0]);
-                    float realRatio = PredictionUtils.clampRatio(rawRealRatio);
-                    float predRatio = PredictionUtils.clampRatio(rawPredRatio);
+                    float realUp = Math.max(0f, denormTarget[0][0]);
+                    float realDown = Math.max(0f, denormTarget[0][1]);
+                    float predUp = Math.max(0f, denormPred[0][0]);
+                    float predDown = Math.max(0f, denormPred[0][1]);
 
-                    float[] realMoves = PredictionUtils.splitMoves(realTotal, realRatio);
-                    float[] predMoves = PredictionUtils.splitMoves(predTotal, predRatio);
-                    float realUp = realMoves[0];
-                    float realDown = realMoves[1];
-                    float predUp = predMoves[0];
-                    float predDown = predMoves[1];
-
-                    float rawRealDir = realRatio;
-                    float predDirection = predRatio;
+                    float rawRealDir = ratioFromMoves(realUp, realDown);
+                    float predDirection = ratioFromMoves(predUp, predDown);
 
                     // 6. Acumular metricas
                     totalMaeUP += Math.abs(realUp - predUp);
@@ -528,6 +521,13 @@ public class EngineUtils {
             }
         }
 
+    }
+
+    private static float ratioFromMoves(float upMove, float downMove) {
+        float maxMove = Math.max(upMove, downMove);
+        if (!Float.isFinite(maxMove) || maxMove <= 0f) return 0f;
+        float ratio = (upMove - downMove) / maxMove;
+        return PredictionUtils.clampRatio(ratio);
     }
 
     @Data

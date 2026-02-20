@@ -46,7 +46,5 @@ public record Candle(
         double bandwidth,
         double percentB,
 
-        double atr14,
-        double futureRange,
-        double futureRatio
+        double atr14
 ) {}

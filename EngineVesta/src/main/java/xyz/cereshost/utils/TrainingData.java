@@ -17,16 +17,17 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiFunction;
 
-@SuppressWarnings("DataFlowIssue")
+@SuppressWarnings({"DataFlowIssue", "UnusedAssignment"})
 @Getter
 @Setter
 public class TrainingData {
 
     private static final int INDEX_FOR_VALIDATION = 0;
     private static final int INDEX_FOR_TEST = 1;
-    private static final int SPLITS_PAIRS = 1;
+
 
     private final boolean loadInRam;
     private final int samplesSize;
@@ -128,32 +129,11 @@ public class TrainingData {
         }
     }
 
-
-    public Pair<float[][][], float[][]> getTrainNormalize(int max, int idx) {
-        if (loadInRam){
-            return EngineUtils.getSingleSplitWithLabels(trainNormalize.getKey(), trainNormalize.getValue(), max, idx % max);
-        }else {
-            List<Path> trainingList = files.subList(2, files.size());
-            if (trainingList.isEmpty()) {
-                throw new IllegalStateException("No hay data de entrenamiento para cargar.");
-            }
-            return getPairNormalizeFromDisk(trainingList.get(idx % trainingList.size()));
-        }
-    }
-
-    public Pair<float[][][], float[][]> getValNormalize() {
-        if (loadInRam){
-            return valNormalize;
-        }else {
-            return getPairNormalizeFromDisk(files.get(INDEX_FOR_VALIDATION));
-        }
-    }
-
     public Pair<float[][][], float[][]> getTestNormalize() {
         if (loadInRam){
             return testNormalize;
         }else {
-            return getPairNormalizeFromDisk(files.get(INDEX_FOR_TEST));
+            return EngineUtils.getSingleSplitWithLabels(getPairNormalizeFromDisk(files.get(INDEX_FOR_TEST)), splitParts, 0);
         }
     }
 
@@ -162,6 +142,7 @@ public class TrainingData {
         valNormalize = null;
         pair = null;
         pairsLoaded.clear();
+        splitQueue.clear();
     }
 
     public void closeAll(){
@@ -170,6 +151,7 @@ public class TrainingData {
         testNormalize = null;
         pair = null;
         pairsLoaded.clear();
+        splitQueue.clear();
     }
 
     private @NotNull Pair<float[][][], float[][]> getPairNormalizeFromDisk(@Nullable Path files) {
@@ -191,60 +173,55 @@ public class TrainingData {
         if (trainingList.isEmpty()) {
             throw new IllegalStateException("No hay data de entrenamiento para normalizar.");
         }
-        Vesta.info("ℹ️ Iniciando Normalización por cache");
-        int trainSamples = (int) getTrainSize();
-        float[][][] X_final = new float[trainSamples][lookback][features];
-        float[][] y_final = new float[trainSamples][yCols];
+        Vesta.info("Iniciando Normalizacion por cache (streaming)");
+        XNormalizer xNormalizer = new XNormalizer();
+        YNormalizer yNormalizer = new YNormalizer();
 
-        List<Future<TrainingChunk>> futures = new ArrayList<>();
+        AtomicInteger idx = new AtomicInteger();
+        Queue<CompletableFuture<Pair<float[][][], float[][]>>> pairFutures = new LinkedList<>();
+        for (Path path : trainingList) {
+            pairFutures.add(CompletableFuture.supplyAsync(() -> {
+                Pair<float[][][], float[][]> pair;
+                try {
+
+                    pair = IOdata.loadTrainingCache(path);
+                    EngineUtils.cleanNaNValues(pair.getKey());
+                    EngineUtils.cleanNaNValues(pair.getValue());
+
+                    idx.getAndIncrement();
+                    Vesta.info("(%d/%d) Datos cargado de disco", idx.get(), trainingList.size());
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+                return pair;
+            }, VestaEngine.EXECUTOR_READ_CACHE_BUILD));
+        }
 
         for (int i = 0; i < trainingList.size(); i++) {
-            final int index = i;
-            final Path path = trainingList.get(i);
-
-            futures.add(VestaEngine.EXECUTOR_AUXILIAR_BUILD.submit(() -> {
-                Pair<float[][][], float[][]> pair = IOdata.loadTrainingCache(path);
-                return new TrainingChunk(index, pair.getKey(), pair.getValue());
-            }));
-        }
-
-
-        List<TrainingChunk> chunks = new ArrayList<>();
-        for (Future<TrainingChunk> f : futures) {
+            CompletableFuture<Pair<float[][][], float[][]>> pair = pairFutures.poll();
             try {
-                TrainingChunk chunk = f.get();
-                chunks.add(chunk);
-                Vesta.info("📀 (%d/%d) Datos cargado de disco", chunk.index() +1, trainingList.size());
-            } catch (ExecutionException | InterruptedException e) {
-                throw new RuntimeException("Error cargando datos", e.getCause());
+                Pair<float[][][], float[][]> p = pair.get();
+
+                xNormalizer.partialFit(p.getKey());
+                yNormalizer.partialFit(p.getValue());
+
+                Arrays.fill(p.getKey(), null);
+                Arrays.fill(p.getValue(), null);
+                p = null;
+                pair = null;
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
             }
+
         }
 
-        chunks.sort(Comparator.comparingInt(c -> c.index));
-        Vesta.info("🔗 Copiando Arrays");
-        int currentIdx = 0;
-        for (TrainingChunk c : chunks) {
-            int len = c.x.length;
-            System.arraycopy(c.x, 0, X_final, currentIdx, len);
-            System.arraycopy(c.y, 0, y_final, currentIdx, len);
-            currentIdx += len;
-        }
-        if (currentIdx != trainSamples) {
-            X_final = Arrays.copyOf(X_final, currentIdx);
-            y_final = Arrays.copyOf(y_final, currentIdx);
-        }
-        Vesta.info("📦 Normalizando X");
-        XNormalizer xNormalizer = new XNormalizer();
-        EngineUtils.cleanNaNValues(X_final);
-        EngineUtils.cleanNaNValues(y_final);
-        xNormalizer.fit(X_final);
+        Vesta.info("Normalizando X (streaming)");
+        xNormalizer.finishFit();
         this.xNormalizer = xNormalizer;
-        Vesta.info("📦 Normalizando Y");
-        YNormalizer yNormalizer = new YNormalizer();
-        yNormalizer.fit(y_final);
+        Vesta.info("Normalizando Y (streaming)");
+        yNormalizer.finishFit();
         this.yNormalizer = yNormalizer;
-        ChartUtils.showTPSLDistribution("Distribución de los datos", y_final, "???");
-        Vesta.info("✅ Normalizando Terminada");
+        Vesta.info("Normalizando Terminada");
     }
 
     private record TrainingChunk(int index, float[][][] x, float[][] y) {}
@@ -272,18 +249,20 @@ public class TrainingData {
         }
     }
 
-    private int index = 0;
     private int maxLoaded = 1;
     private ArrayDeque<CompletableFuture<Pair<float[][][], float[][]>>> pairsLoaded = new ArrayDeque<>();
+    private ArrayDeque<Pair<float[][][], float[][]>> splitQueue = new ArrayDeque<>();
+    private int splitParts = 1;
     @Nullable
     private Random random = null;
     private AutoStopListener autoStopListener = null;
     private ModeData modeData = null;
 
-
-    public void preLoad(int amount, ModeData mode){
+    public void preLoad(int amount, ModeData mode, int splitParts){
         this.modeData = mode;
         maxLoaded = amount;
+        this.splitParts = Math.max(1, splitParts);
+        splitQueue.clear();
         if (Objects.requireNonNull(mode) == ModeData.RAMDOM) {
             this.random = new Random();
         }
@@ -298,25 +277,43 @@ public class TrainingData {
         }
     }
 
-    public Pair<float[][][], float[][]> nextData(){
+    private int indexValidation = 0;
+
+    public Pair<float[][][], float[][]> nextValidationData() {
+        if (loadInRam){
+            return valNormalize;
+        }else {
+            //indexValidation++;
+            if (valNormalize == null) valNormalize = getPairNormalizeFromDisk(files.get(INDEX_FOR_VALIDATION));
+            return EngineUtils.getSingleSplitWithLabels(valNormalize, splitParts, indexValidation % splitParts);
+        }
+    }
+
+    private int indexTrading = 0;
+
+    public Pair<float[][][], float[][]> nextTrainingData(){
         if (modeData == null){
             throw new IllegalStateException("ModeData is null");
         }
 
+        if (!splitQueue.isEmpty()) {
+            return splitQueue.pollFirst();
+        }
+
         switch (modeData){
-            case RAMDOM -> index = Math.abs(random.nextInt());
-            case SECUENCIAL -> index++;
+            case RAMDOM -> indexTrading = Math.abs(random.nextInt());
+            case SECUENCIAL -> indexTrading++;
         }
         Pair<float[][][], float[][]> result;
         if (loadInRam){
-            result = EngineUtils.getSingleSplitWithLabels(trainNormalize.getKey(), trainNormalize.getValue(), SPLITS_PAIRS, index % SPLITS_PAIRS);
+            result = EngineUtils.getSingleSplitWithLabels(trainNormalize.getKey(), trainNormalize.getValue(), splitParts, indexTrading % splitParts);
         }else {
             try {
                 result = pairsLoaded.pollFirst().get();
                 List<Path> trainingList = files.subList(2, files.size());
                 while (pairsLoaded.size() < maxLoaded) {
                     pairsLoaded.add(CompletableFuture.supplyAsync(() ->
-                            getPairNormalizeFromDisk(trainingList.get(index % trainingList.size())), VestaEngine.EXECUTOR_TRAINING)
+                            getPairNormalizeFromDisk(trainingList.get(indexTrading % trainingList.size())), VestaEngine.EXECUTOR_TRAINING)
                     );
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -324,7 +321,22 @@ public class TrainingData {
             }
         }
 
-        return result;
+        if (splitParts <= 1) {
+            return result;
+        }else {
+            List<Pair<float[][][], float[][]>> splits = new ArrayList<>(splitParts);
+            for (int i = 0; i < splitParts; i++) {
+                splits.add(EngineUtils.getSingleSplitWithLabels(result, splitParts, i));
+            }
+            if (modeData == ModeData.RAMDOM) {
+                if (random == null) {
+                    random = new Random();
+                }
+                Collections.shuffle(splits, random);
+            }
+            splitQueue.addAll(splits);
+            return splitQueue.pollFirst();
+        }
     }
 
     public static @NotNull BiFunction<long[], long[], float[][][]> getSlice3D(float[][][] xCombined) {
@@ -433,3 +445,5 @@ public class TrainingData {
     }
 
 }
+
+

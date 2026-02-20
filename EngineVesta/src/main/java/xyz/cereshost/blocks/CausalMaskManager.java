@@ -6,6 +6,7 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import org.jetbrains.annotations.NotNull;
+import xyz.cereshost.utils.EngineUtils;
 
 import java.util.Map;
 import java.util.Objects;
@@ -114,7 +115,7 @@ public final class CausalMaskManager {
                 NDArray mask4d = mask2d.expandDims(0).expandDims(0).toType(dtype, false);
 
                 // derived arrays
-                NDArray inv = mask4d.mul(-1f).add(1f);
+                NDArray inv = mask4d.mul(EngineUtils.floatToNDArray(-1f, mgr)).add(EngineUtils.floatToNDArray(1f, mgr));
                 NDArray neg = mgr.full(new Shape(1), -1e9f).toType(dtype, false);
 
                 // if there were old arrays, close them (safe because we hold write lock)

@@ -32,13 +32,14 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
 import static xyz.cereshost.engine.VestaEngine.LOOK_BACK;
 
 public class BuilderData {
 
-    public static final int DEFAULT_FUTURE_WINDOW = 3;
+    public static final int DEFAULT_FUTURE_WINDOW = 5;
 
     public static @NotNull TrainingData buildTrainingData(@NotNull List<String> symbols, int maxMonth, int offset) {
         List<PairCache> cacheEntries = new ArrayList<>();
@@ -96,17 +97,17 @@ public class BuilderData {
                             }
                             Vesta.info("(idx:%d) 📦 Exportando Pair (C:%d)", currentMonth, candlesThisMonth.size());
                             Pair<float[][][], float[][]> pair = BuilderData.build(candlesThisMonth, LOOK_BACK, futureWindow);
-                            float[][][] Xraw = addSymbolFeature(pair.getKey(), symbol);
-                            float[][] yraw = pair.getValue();
-                            if (Xraw.length == 0) {
+                            AtomicReference<float[][][]> Xraw = new AtomicReference<>(pair.getKey());
+                            AtomicReference<float[][]> yraw = new AtomicReference<>(pair.getValue());
+                            if (Xraw.get().length == 0) {
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
 
 
-                            int samples = Xraw.length;
-                            int seqLen = Xraw[0].length;
-                            int features = Xraw[0][0].length;
-                            int yCols = yraw[0].length;
+                            int samples = Xraw.get().length;
+                            int seqLen = Xraw.get()[0].length;
+                            int features = Xraw.get()[0][0].length;
+                            int yCols = yraw.get()[0].length;
                             if (maxMonth < 6) {
                                 candlesThisMonth.clear();
                             }
@@ -116,9 +117,13 @@ public class BuilderData {
                             MonthMarketCache cache = new MonthMarketCache(samples, seqLen, features, yCols, candlesThisMonth, true);
                             waitingCacheSave.add(CompletableFuture.supplyAsync(() -> {
                                 try {
-                                    Path path = IOdata.saveTrainingCache(IOdata.createTrainingCacheDir(), symbol, currentMonth, Xraw, yraw, false);
+                                    Path path = IOdata.saveTrainingCache(IOdata.createTrainingCacheDir(), symbol, currentMonth, Xraw.get(), yraw.get(), false);
                                     cache.setCacheFile(path);
                                 } catch (IOException ignored) {}
+                                Arrays.fill(Xraw.get(), null);
+                                Arrays.fill(yraw.get(), null);
+                                Xraw.set(null);
+                                yraw.set(null);
                                 return new Object();
                             }, VestaEngine.EXECUTOR_WRITE_CACHE_BUILD));
                             return cache;
@@ -256,7 +261,7 @@ public class BuilderData {
     }
 
     /**
-     * Construye tensores con features relativas y etiquetas [Max, Min, 0, 0, 0].
+     * Construye tensores con features relativas y etiquetas [upMove, downMove, 0, 0, 0].
      */
     @Contract("_, _, _ -> new")
     public static @NotNull Pair<float[][][], float[][]> build(@NotNull List<Candle> candles, int lookBack, int futureWindow) {
@@ -277,48 +282,28 @@ public class BuilderData {
             // 2. Definir punto de entrada (Cierre de la ultima vela del lookback)
             double entryPrice = candles.get(i + lookBack).close();
 
-            // --- ESCANEO DEL FUTURO (Max/Min por cuerpo y mecha) ---
+            // --- ESCANEO DEL FUTURO (Max/Min por mecha) ---
             double maxWick = -Double.MAX_VALUE;
             double minWick = Double.MAX_VALUE;
-            double maxBody = -Double.MAX_VALUE;
-            double minBody = Double.MAX_VALUE;
 
             for (int f = 1; f <= futureWindow; f++) {
                 Candle future = candles.get(i + lookBack + f);
 
-                double bodyHigh = Math.max(future.open(), future.close());
-                double bodyLow = Math.min(future.open(), future.close());
-
                 if (future.high() > maxWick) maxWick = future.high();
                 if (future.low() < minWick) minWick = future.low();
-                if (bodyHigh > maxBody) maxBody = bodyHigh;
-                if (bodyLow < minBody) minBody = bodyLow;
             }
 
             double upMove = Math.abs(maxWick - entryPrice);
             double downMove = Math.abs(entryPrice - minWick);
-            double maxValue;
-            double minValue;
-
-            if (upMove >= downMove) {
-                maxValue = maxBody;
-                minValue = minWick;
-            } else {
-                maxValue = maxWick;
-                minValue = minBody;
-            }
 
             // 3. ASIGNACION DE ETIQUETAS (Y):
-            // 1° output: longitud total entre máximos y mínimos (mechas), normalizada por entryPrice
-            double totalMove = upMove + downMove;
-            y[i][0] = (float) ((entryPrice > 0) ? Math.max(0.0, totalMove / entryPrice) : 0.0);
-            // 2° output: sin uso
-            y[i][1] = 0f;
-            // 3° output: proporción [-1,1] (positivo si domina el mínimo, negativo si domina el máximo)
-            double maxMove = Math.max(upMove, downMove);
-            double ratio = maxMove > 0 ? (downMove - upMove) / maxMove : 0.0;
-            y[i][2] = (float) -ratio; // Cuando es negativo es Short y si es positio es long
-            // 4° y 5° outputs: sin uso
+            // output 0: upMove (mecha) normalizada por entryPrice
+            y[i][0] = (float) ((entryPrice > 0) ? Math.max(0.0, upMove / entryPrice) : 0.0);
+            // output 1: downMove (mecha) normalizada por entryPrice
+            y[i][1] = (float) ((entryPrice > 0) ? Math.max(0.0, downMove / entryPrice) : 0.0);
+
+            // outputs 2..4: sin uso
+            y[i][2] = 0f;
             y[i][3] = 0f;
             y[i][4] = 0f;
         }
@@ -515,9 +500,7 @@ public class BuilderData {
                         facadeBand.lower().getValue(idx).doubleValue(),
                         facadeBand.bandwidth().getValue(idx).doubleValue(),
                         facadeBand.percentB().getValue(idx).doubleValue(),
-                        atr14.getValue(idx).doubleValue(),
-                        0.0,
-                        0.0
+                        atr14.getValue(idx).doubleValue()
                 ));
             } catch (IllegalArgumentException ignored) {
                 remove++;
@@ -526,77 +509,7 @@ public class BuilderData {
         }
         closes.clear();
         Vesta.info("Se elimino %d por dar resultado NA o Infinito", remove);
-
-        if (futureWindow <= 0 || candles.isEmpty()) {
-            return candles;
-        }
-
-        List<Candle> withFuture = new ArrayList<>(candles.size());
-        for (int i = 0; i < candles.size(); i++) {
-            Candle c = candles.get(i);
-
-            double futureRange = 0.0;
-            double futureRatio = 0.0;
-            if (i >= futureWindow) {
-                double entryPrice = c.close();
-                if (entryPrice > 0.0) {
-                    double maxWick = -Double.MAX_VALUE;
-                    double minWick = Double.MAX_VALUE;
-                    for (int f = i - futureWindow; f < i; f++) {
-                        Candle past = candles.get(f);
-                        if (past.high() > maxWick) maxWick = past.high();
-                        if (past.low() < minWick) minWick = past.low();
-                    }
-                    double upMove = Math.abs(maxWick - entryPrice);
-                    double downMove = Math.abs(entryPrice - minWick);
-                    double totalMove = upMove + downMove;
-                    futureRange = totalMove / entryPrice;
-                    double maxMove = Math.max(upMove, downMove);
-                    double ratio = maxMove > 0.0 ? (downMove - upMove) / maxMove : 0.0;
-                    futureRatio = -ratio; // positivo = long, negativo = short
-                }
-            }
-
-            withFuture.add(new Candle(
-                    c.openTime(),
-                    c.open(),
-                    c.high(),
-                    c.low(),
-                    c.close(),
-                    c.direccion(),
-                    c.amountTrades(),
-                    c.volumeBase(),
-                    c.quoteVolume(),
-                    c.buyQuoteVolume(),
-                    c.sellQuoteVolume(),
-                    c.volRatioToMean(),
-                    c.volZscore(),
-                    c.volPerAtr(),
-                    c.deltaUSDT(),
-                    c.buyRatio(),
-                    c.bidLiquidity(),
-                    c.askLiquidity(),
-                    c.depthImbalance(),
-                    c.midPrice(),
-                    c.spread(),
-                    c.rsi4(),
-                    c.rsi8(),
-                    c.rsi16(),
-                    c.macdVal(),
-                    c.macdSignal(),
-                    c.macdHist(),
-                    c.nvi(),
-                    c.upperBand(),
-                    c.middleBand(),
-                    c.lowerBand(),
-                    c.bandwidth(),
-                    c.percentB(),
-                    c.atr14(),
-                    futureRange,
-                    futureRatio
-            ));
-        }
-        return withFuture;
+        return candles;
     }
 
 
@@ -693,7 +606,7 @@ public class BuilderData {
 //        fList.add((float) (curr.spread() / curr.close()));
 
         // RSI
-        fList.add(safeDiv(curr.rsi4(), 100.0));
+//        fList.add(safeDiv(curr.rsi4(), 100.0));
         fList.add(safeDiv(curr.rsi8(), 100.0));
         fList.add(safeDiv(curr.rsi16(), 100.0));
 
@@ -759,14 +672,18 @@ public class BuilderData {
                 1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,
                 1,1,1, 1, 1, 1, 1,1,1,1,1,
-                        1, 1 ,1 ,1, 1, 0, 0),
+                        1, 1 ,1 ,1, 1),
                 new Candle(
                 1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,
                 1,1,1, 1, 1, 1,1,1,1,1,1, 1,
-                        1,1,1, 1, 0, 0)
-        ).length + 2; // más 2 por que tiene sumar el feature del símbolo en el que esta y todos los símbolos que puede estar
+                        1,1,1, 1)
+        ).length; // más 2 por que tiene sumar el feature del símbolo en el que esta y todos los símbolos que puede estar
     }
 
 }
+
+
+
+
 
