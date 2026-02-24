@@ -176,14 +176,6 @@ public class IOdata {
         return new Pair<>(X, y);
     }
 
-    public static void deleteTrainingCache(Path file) {
-        try {
-            Files.deleteIfExists(file);
-        } catch (IOException e) {
-            Vesta.info("No se pudo borrar cache temporal: " + file + " - " + e.getMessage());
-        }
-    }
-
 
 
     static {
@@ -374,6 +366,26 @@ public class IOdata {
             trainingData.prepareNormalize();
         }
         return trainingData;
+    }
+
+    public record ApiKeysBinance(String key, String secret){}
+
+    public static ApiKeysBinance loadApiKeysBinance() throws IOException {
+        Path path = Paths.get("apiKeys.properties");
+        if (Files.exists(path)){
+            Properties properties = new Properties();
+            properties.load(Files.newInputStream(path));
+            return new ApiKeysBinance(properties.getProperty("apiKey"), properties.getProperty("secret"));
+        }else {
+            Properties props = new Properties();
+            props.setProperty("apiKey", "");
+            props.setProperty("secret", "");
+
+            try (OutputStream os = Files.newOutputStream(path)) {
+                props.store(os, "apiKeys");
+            }
+            return new ApiKeysBinance("", "");
+        }
     }
 
 

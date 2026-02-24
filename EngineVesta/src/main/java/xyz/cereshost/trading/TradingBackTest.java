@@ -38,7 +38,10 @@ public class TradingBackTest implements Trading {
     public void open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
         // Lo minimo para invertir en Binance
         if (amountUSDT*leverage < 5)return;
-        OpenOperationBackTest o = new OpenOperationBackTest(backTestEngine.getCurrentPrice(), tpPercent, slPercent, direccion, amountUSDT, leverage);
+        double currentPrice = backTestEngine.getCurrentPrice();
+        // Simular el bin y el ask al comprar en mercado
+        double realPrice = direccion == DireccionOperation.LONG ? currentPrice + 0.0001 : currentPrice - 0.0001;
+        OpenOperationBackTest o = new OpenOperationBackTest(realPrice, tpPercent, slPercent, direccion, amountUSDT, leverage);
         o.setEntryTime(backTestEngine.getCurrentTime());
         lastOpenOperation.add(o);
         openOperations.put(o.getUuid() , o);

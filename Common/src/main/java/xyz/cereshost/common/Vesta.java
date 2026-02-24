@@ -40,4 +40,20 @@ public class Vesta {
     public static void error(String message) {
         LOGGER.error(message);
     }
+
+    public static void sendErrorException(String message, Exception exception) {
+        LOGGER.error(setFormatException(message, exception));
+    }
+
+    public static  void sendWaringException(String message, Exception exception) {
+        LOGGER.warn(setFormatException(message, exception));
+    }
+
+    private static String setFormatException(String message, Exception exception) {
+        StringBuilder builder = new StringBuilder();
+        for (StackTraceElement element : exception.getStackTrace()) {
+            builder.append(element.toString()).append("\n\t");
+        }
+        return String.format("%s [%s=%s] \n\t%s", message, exception.getClass().getSimpleName(), exception.getMessage(), builder);
+    }
 }

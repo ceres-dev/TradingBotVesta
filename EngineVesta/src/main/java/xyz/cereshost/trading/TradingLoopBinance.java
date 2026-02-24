@@ -1,7 +1,12 @@
-package xyz.cereshost;
+package xyz.cereshost.trading;
 
 import lombok.Getter;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.BinanceApi;
+import xyz.cereshost.DataSource;
 import xyz.cereshost.io.IOMarket;
+import xyz.cereshost.io.IOdata;
 import xyz.cereshost.utils.BuilderData;
 import xyz.cereshost.common.Vesta;
 import xyz.cereshost.common.market.Candle;
@@ -9,8 +14,6 @@ import xyz.cereshost.common.market.Market;
 import xyz.cereshost.engine.PredictionEngine;
 import xyz.cereshost.engine.VestaEngine;
 import xyz.cereshost.strategy.TradingStrategy;
-import xyz.cereshost.trading.Trading;
-import xyz.cereshost.trading.TradingBinance;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -29,7 +32,9 @@ public class TradingLoopBinance {
     private final String symbol;
     @Getter
     private final Executor executor = Executors.newFixedThreadPool(6);
+    @NotNull
     private final TradingBinance trading;
+    @Nullable
     private final PredictionEngine engine;
     @Getter
     private final TradingStrategy strategy;
@@ -40,14 +45,15 @@ public class TradingLoopBinance {
                 return t;
             });
 
-    public TradingLoopBinance(String symbol, PredictionEngine engine, TradingStrategy tradingStrategy) {
+    public TradingLoopBinance(String symbol, @Nullable PredictionEngine engine, TradingStrategy tradingStrategy) {
         this.symbol = symbol;
         this.engine = engine;
         this.strategy = tradingStrategy;
         try {
-
-//            BinanceApi binanceApi = new BinanceApi();
-            trading = new TradingBinance("", "", true, IOMarket.loadMarkets(DataSource.LOCAL_NETWORK_MINIMAL, symbol));
+            IOdata.ApiKeysBinance apiKeysBinance = IOdata.loadApiKeysBinance();
+            BinanceApi binanceApi = new BinanceApi(apiKeysBinance.key(), apiKeysBinance.secret(), true);
+            binanceApi.setExceptionHandler(this::stop);
+            trading = new TradingBinance(binanceApi, IOMarket.loadMarkets(DataSource.LOCAL_NETWORK_MINIMAL, symbol));
             trading.setTradingLoopBinance(this);
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
@@ -58,20 +64,19 @@ public class TradingLoopBinance {
 
     public void startCandleLoop() {
         WORKERS.submit(() -> {
-            while (Thread.currentThread().isInterrupted() && !isClose) {
+            while (!Thread.currentThread().isInterrupted() && !isClose) {
                 try {
                     long serverTime = getBinanceServerTime() + OFFSET;
-
                     long nextCandle = ((serverTime / CANDLE_MS) + 1) * CANDLE_MS;
-
                     long sleep = Math.abs(nextCandle - (serverTime));
+
                     Vesta.info("💤 Tiempo de espera: %.2fs", (float) sleep/1000);
-                    if (sleep > 0) {
-                        LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(sleep));
-                    }
+                    if (sleep > 0) LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(sleep));
                     long time = System.currentTimeMillis();
+
                     performTick();
-                    Vesta.info("🕑 Tiempo de procesamiento: %.2fss", (System.currentTimeMillis() - time));
+
+                    Vesta.info("🕑 Tiempo de procesamiento: %.2fss", (float) (System.currentTimeMillis() - time)/1000f);
                 } catch (Exception e) {
                     e.printStackTrace();
                     LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(1));
@@ -119,15 +124,19 @@ public class TradingLoopBinance {
 
         List<Candle> allCandles = BuilderData.to1mCandles(market.get());
         List<Candle> visible = allCandles.subList(VestaEngine.LOOK_BACK, allCandles.size() - 1);
-        PredictionEngine.PredictionResult result = engine.predictNextPriceDetail(visible, symbol);
+        PredictionEngine.PredictionResult result;
+        if (engine != null) {
+            result = engine.predictNextPriceDetail(visible, symbol);
+        }else {
+            result = null;
+        }
         trading.getOpens().forEach(Trading.OpenOperation::next);
         trading.updateState(symbol);
-        Candle visibleCandle = visible.get(visible.size() - 1);
         strategy.executeStrategy(result, visible, trading);
     }
 
     public void stop(Exception e){
-        e.printStackTrace();
+        Vesta.sendErrorException("Deteniendo Loop por: ", e);
         isClose = true;
     }
 }

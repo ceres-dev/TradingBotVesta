@@ -10,9 +10,9 @@ import java.util.List;
 public class GammaStrategy implements TradingStrategy {
 
     private static final int MAX_OPEN_CANDLES = 60;
-    private static final double RISK_REWARD = 4; // 2:1
-    private static final double MIN_SL_PCT = 0.2;
-    private static final double MAX_SL_PCT = 0.4;
+    private static final double RISK_REWARD = 2.6; // 2:1
+    private static final double MIN_SL_PCT = 0.3;
+    private static final double MAX_SL_PCT = 0.8;
 
 
     @Override
@@ -22,7 +22,10 @@ public class GammaStrategy implements TradingStrategy {
         }
 
 
-        if (operations.openSize() != 0) return;
+        if (operations.openSize() != 0) {
+            operations.log("Ya hay una operación abierta");
+            return;
+        }
         if (visibleCandles == null || visibleCandles.size() < 2) return;
 
         Candle prev = visibleCandles.get(visibleCandles.size() - 2);
@@ -30,6 +33,7 @@ public class GammaStrategy implements TradingStrategy {
 
         if (!isFinite(prev.macdVal()) || !isFinite(prev.macdSignal())
                 || !isFinite(curr.macdVal()) || !isFinite(curr.macdSignal())) {
+            operations.log("MACD dio infinito");
             return;
         }
 
@@ -42,23 +46,34 @@ public class GammaStrategy implements TradingStrategy {
 //        if (Math.abs(curr.macdVal()) < 0.00005 || Math.abs(curr.macdSignal()) < 0.00005) return;
         Trading.DireccionOperation dir = curr.macdVal() < 0 ? Trading.DireccionOperation.LONG : Trading.DireccionOperation.SHORT;
 
-        if (!crossUp && !crossDown) return;
-
-        double rsi8 = curr.rsi8();
-        double rsi16 = curr.rsi16();
-        if (!isFinite(rsi8) || !isFinite(rsi16)) {
+        if (!crossUp && !crossDown) {
+            operations.log("MACD no cumple con la condición para operar " + dir.name());
             return;
         }
 
-        boolean longSignal = /*rsi8 <= 15 &&*/ rsi16 <= 40;
-        boolean shortSignal = /*rsi8 >= 85 &&*/ rsi16 >= 60;
-        if (curr.superTrend() > 0) if (dir != Trading.DireccionOperation.LONG) return;
-        if (curr.superTrend() < 0) if (dir != Trading.DireccionOperation.SHORT) return;
+//        double rsi8 = curr.rsi8();
+//        double rsi16 = curr.rsi16();
+//        if (!isFinite(rsi8) || !isFinite(rsi16)) {
+//            return;
+//        }
+
+//        boolean longSignal = /*rsi8 <= 15 &&*/ rsi16 <= 40;
+//        boolean shortSignal = /*rsi8 >= 85 &&*/ rsi16 >= 60;
+        if (curr.superTrend() > 0) if (dir != Trading.DireccionOperation.LONG) {
+            operations.log("El SuperTrend cancela Long");
+            return;
+        }
+        if (curr.superTrend() < 0) if (dir != Trading.DireccionOperation.SHORT) {
+            operations.log("El SuperTrend cancela Short");
+            return;
+        }
 //        if (longSignal) if (dir != Trading.DireccionOperation.LONG) return;
 //        if (shortSignal) if (dir != Trading.DireccionOperation.SHORT) return; && tpPercent > 0.4
 
-        if (operations.openSize() == 0 && (tpPercent < 0.9)) {
-            operations.open(tpPercent, slPercent, dir, operations.getAvailableBalance()/2, 1);
+        if (tpPercent < 1.6) {
+            operations.open(tpPercent, slPercent, dir, operations.getAvailableBalance()/2, 4);
+        }else {
+            operations.log("Supero maximo TP");
         }
     }
 

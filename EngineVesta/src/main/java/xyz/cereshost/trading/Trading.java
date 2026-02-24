@@ -20,11 +20,13 @@ public interface Trading {
 
     int openSize();
 
+    default boolean hasOpenOperation() {
+        return openSize() > 0;
+    }
+
     @NotNull List<OpenOperation> getOpens();
 
     @NotNull List<CloseOperation> getCloses();
-        // Sincronizar estado con el mercado (API o Simulación)
-    void updateState(String symbol);
 
     Market getMarket();
 
@@ -84,6 +86,10 @@ public interface Trading {
         public double getTpPrice() {
             return entryPrice + (entryPrice * ((direccion.equals(SHORT) ? -tpPercent : tpPercent)*0.01));
         }
+
+        /**
+         * Suma 1+ a la cantidad de velas que lleva abierto la operación
+         */
 
         public void next() {
             countCandles++;

@@ -1,26 +1,28 @@
 package xyz.cereshost;
 
-import ai.djl.translate.TranslateException;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.common.Vesta;
 import xyz.cereshost.common.market.Market;
 import xyz.cereshost.engine.BackTestEngine;
+import xyz.cereshost.engine.VestaEngine;
 import xyz.cereshost.io.IOMarket;
-import xyz.cereshost.strategy.AlfaStrategy;
+import xyz.cereshost.packet.PacketHandler;
 import xyz.cereshost.strategy.GammaStrategy;
+import xyz.cereshost.trading.Trading;
+import xyz.cereshost.trading.TradingLoopBinance;
 import xyz.cereshost.utils.BuilderData;
 import xyz.cereshost.utils.ChartUtils;
 import xyz.cereshost.utils.EngineUtils;
 import xyz.cereshost.utils.ModelDiagnostics;
-import xyz.cereshost.engine.PredictionEngine;
-import xyz.cereshost.engine.VestaEngine;
-import xyz.cereshost.packet.PacketHandler;
-import xyz.cereshost.trading.Trading;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.*;
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
@@ -38,7 +40,7 @@ public class Main {
     @Getter
     private static Main instance;
 
-    public static void main(String[] args) throws IOException, TranslateException, InterruptedException, ExecutionException {
+    public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
         instance = new Main();
 //        System.setProperty("java.awt.headless","true");
         new PacketHandler();
@@ -99,7 +101,7 @@ public class Main {
             case "backtest" -> {
                 Market market = new Market("XRPUSDC");
                 List<CompletableFuture<Market>> task = new ArrayList<>();
-                for (int day = 365; day >= 1; day--) {
+                for (int day = 600; day >= 365; day--) {
                     int finalDay = day;
                     task.add(CompletableFuture.supplyAsync(() -> {
                         try {
@@ -120,7 +122,7 @@ public class Main {
 //                }
 //                Vesta.info(roiMap.toString());
             }
-            case "trading" -> new TradingLoopBinance(SYMBOL, PredictionEngine.loadPredictionEngine("VestaIA"), new AlfaStrategy()).startCandleLoop();
+            case "trading" -> new TradingLoopBinance("XRPUSDC", null, new GammaStrategy()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
             case "diagnose" -> ModelDiagnostics.run();
         }
@@ -146,6 +148,8 @@ public class Main {
         double winRate = stats.getTotalTrades() > 0 ? (double) stats.getWins() / stats.getTotalTrades() * 100 : 0;
         double avgHoldMinutes = stats.getTotalTrades() > 0 ? (stats.getTotalHoldTimeMillis() / 1000.0 / 60.0) / stats.getTotalTrades() : 0;
 
+        DecimalFormat decimalFormat = new DecimalFormat("###,###,###,###,##0.00");
+
         Vesta.info("--------------------------------------------------");
         Vesta.info("💰 SIMULACIÓN DE TRADING (Capital: $%.0f)", backtestResult.initialBalance());
         Vesta.info(" Trades Totales:          %d",  stats.getTotalTrades());
@@ -158,8 +162,8 @@ public class Main {
         Vesta.info("  ROI TP (Min)            %.2f%% L %.2f%% S", stats.getRoiTPMinLong(), stats.getRoiTPMinShort());
         Vesta.info("  DireRate:               (%d %.2f%% L, %d %.2f%% S, %d N)", stats.getLongs(), stats.getRoiLong(), stats.getShorts(), stats.getRoiShort(), stats.getNothing());
         Vesta.info("  Avg Hold Time:          %.3f min", avgHoldMinutes);
-        Vesta.info("  PNL Neto:               %s$%.2f%s", backtestResult.netPnL() >= 0 ? "\u001B[32m" : "\u001B[31m", backtestResult.netPnL(), "\u001B[0m");
-        Vesta.info("  ROI Total:              %s%.2f%%%s", backtestResult.roiPercent() >= 0 ? "\u001B[32m" : "\u001B[31m", backtestResult.roiPercent(), "\u001B[0m");
+        Vesta.info("  PNL Neto:               %s$%s%s", backtestResult.netPnL() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(backtestResult.netPnL()), "\u001B[0m");
+        Vesta.info("  ROI Total:              %s%s%%%s", backtestResult.roiPercent() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(backtestResult.roiPercent()), "\u001B[0m");
         Vesta.info("  Max Drawdown:           %.2f%%", backtestResult.maxDrawdown()*100);
         Vesta.info("--------------------------------------------------");
 

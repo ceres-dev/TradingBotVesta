@@ -123,7 +123,7 @@ public class IOMarket {
                 market.addCandles(deque);
                 market.addTrade(trades);
                 marketFinal.set(market);
-                Vesta.info("✅ Datos procesado de binance del mercado: %s (%.2fss)", s, (float) (System.currentTimeMillis() - timeTotal) / 1000);
+                Vesta.info("✅ Datos procesado de binance del mercado: %s (%.2fs)", s, (float) (System.currentTimeMillis() - timeTotal) / 1000);
                 latch.countDown();
             }
             case LOCAL_ZIP -> {

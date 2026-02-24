@@ -2,37 +2,38 @@ package xyz.cereshost.engine;
 
 import ai.djl.Device;
 import ai.djl.Model;
-import ai.djl.basicmodelzoo.basic.Mlp;
 import ai.djl.engine.Engine;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDArrays;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.Shape;
-import ai.djl.nn.*;
+import ai.djl.nn.LambdaBlock;
+import ai.djl.nn.ParallelBlock;
+import ai.djl.nn.Parameter;
+import ai.djl.nn.SequentialBlock;
 import ai.djl.nn.core.Linear;
-import ai.djl.nn.norm.BatchNorm;
-import ai.djl.nn.norm.Dropout;
-import ai.djl.nn.transformer.TransformerEncoderBlock;
 import ai.djl.pytorch.engine.PtModel;
 import ai.djl.pytorch.engine.PtNDManager;
 import ai.djl.pytorch.jni.JniUtils;
-import ai.djl.training.*;
+import ai.djl.training.DefaultTrainingConfig;
+import ai.djl.training.EasyTrain;
+import ai.djl.training.Trainer;
+import ai.djl.training.TrainingConfig;
 import ai.djl.training.dataset.ArrayDataset;
 import ai.djl.training.initializer.Initializer;
-import ai.djl.training.listener.*;
+import ai.djl.training.listener.EpochTrainingListener;
+import ai.djl.training.listener.EvaluatorTrainingListener;
+import ai.djl.training.listener.LoggingTrainingListener;
 import ai.djl.training.optimizer.Optimizer;
 import ai.djl.training.tracker.Tracker;
-import ai.djl.translate.TranslateException;
 import ai.djl.util.Pair;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.Main;
-import xyz.cereshost.blocks.SoftPlusLogBlock;
 import xyz.cereshost.blocks.TemporalTransformerBlock;
 import xyz.cereshost.common.Vesta;
-import xyz.cereshost.common.market.Candle;
 import xyz.cereshost.common.market.Market;
 import xyz.cereshost.io.IOMarket;
 import xyz.cereshost.io.IOdata;
@@ -40,11 +41,13 @@ import xyz.cereshost.metrics.MAEEvaluator;
 import xyz.cereshost.metrics.MaxDiffEvaluator;
 import xyz.cereshost.metrics.MetricsListener;
 import xyz.cereshost.metrics.MinDiffEvaluator;
-import xyz.cereshost.strategy.BetaStrategy;
-import xyz.cereshost.utils.*;
+import xyz.cereshost.utils.BuilderData;
+import xyz.cereshost.utils.EngineUtils;
+import xyz.cereshost.utils.TrainingData;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -72,7 +75,7 @@ public class VestaEngine {
      * Entrena un modelo con múltiples símbolos combinados
      */
     @SuppressWarnings("UnusedAssignment")
-    public static @NotNull TrainingTestsResults trainingModel(@NotNull List<String> symbols) throws TranslateException, IOException, InterruptedException, ExecutionException {
+    public static @NotNull TrainingTestsResults trainingModel(@NotNull List<String> symbols) throws IOException, InterruptedException, ExecutionException {
         Engine torch = Engine.getEngine("PyTorch");
         JniUtils.setGraphExecutorOptimize(false);
 
@@ -177,37 +180,41 @@ public class VestaEngine {
             ChunkDataset sampleVal = computeDataset(data.nextValidationData(), 256, managerTraining);
 
 
-            for (int epoch = 0; epoch < EPOCH; epoch++) {
-                for (int idx = 0; idx < maxMonthTraining; idx++) {
-                    CompletableFuture<ChunkDataset> sampleTrainingNext = CompletableFuture.supplyAsync(() ->
-                            computeDataset(data.nextTrainingData(), batchSize, managerTraining), EXECUTOR_AUXILIAR_BUILD);
-                    CompletableFuture<ChunkDataset> sampleValNext = CompletableFuture.supplyAsync(() ->
-                            computeDataset(data.nextValidationData(), batchSize, managerTraining), EXECUTOR_AUXILIAR_BUILD);
-                    System.out.println(sampleTraining.dataset.size());
+            try{
+                for (int epoch = 0; epoch < EPOCH; epoch++) {
+                    for (int idx = 0; idx < maxMonthTraining; idx++) {
+                        CompletableFuture<ChunkDataset> sampleTrainingNext = CompletableFuture.supplyAsync(() ->
+                                computeDataset(data.nextTrainingData(), batchSize, managerTraining), EXECUTOR_AUXILIAR_BUILD);
+                        CompletableFuture<ChunkDataset> sampleValNext = CompletableFuture.supplyAsync(() ->
+                                computeDataset(data.nextValidationData(), batchSize, managerTraining), EXECUTOR_AUXILIAR_BUILD);
+                        System.out.println(sampleTraining.dataset.size());
 //                    roiBackTest = (float) new BackTestEngine(market, predEngine, new BetaStrategy()).run(allCandles).roiPercent();
 
-                    EasyTrain.fit(trainer, AUXILIAR_EPOCH, sampleTraining.dataset(), sampleVal.dataset());
-                    NDArray xT = sampleTraining.x();
-                    NDArray yT = sampleTraining.y();
-                    NDArray xV = sampleVal.x();
-                    NDArray yV = sampleVal.y();
+                        EasyTrain.fit(trainer, AUXILIAR_EPOCH, sampleTraining.dataset(), sampleVal.dataset());
+                        NDArray xT = sampleTraining.x();
+                        NDArray yT = sampleTraining.y();
+                        NDArray xV = sampleVal.x();
+                        NDArray yV = sampleVal.y();
 
-                    EXECUTOR_TRAINING.submit(() -> {
-                        xT.close();
-                        yT.close();
-                        xV.close();
-                        yV.close();
-                        EngineUtils.clearCacheFloats();
-                    });
-                    if(!sampleTrainingNext.isDone() || !sampleValNext.isDone()) Vesta.warning("Mes no listo procesando...");
-                    sampleTraining = sampleTrainingNext.get();
-                    sampleTrainingNext = null;
-                    sampleVal = sampleValNext.get();
-                    sampleValNext = null;
+                        EXECUTOR_TRAINING.submit(() -> {
+                            xT.close();
+                            yT.close();
+                            xV.close();
+                            yV.close();
+                            EngineUtils.clearCacheFloats();
+                        });
+                        if(!sampleTrainingNext.isDone() || !sampleValNext.isDone()) Vesta.warning("Mes no listo procesando...");
+                        sampleTraining = sampleTrainingNext.get();
+                        sampleTrainingNext = null;
+                        sampleVal = sampleValNext.get();
+                        sampleValNext = null;
+                        if (stop) break;
+                        //sampleVal = sampleValNext.get();
+                    }
                     if (stop) break;
-                    //sampleVal = sampleValNext.get();
                 }
-                if (stop) break;
+            }catch (Exception e){
+                e.printStackTrace();
             }
             stop = true;
             managerTraining.close();

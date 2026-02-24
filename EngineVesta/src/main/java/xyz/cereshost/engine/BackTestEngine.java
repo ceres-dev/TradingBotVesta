@@ -28,7 +28,7 @@ public class BackTestEngine {
     @NotNull private final Market market;
     @NotNull private final TradingStrategy strategy;
     @Nullable private final PredictionEngine engine;
-    private double balance = 1000.0;
+    private double balance = 5.0;
     private double currentPrice;
     private long currentTime;
 
@@ -192,12 +192,14 @@ public class BackTestEngine {
 
         List<Trade> trades = market.getTradesInWindow(candle.openTime(), endTime);
         if (trades.isEmpty()) {
+            currentPrice = candle.close();
+            currentTime = candle.openTime();
             return;
         }
 
         if (operations.getOpens().isEmpty()) {
             currentPrice = candle.close();
-            currentTime = trades.get(trades.size() -1).time();
+            currentTime = trades.getLast().time();
         }else {
 
             for (Trading.OpenOperation openOperation : operations.getOpens()) {
@@ -210,24 +212,24 @@ public class BackTestEngine {
                     boolean computeLimit = false;
                     switch (openOperation.getDireccion()) {
                         case LONG -> {
-                            if (price >= openOperation.getTpPrice()) {
+                            if (price > openOperation.getTpPrice()) {
                                 operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.LONG_TAKE_PROFIT, openOperation.getUuid()));
                                 computeLimit = true;
                                 break;
 
                             }
-                            if (price <= openOperation.getSlPrice()) {
+                            if (price < openOperation.getSlPrice()) {
                                 operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.LONG_STOP_LOSS, openOperation.getUuid()));
                                 computeLimit = true;
                             }
                         }
                         case SHORT -> {
-                            if (price <= openOperation.getTpPrice()) {
+                            if (price < openOperation.getTpPrice()) {
                                 operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.SHORT_TAKE_PROFIT, openOperation.getUuid()));
                                 computeLimit = true;
                                 break;
                             }
-                            if (price >= openOperation.getSlPrice()) {
+                            if (price > openOperation.getSlPrice()) {
                                 operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.SHORT_STOP_LOSS, openOperation.getUuid()));
                                 computeLimit = true;
                             }
