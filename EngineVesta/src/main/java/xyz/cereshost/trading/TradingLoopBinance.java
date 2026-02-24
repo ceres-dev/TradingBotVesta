@@ -3,7 +3,7 @@ package xyz.cereshost.trading;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.BinanceApi;
+import xyz.cereshost.BinanceApiRest;
 import xyz.cereshost.DataSource;
 import xyz.cereshost.io.IOMarket;
 import xyz.cereshost.io.IOdata;
@@ -51,9 +51,9 @@ public class TradingLoopBinance {
         this.strategy = tradingStrategy;
         try {
             IOdata.ApiKeysBinance apiKeysBinance = IOdata.loadApiKeysBinance();
-            BinanceApi binanceApi = new BinanceApi(apiKeysBinance.key(), apiKeysBinance.secret(), true);
-            binanceApi.setExceptionHandler(this::stop);
-            trading = new TradingBinance(binanceApi, IOMarket.loadMarkets(DataSource.LOCAL_NETWORK_MINIMAL, symbol));
+            BinanceApiRest binanceApiRest = new BinanceApiRest(apiKeysBinance.key(), apiKeysBinance.secret(), true);
+            binanceApiRest.setExceptionHandler(this::stop);
+            trading = new TradingBinance(binanceApiRest, IOMarket.loadMarkets(DataSource.LOCAL_NETWORK_MINIMAL, symbol));
             trading.setTradingLoopBinance(this);
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);

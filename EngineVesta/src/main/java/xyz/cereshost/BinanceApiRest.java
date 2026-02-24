@@ -12,7 +12,6 @@ import xyz.cereshost.exception.BinanceApiSignedRequestException;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -25,7 +24,7 @@ import java.util.function.Consumer;
 
 @Getter
 @Setter
-public final class BinanceApi {
+public final class BinanceApiRest {
 
     private final String apiKey;
     private final String secretKey;
@@ -36,7 +35,7 @@ public final class BinanceApi {
     @NotNull
     private Consumer<Exception> exceptionHandler = e -> {};
 
-    public BinanceApi(String apiKey, String secretKey, boolean isTestNet) {
+    public BinanceApiRest(String apiKey, String secretKey, boolean isTestNet) {
         this.apiKey = apiKey;
         this.secretKey = secretKey;
         this.baseUrl = isTestNet ? "https://testnet.binancefuture.com" : "https://fapi.binance.com";

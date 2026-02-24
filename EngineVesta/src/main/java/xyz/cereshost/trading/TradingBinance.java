@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.BinanceApi;
+import xyz.cereshost.BinanceApiRest;
 import xyz.cereshost.common.Vesta;
 import xyz.cereshost.common.market.Market;
 
@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class TradingBinance implements Trading {
 
-    private final BinanceApi binanceApi;
+    private final BinanceApiRest binanceApiRest;
     private int lastLeverage = 1;
     private double lastBalance = 0;
     @Setter
@@ -26,8 +26,8 @@ public class TradingBinance implements Trading {
     private final List<CloseOperation> closedOperations = Collections.synchronizedList(new ArrayList<>());
     private final Market market;
 
-    public TradingBinance(BinanceApi binanceApi, Market market) {
-        this.binanceApi = binanceApi;
+    public TradingBinance(BinanceApiRest binanceApiRest, Market market) {
+        this.binanceApiRest = binanceApiRest;
         this.market = market;
     }
 
@@ -40,7 +40,7 @@ public class TradingBinance implements Trading {
             tradingLoopBinance.getExecutor().execute(() -> {
                 if (lastLeverage != leverage) {
                     try {
-                        binanceApi.changeLeverage(symbol, leverage);
+                        binanceApiRest.changeLeverage(symbol, leverage);
                     } catch (Exception e) {
                         tradingLoopBinance.stop(e);
                     }
@@ -66,7 +66,7 @@ public class TradingBinance implements Trading {
             AtomicReference<Double> currentPrice = new AtomicReference<>(0d);
             tradingLoopBinance.getExecutor().execute(() -> {
                 try {
-                    currentPrice.set(binanceApi.getTickerPrice(symbol));
+                    currentPrice.set(binanceApiRest.getTickerPrice(symbol));
                 } catch (Exception e) {
                     tradingLoopBinance.stop(e);
                 }
@@ -74,7 +74,7 @@ public class TradingBinance implements Trading {
             });
             latch.await();
             double quantity = (safeAmountUSDT.get() * leverage) / currentPrice.get();
-            String qtyStr = binanceApi.formatQuantity(symbol, quantity);
+            String qtyStr = binanceApiRest.formatQuantity(symbol, quantity);
 
             if (Double.parseDouble(qtyStr) <= 0) {
                 Vesta.error("La cantidad calculada es 0. Revisa el balance o apalancamiento.");
@@ -96,7 +96,7 @@ public class TradingBinance implements Trading {
             double slPrice = op.getSlPrice();
 
             String side = (direccion == DireccionOperation.LONG) ? "BUY" : "SELL";
-            long entryOrderId = binanceApi.placeOrder(symbol, side, "MARKET", qtyStr, null, false, false);
+            long entryOrderId = binanceApiRest.placeOrder(symbol, side, "MARKET", qtyStr, null, false, false);
             op.setEntryBinanceId(entryOrderId);
 
             String closeSide = (side.equals("BUY")) ? "SELL" : "BUY";
@@ -104,7 +104,7 @@ public class TradingBinance implements Trading {
             tradingLoopBinance.getExecutor().execute(() ->{
                 long slOrderId = 0;
                 try {
-                    slOrderId = binanceApi.placeAlgoOrder(symbol, closeSide, "STOP_MARKET", null, slPrice, true, true);
+                    slOrderId = binanceApiRest.placeAlgoOrder(symbol, closeSide, "STOP_MARKET", null, slPrice, true, true);
                 } catch (Exception e) {
                     tradingLoopBinance.stop(e);
                 }
@@ -115,7 +115,7 @@ public class TradingBinance implements Trading {
             tradingLoopBinance.getExecutor().execute(() -> {
                 long tpOrderId = 0;
                 try {
-                    tpOrderId = binanceApi.placeAlgoOrder(symbol, closeSide, "TAKE_PROFIT_MARKET", null, tpPrice, true, true);
+                    tpOrderId = binanceApiRest.placeAlgoOrder(symbol, closeSide, "TAKE_PROFIT_MARKET", null, tpPrice, true, true);
                 } catch (Exception e) {
                     tradingLoopBinance.stop(e);
                 }
@@ -130,7 +130,6 @@ public class TradingBinance implements Trading {
         }
     }
 
-    // --- Modificación en el método close ---
     @Override
     public void close(ExitReason reason, UUID uuidOpenOperation) {
         BinanceOpenOperation op = activeOperations.get(uuidOpenOperation);
@@ -143,11 +142,11 @@ public class TradingBinance implements Trading {
 
             // 1. Cancelar SL y TP pendientes
             tradingLoopBinance.getExecutor().execute(() -> {
-                binanceApi.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
+                binanceApiRest.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
                 latch.countDown();
             });
             tradingLoopBinance.getExecutor().execute(() -> {
-                binanceApi.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
+                binanceApiRest.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
                 latch.countDown();
             });
             latch.await();
@@ -156,18 +155,18 @@ public class TradingBinance implements Trading {
             String closeSide = (op.getDireccion() == DireccionOperation.LONG) ? "SELL" : "BUY";
 
             double quantity = (op.getAmountInitUSDT() * op.getLeverage()) / op.getEntryPrice();
-            String qtyStr = binanceApi.formatQuantity(symbol, quantity);
+            String qtyStr = binanceApiRest.formatQuantity(symbol, quantity);
 
             tradingLoopBinance.getExecutor().execute(() -> {
                 try {
-                    binanceApi.placeOrder(symbol, closeSide, "MARKET", qtyStr, null, true, false);
+                    binanceApiRest.placeOrder(symbol, closeSide, "MARKET", qtyStr, null, true, false);
                 } catch (Exception e) {
                     tradingLoopBinance.stop(e);
                 }
             });
 
             // 3. Registrar cierre
-            double exitPrice = binanceApi.getTickerPrice(symbol);
+            double exitPrice = binanceApiRest.getTickerPrice(symbol);
             CloseOperation closeOp = new BinanceCloseOperation(
                     exitPrice, System.currentTimeMillis(), op.getEntryTime(), reason, op.getUuid()
             );
@@ -177,60 +176,6 @@ public class TradingBinance implements Trading {
 
         } catch (Exception e) {
             Vesta.error("Binance Error Close: " + e.getMessage());
-        }
-    }
-
-    private BinanceCloseOperation recordClose(@NotNull BinanceOpenOperation op, @NotNull ExitReason reason) {
-        // En un caso real, obtendríamos el precio real de ejecución de la orden
-        double estimatedExit = (reason.toString().contains("STOP")) ? op.getSlPrice() : op.getTpPrice();
-
-        BinanceCloseOperation closeOp = new BinanceCloseOperation(
-                estimatedExit,
-                System.currentTimeMillis(),
-                op.getEntryTime(),
-                reason,
-                op.getUuid()
-        );
-        closedOperations.add(closeOp);
-        return closeOp;
-    }
-
-    public void updateState(String symbol) {
-        Iterator<Map.Entry<UUID, BinanceOpenOperation>> it = activeOperations.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<UUID, BinanceOpenOperation> entry = it.next();
-            BinanceOpenOperation op = entry.getValue();
-            tradingLoopBinance.getExecutor().execute(() -> {
-                try {
-                    // Verificar estado del SL
-                    if (binanceApi.checkOrderFilled(symbol, op.getSlBinanceId(), op.isSlIsAlgo())) {
-                        Vesta.info("Binance: SL detectado ejecutado para " + op.getUuid());
-                        // Cancelar el TP restante
-                        binanceApi.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
-                        // Registrar cierre
-                        var close = recordClose(op, op.getDireccion() == DireccionOperation.LONG ?
-                                ExitReason.LONG_STOP_LOSS : ExitReason.SHORT_STOP_LOSS);
-                        it.remove();
-                        tradingLoopBinance.getStrategy().closeOperation(close);
-                        return;
-                    }
-
-                    // Verificar estado del TP
-                    if (binanceApi.checkOrderFilled(symbol, op.getTpBinanceId(), op.isTpIsAlgo())) {
-                        Vesta.info("Binance: TP detectado ejecutado para " + op.getUuid());
-                        // Cancelar el SL restante
-                        binanceApi.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
-                        // Registrar cierre
-                        var close = recordClose(op, op.getDireccion() == DireccionOperation.LONG ?
-                                ExitReason.LONG_TAKE_PROFIT : ExitReason.SHORT_TAKE_PROFIT);
-                        tradingLoopBinance.getStrategy().closeOperation(close);
-                        it.remove();
-                    }
-
-                } catch (Exception e) {
-                    Vesta.error("Error updating state: " + e.getMessage());
-                }
-            });
         }
     }
 
@@ -265,7 +210,7 @@ public class TradingBinance implements Trading {
             return lastBalance;
         }
         // 1. Consultar cuenta (v3 devuelve el objeto con el campo 'assets')
-        JsonNode root = binanceApi.sendSignedRequest("GET", "/fapi/v3/account", new TreeMap<>());
+        JsonNode root = binanceApiRest.sendSignedRequest("GET", "/fapi/v3/account", new TreeMap<>());
         // 2. Determinar qué moneda base estamos usando (USDT o USDC)
         // Si el símbolo es "BNBUSDC", buscamos "USDC". Si es "BNBUSDT", buscamos "USDT".
         String symbol = getMarket().getSymbol();
@@ -308,7 +253,7 @@ public class TradingBinance implements Trading {
         // 1. Obtener posiciones actuales
         TreeMap<String, String> params = new TreeMap<>();
         params.put("symbol", symbol);
-        JsonNode positions = binanceApi.sendSignedRequest("GET", "/fapi/v2/positionRisk", params);
+        JsonNode positions = binanceApiRest.sendSignedRequest("GET", "/fapi/v2/positionRisk", params);
         // Si no hay posición abierta pero tenemos operaciones activas, limpiar
         if (positions.isArray() && positions.isEmpty() && !activeOperations.isEmpty()) {
             Vesta.warning("No hay posición en Binance pero tenemos operaciones activas. Limpiando...");
@@ -330,6 +275,47 @@ public class TradingBinance implements Trading {
         }
     }
 
+    public void updateState(String symbol) {
+        Iterator<Map.Entry<UUID, BinanceOpenOperation>> it = activeOperations.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, BinanceOpenOperation> entry = it.next();
+            BinanceOpenOperation op = entry.getValue();
+            tradingLoopBinance.getExecutor().execute(() -> {
+                try {
+                    // Verificar estado del SL
+                    if (binanceApiRest.checkOrderFilled(symbol, op.getSlBinanceId(), op.isSlIsAlgo())) {
+                        Vesta.info("Binance: SL detectado ejecutado para " + op.getUuid());
+                        // Cancelar el TP restante
+                        binanceApiRest.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
+                        // Registrar cierre
+                        var close = new BinanceCloseOperation(op, op.getDireccion() == DireccionOperation.LONG ?
+                                ExitReason.LONG_STOP_LOSS : ExitReason.SHORT_STOP_LOSS);
+                        closedOperations.add(close);
+                        it.remove();
+                        tradingLoopBinance.getStrategy().closeOperation(close);
+                        return;
+                    }
+
+                    // Verificar estado del TP
+                    if (binanceApiRest.checkOrderFilled(symbol, op.getTpBinanceId(), op.isTpIsAlgo())) {
+                        Vesta.info("Binance: TP detectado ejecutado para " + op.getUuid());
+                        // Cancelar el SL restante
+                        binanceApiRest.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
+                        // Registrar cierre
+                        var close = new BinanceCloseOperation(op, op.getDireccion() == DireccionOperation.LONG ?
+                                ExitReason.LONG_TAKE_PROFIT : ExitReason.SHORT_TAKE_PROFIT);
+                        closedOperations.add(close);
+                        tradingLoopBinance.getStrategy().closeOperation(close);
+                        it.remove();
+                    }
+
+                } catch (Exception e) {
+                    Vesta.error("Error updating state: " + e.getMessage());
+                }
+            });
+        }
+    }
+
     @Getter
     @Setter
     public static class BinanceOpenOperation extends OpenOperation {
@@ -345,6 +331,16 @@ public class TradingBinance implements Trading {
     }
 
     public static class BinanceCloseOperation extends CloseOperation {
+
+        public BinanceCloseOperation(@NotNull BinanceOpenOperation op, @NotNull ExitReason reason) {
+            super((reason.toString().contains("STOP")) ? op.getSlPrice() : op.getTpPrice(),
+                    System.currentTimeMillis(),
+                    op.getEntryTime(),
+                    reason,
+                    op.getUuid()
+            );
+        }
+
         public BinanceCloseOperation(double exitPrice, long exitTime, long entryTime, ExitReason reason, UUID uuidOpenOperation) {
             super(exitPrice, exitTime, entryTime, reason, uuidOpenOperation);
         }
