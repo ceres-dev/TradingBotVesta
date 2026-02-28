@@ -29,7 +29,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
-public class TradingLoopBinance implements Notifiable {
+public final class TradingTickLoop implements Notifiable {
 
     private static final long CANDLE_MS = 60_000;
     private static final long OFFSET = 5_000;
@@ -51,11 +51,11 @@ public class TradingLoopBinance implements Notifiable {
                 return t;
             });
 
-    public TradingLoopBinance(@NotNull String symbol,
-                              @Nullable PredictionEngine engine,
-                              @NotNull TradingStrategy tradingStrategy,
-                              @NotNull BinanceApi binanceApi,
-                              @Nullable MediaNotification mediaNotification
+    public TradingTickLoop(@NotNull String symbol,
+                           @Nullable PredictionEngine engine,
+                           @NotNull TradingStrategy tradingStrategy,
+                           @NotNull BinanceApi binanceApi,
+                           @Nullable MediaNotification mediaNotification
     ) {
         this.symbol = symbol;
         this.engine = engine;
@@ -65,7 +65,7 @@ public class TradingLoopBinance implements Notifiable {
             binanceApi.setExceptionHandler(this::stop);
             binanceApi.setMediaNotification(this.mediaNotification);
             trading = new TradingBinance(binanceApi, mediaNotification, IOMarket.loadMarkets(DataSource.LOCAL_NETWORK_MINIMAL, symbol));
-            trading.setTradingLoopBinance(this);
+            trading.setTradingTickLoop(this);
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
         }
@@ -87,6 +87,7 @@ public class TradingLoopBinance implements Notifiable {
                     long time = System.currentTimeMillis();
 
                     performTick();
+                    updateStatus();
 
                     Vesta.info("🕑 Tiempo de procesamiento: %.2fss", (float) (System.currentTimeMillis() - time)/1000f);
                 } catch (Exception e) {
@@ -131,7 +132,7 @@ public class TradingLoopBinance implements Notifiable {
         });
 
         latch.await();
-
+        market.get().sortd();
         List<Candle> allCandles = BuilderData.to1mCandles(market.get());
         List<Candle> visible = allCandles.subList(VestaEngine.LOOK_BACK, allCandles.size() - 1);
         PredictionEngine.PredictionResult result;
@@ -144,10 +145,57 @@ public class TradingLoopBinance implements Notifiable {
         strategy.executeStrategy(result, visible, trading);
     }
 
+    public void updateStatus(){
+        if (isClose) {
+            updateStatusType(StatusType.STOPPED);
+            updateStatus("Loop detenido");
+            return;
+        }
+
+        if (trading.hasOpenOperation()){
+            updateStatusType(StatusType.TRADING);
+            int longs = 0;
+            int shorts = 0;
+            for (Trading.OpenOperation op : trading.getOpens()) {
+                if (op.getDireccion().equals(Trading.DireccionOperation.LONG)) {
+                    longs++;
+                }else {
+                    shorts++;
+                }
+            }
+            if (longs == 1 && shorts == 0) {
+                updateStatus("Operando Long en %s", symbol);
+                return;
+            }
+            if (longs > 1 && shorts == 0) {
+                updateStatus("Operando %d Longs en %s", longs, symbol);
+                return;
+            }
+            if (longs == 0 && shorts == 1) {
+                updateStatus("Operando Short en %s", symbol);
+                return;
+            }
+            if (longs == 0 && shorts > 1) {
+                updateStatus("Operando %d Shorts en %s", longs, symbol);
+                return;
+            }
+            if (longs == 1 && shorts == 1) {
+                updateStatus("Operando Long y Short en %s", symbol);
+                return;
+            }
+            updateStatus("Operando: %d L y %d S en ", longs, shorts, shorts);
+        }else {
+            updateStatusType(StatusType.WAITING);
+            updateStatus("Esperando el momento...");
+        }
+
+    }
+
     public void stop(Exception e){
         if (!(e instanceof BinanceCodeWeakException)) {
             Vesta.sendErrorException("Deteniendo Loop por: ", e);
             mediaNotification.critical(String.format("**Deteniendo Loop** por: %s. Revisar Consola para más información", e.getMessage()));
+            updateStatus();
             isClose = true;
         }
 

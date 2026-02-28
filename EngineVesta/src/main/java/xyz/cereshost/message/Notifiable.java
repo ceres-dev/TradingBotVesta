@@ -26,4 +26,14 @@ public interface Notifiable extends MediaNotification {
     default void info(String message, Object... param) {
         getMediaNotification().info(message, param);
     }
+
+    @Override
+    default void updateStatus(String message, Object... param) {
+        getMediaNotification().updateStatus(message, param);
+    }
+
+    @Override
+    default void updateStatusType(StatusType type) {
+        getMediaNotification().updateStatusType(type);
+    }
 }

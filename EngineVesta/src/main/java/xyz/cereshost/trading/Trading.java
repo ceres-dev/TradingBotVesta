@@ -8,6 +8,7 @@ import xyz.cereshost.message.Notifiable;
 import java.util.List;
 import java.util.UUID;
 
+import static xyz.cereshost.trading.Trading.DireccionOperation.LONG;
 import static xyz.cereshost.trading.Trading.DireccionOperation.SHORT;
 
 public interface Trading extends Notifiable {
@@ -33,6 +34,8 @@ public interface Trading extends Notifiable {
 
     double getAvailableBalance();
 
+    double getCurrentPrice();
+
     default void log(String s){};
 
     @Data
@@ -53,6 +56,7 @@ public interface Trading extends Notifiable {
         }
     }
 
+    @SuppressWarnings("unused")
     @Data
     abstract class OpenOperation {
         private final UUID uuid = UUID.randomUUID();
@@ -64,19 +68,26 @@ public interface Trading extends Notifiable {
         private long entryTime;
 
         private final double entryPrice;
+        private final double originalTpPercent;
+        private final double originalSlPercent;
         private final DireccionOperation direccion;
         private final double amountInitUSDT;
         private final int leverage;
+        private final Trading trading;
 
         // Ojo el TP y SL en Porcentajes ABS sin apalancar
-        public OpenOperation(double entryPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
+        public OpenOperation(@NotNull Trading trading, double entryPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
             this.tpPercent = tpPercent;
             this.slPercent = slPercent;
+
+            this.originalTpPercent = tpPercent;
+            this.originalSlPercent = slPercent;
 
             this.entryPrice = entryPrice;
             this.direccion = direccion;
             this.amountInitUSDT = amountUSDT;
             this.leverage = leverage;
+            this.trading = trading;
         }
 
         public double getSlPrice() {
@@ -85,6 +96,23 @@ public interface Trading extends Notifiable {
 
         public double getTpPrice() {
             return entryPrice + (entryPrice * ((direccion.equals(SHORT) ? -tpPercent : tpPercent)*0.01));
+        }
+
+        public double getDiffPercent() {
+            double currentPrice = trading.getCurrentPrice();
+            return ((currentPrice - entryPrice) / currentPrice) * 100;
+        }
+
+        public double getRoiRaw() {
+            if (isUpDireccion()){
+                return getDiffPercent();
+            } else {
+                return -getDiffPercent();
+            }
+        }
+
+        public boolean isUpDireccion(){
+            return direccion == LONG;
         }
 
         /**

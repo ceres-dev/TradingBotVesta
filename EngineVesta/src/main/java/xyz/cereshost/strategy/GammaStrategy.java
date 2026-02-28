@@ -12,13 +12,29 @@ public class GammaStrategy implements TradingStrategy {
     private static final int MAX_OPEN_CANDLES = 60;
     private static final double RISK_REWARD = 2.6; // 2:1
     private static final double MIN_SL_PCT = 0.3;
-    private static final double MAX_SL_PCT = 0.8;
+    private static final double MAX_SL_PCT = 1;
+    private static final double DYNAMIC_SL_PCT = 0.35;
 
 
     @Override
     public void executeStrategy(PredictionEngine.@Nullable PredictionResult pred, List<Candle> visibleCandles, Trading operations) {
-        for (Trading.OpenOperation o : operations.getOpens()){
-            if (o.getCountCandles() >= MAX_OPEN_CANDLES) operations.close(Trading.ExitReason.TIMEOUT, o.getUuid());
+        for (Trading.OpenOperation o : operations.getOpens()) {
+            if (o.getCountCandles() >= MAX_OPEN_CANDLES) {
+                operations.close(Trading.ExitReason.TIMEOUT, o.getUuid());
+                continue;
+            }
+
+            if ((o.getCountCandles() % 5) == 0){
+                double tp = Math.max(o.getTpPercent() - 0.1, o.getOriginalSlPercent());
+                double roi = o.getRoiRaw();
+                // Margen de seguridad
+                if (roi > tp - 0.05) {
+                    operations.close(Trading.ExitReason.STRATEGY, o.getUuid());
+                }else {
+                    o.setTpPercent(tp);
+                }
+            }
+
         }
 
         if (operations.hasOpenOperation()) {

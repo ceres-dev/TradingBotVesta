@@ -10,10 +10,9 @@ import xyz.cereshost.io.IOMarket;
 import xyz.cereshost.message.DiscordNotification;
 import xyz.cereshost.packet.PacketHandler;
 import xyz.cereshost.strategy.GammaStrategy;
-import xyz.cereshost.strategy.TestStrategy;
 import xyz.cereshost.trading.BinanceApiRest;
 import xyz.cereshost.trading.Trading;
-import xyz.cereshost.trading.TradingLoopBinance;
+import xyz.cereshost.trading.TradingTickLoop;
 import xyz.cereshost.utils.BuilderData;
 import xyz.cereshost.utils.ChartUtils;
 import xyz.cereshost.utils.EngineUtils;
@@ -102,13 +101,13 @@ public class Main {
             }
 //            case "backtest" -> showDataBackTest(new BackTestEngine(IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, SYMBOL).limit(3), PredictionEngine.loadPredictionEngine("VestaIA"), new AlfaStrategy()).run());
             case "backtest" -> {
-                Market market = new Market("XRPUSDC");
+                Market market = new Market("SOLUSDC");
                 List<CompletableFuture<Market>> task = new ArrayList<>();
-                for (int day = 600; day >= 365; day--) {
+                for (int day = 365; day >= 1; day--) {
                     int finalDay = day;
                     task.add(CompletableFuture.supplyAsync(() -> {
                         try {
-                            return Objects.requireNonNull(IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_BACK_TEST, "XRPUSDC", finalDay), "Dia: " + finalDay);                        } catch (InterruptedException | IOException e) {
+                            return Objects.requireNonNull(IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_BACK_TEST, "SOLUSDC", finalDay), "Dia: " + finalDay);                        } catch (InterruptedException | IOException e) {
                             throw new RuntimeException(e);
                         }
                     }, VestaEngine.EXECUTOR_AUXILIAR_BUILD));
@@ -125,7 +124,7 @@ public class Main {
 //                }
 //                Vesta.info(roiMap.toString());
             }
-            case "trading" -> new TradingLoopBinance("XRPUSDC", null, new GammaStrategy(), new BinanceApiRest(true), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop("SOLUSDC", null, new GammaStrategy(), new BinanceApiRest(true), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
             case "diagnose" -> ModelDiagnostics.run();
         }

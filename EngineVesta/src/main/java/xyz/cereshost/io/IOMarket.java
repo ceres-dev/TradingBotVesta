@@ -75,7 +75,7 @@ public class IOMarket {
             case BINANCE -> {
                 long timeTotal = System.currentTimeMillis();
                 Vesta.info("📡 Solicitud de dato a binance del mercado: " + s);
-                String raw = Utils.getRequest(Utils.BASE_URL_API + "klines" + "?symbol=" + s + "&interval=1m&limit=" + "1000");
+                String raw = Utils.getRequest(Utils.BASE_URL_API + "klines" + "?symbol=" + s + "&interval=1m&limit=" + 1000);
                 ObjectMapper mapper1 = new ObjectMapper();
                 JsonNode root1;
                 try {
@@ -106,7 +106,7 @@ public class IOMarket {
                 ObjectMapper mapper2 = new ObjectMapper();
                 JsonNode root2;
                 try {
-                    root2 = mapper2.readTree(Utils.getRequest(Utils.BASE_URL_API + "trades" + "?symbol=" + s + "&limit=" + 800));
+                    root2 = mapper2.readTree(Utils.getRequest(Utils.BASE_URL_API + "trades" + "?symbol=" + s + "&limit=" + 1000));
                 } catch (JsonProcessingException e) {
                     throw new RuntimeException(e);
                 }

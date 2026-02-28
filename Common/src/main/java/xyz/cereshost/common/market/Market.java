@@ -214,4 +214,8 @@ public class Market {
             return 0;
         }
     }
+
+    public double getFeed(){
+        return getFeedTaker() + getFeedMaker();
+    }
 }

@@ -41,7 +41,7 @@ public class TradingBackTest implements Trading {
         double currentPrice = backTestEngine.getCurrentPrice();
         // Simular el bin y el ask al comprar en mercado
         double realPrice = direccion == DireccionOperation.LONG ? currentPrice + 0.0001 : currentPrice - 0.0001;
-        OpenOperationBackTest o = new OpenOperationBackTest(realPrice, tpPercent, slPercent, direccion, amountUSDT, leverage);
+        OpenOperationBackTest o = new OpenOperationBackTest(this, realPrice, tpPercent, slPercent, direccion, amountUSDT, leverage);
         o.setEntryTime(backTestEngine.getCurrentTime());
         lastOpenOperation.add(o);
         openOperations.put(o.getUuid() , o);
@@ -80,6 +80,11 @@ public class TradingBackTest implements Trading {
         return balanceAvailable;
     }
 
+    @Override
+    public double getCurrentPrice() {
+        return backTestEngine.getCurrentPrice();
+    }
+
     public void computeCloses() {
         lastOpenOperation.clear();
         for (CloseOperation closeOperation : closeOperations) {
@@ -105,8 +110,8 @@ public class TradingBackTest implements Trading {
 
     public static class OpenOperationBackTest extends OpenOperation {
 
-        public OpenOperationBackTest(double currentPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
-            super(currentPrice, tpPercent, slPercent, direccion, amountUSDT, leverage);
+        public OpenOperationBackTest(Trading trading, double currentPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
+            super(trading, currentPrice, tpPercent, slPercent, direccion, amountUSDT, leverage);
         }
     }
 

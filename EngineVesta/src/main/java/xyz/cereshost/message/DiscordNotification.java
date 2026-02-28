@@ -2,8 +2,13 @@ package xyz.cereshost.message;
 
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
+import net.dv8tion.jda.api.OnlineStatus;
+import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.User;
+import net.dv8tion.jda.api.managers.Presence;
+import org.checkerframework.checker.units.qual.A;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.io.IOdata;
 
 import java.io.IOException;
@@ -49,6 +54,39 @@ public class DiscordNotification implements MediaNotification {
     @Override
     public void info(String message, Object... param) {
         sendMessage(String.format("🟦 " + message, param));
+    }
+
+    @Nullable
+    private StatusType statusType = null;
+
+    @Override
+    public void updateStatus(String message, Object... param) {
+        EXECUTOR.execute(() -> {
+            Presence presence = jda.getPresence();
+            switch (statusType) {
+                case STOPPED -> {
+                    presence.setStatus(OnlineStatus.DO_NOT_DISTURB);
+                    presence.setActivity(Activity.of(Activity.ActivityType.CUSTOM_STATUS, String.format(message, param)));
+                }
+                case TRADING -> {
+                    presence.setStatus(OnlineStatus.ONLINE);
+                    presence.setActivity(Activity.of(Activity.ActivityType.PLAYING, String.format(message, param)));
+                }
+                case WAITING -> {
+                    presence.setStatus(OnlineStatus.IDLE);
+                    presence.setActivity(Activity.of(Activity.ActivityType.WATCHING, String.format(message, param)));
+                }
+                case null, default -> {
+                    presence.setStatus(OnlineStatus.ONLINE);
+                    presence.setActivity(Activity.of(Activity.ActivityType.CUSTOM_STATUS, String.format(message, param)));
+                }
+            }
+        });
+    }
+
+    @Override
+    public void updateStatusType(StatusType type) {
+        statusType = type;
     }
 
     public void sendMessage(String message){
