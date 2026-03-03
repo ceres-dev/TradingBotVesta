@@ -135,7 +135,7 @@ public final class BinanceApiRest implements BinanceApi {
                 sendSignedRequest("DELETE", "/fapi/v1/order", params);
             }
         } catch (Exception e) {
-            Vesta.warning("No se pudo cancelar orden " + orderId + ": " + e.getMessage());  // CORREGIDO
+            Vesta.warning("No se pudo cancelar orden " + orderId + ": " + e.getMessage());
         }
     }
 
@@ -224,6 +224,37 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
+    public double getBalance(String symbol) {
+        // 1. Consultar cuenta (v3 devuelve el objeto con el campo 'assets')
+        JsonNode root = sendSignedRequest("GET", "/fapi/v3/account", new TreeMap<>());
+        // 2. Determinar qué moneda base estamos usando (USDT o USDC)
+        // Si el símbolo es "BNBUSDC", buscamos "USDC". Si es "BNBUSDT", buscamos "USDT".
+        String quoteAsset = symbol.endsWith("USDC") ? "USDC" : "USDT";
+
+        // 3. Acceder al array de 'assets'
+        if (root.has("assets") && root.get("assets").isArray()) {
+            JsonNode assets = root.get("assets");
+
+            for (JsonNode assetNode : assets) {
+                String assetName = assetNode.get("asset").asText();
+
+                if (quoteAsset.equalsIgnoreCase(assetName)) {
+                    double balance = assetNode.get("availableBalance").asDouble();
+                    Vesta.info("💰 Balance detectado para " + quoteAsset + ": " + balance);
+                    return balance;
+                }
+            }
+        }
+
+        // 4. Backup: Si por alguna razón no se encuentra en el array,
+        // intentar tomar el availableBalance general del root
+        if (root.has("availableBalance")) {
+            return root.get("availableBalance").asDouble();
+        }
+        return 0.0;
+    }
+
+    @Override
     public JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
         params.put("timestamp", String.valueOf(System.currentTimeMillis()));
         params.put("recvWindow", "20000");
@@ -246,7 +277,11 @@ public final class BinanceApiRest implements BinanceApi {
             return root;
         }catch (Exception e) {
             exceptionHandler.accept(e);
-            throw new BinanceApiSignedRequestException(e);
+            if (e instanceof BinanceCodeException binanceCodeException) {
+                throw new BinanceApiSignedRequestException(e, binanceCodeException.getCode());
+            }else {
+                throw new BinanceApiSignedRequestException(e, -1);
+            }
         }
     }
 

@@ -145,51 +145,57 @@ public class Market {
 
     }
 
-    public synchronized Market limit(int days) {
-        if (days <= 0) return this;
+    public List<CandleSimple> candleSimpleList = null;
 
-        // 1. Encontrar el tiempo de inicio absoluto entre todas las colecciones
-        long firstTime = Long.MAX_VALUE;
-
-        if (!candleSimples.isEmpty()) {
-            firstTime = Math.min(firstTime, candleSimples.iterator().next().openTime());
+    public List<CandleSimple> cacheCandlesToArray() {
+        if (candleSimpleList == null) {
+            candleSimpleList = new ArrayList<>(candleSimples);
         }
-        if (!trades.isEmpty()) {
-            firstTime = Math.min(firstTime, trades.iterator().next().time());
+        return candleSimpleList;
+    }
+
+    public void resetCandleSimpleList() {
+        candleSimpleList = null;
+    }
+
+    /**
+     * Devuelve una copia del mercado equivalente a un subList por indice de minuto.
+     * El indice se aplica sobre las velas 1m ordenadas por openTime.
+     */
+    @Contract(pure = true, value = "_, _ -> new")
+    public synchronized @NotNull Market subList(int fromMinuteIndex, int toMinuteIndex) {
+        List<CandleSimple> orderedCandles = candleSimples.stream()
+                .sorted(Comparator.comparingLong(CandleSimple::openTime))
+                .toList();
+
+        int size = orderedCandles.size();
+        int from = Math.max(0, fromMinuteIndex);
+        int to = Math.min(size, toMinuteIndex);
+
+        Market copy = new Market(symbol);
+        if (from >= to) {
+            return copy;
         }
-        if (!depths.isEmpty()) {
-            firstTime = Math.min(firstTime, depths.iterator().next().getDate());
-        }
 
-        // Si no hay datos, no hay nada que limitar
-        if (firstTime == Long.MAX_VALUE) return this;
+        List<CandleSimple> selectedCandles = orderedCandles.subList(from, to);
+        long startTime = selectedCandles.getFirst().openTime();
+        long endTimeExclusive = selectedCandles.getLast().openTime() + 60_000L;
 
-        // 2. Calcular el tiempo de corte (milisegundos en X días)
-        long durationMs = (long) days * 24 * 60 * 60 * 1000;
-        long cutoffTime = firstTime + durationMs;
+        copy.candleSimples = new LinkedHashSet<>(selectedCandles);
+        copy.trades = new LinkedHashSet<>(
+                trades.stream()
+                        .filter(t -> t.time() >= startTime && t.time() < endTimeExclusive)
+                        .sorted(Comparator.comparingLong(Trade::time))
+                        .toList()
+        );
+        copy.depths = new LinkedHashSet<>(
+                depths.stream()
+                        .filter(d -> d.getDate() >= startTime && d.getDate() < endTimeExclusive)
+                        .sorted(Comparator.comparingLong(Depth::getDate))
+                        .toList()
+        );
 
-        Vesta.info("Limitando datos de " + symbol + " a " + days + " días. Corte en: " + cutoffTime);
-
-        // 3. Filtrar colecciones manteniendo solo lo que sea menor al cutoffTime
-        // Usamos removeIf porque es eficiente en LinkedHashSet
-
-        int candlesBefore = candleSimples.size();
-        candleSimples.removeIf(c -> c.openTime() >= cutoffTime);
-
-        int tradesBefore = trades.size();
-        trades.removeIf(t -> t.time() >= cutoffTime);
-
-        int depthsBefore = depths.size();
-        depths.removeIf(d -> d.getDate() >= cutoffTime);
-
-        // 4. Invalidar el cache de trades si existía, ya que los datos cambiaron
-        this.tradesByMinuteCache = null;
-
-        Vesta.info(String.format("Limpieza completada [%s]: Velas: %d->%d | Trades: %d->%d | Depth: %d->%d",
-                symbol, candlesBefore, candleSimples.size(),
-                tradesBefore, trades.size(),
-                depthsBefore, depths.size()));
-        return this;
+        return copy;
     }
 
     public void clear(){
@@ -217,5 +223,9 @@ public class Market {
 
     public double getFeed(){
         return getFeedTaker() + getFeedMaker();
+    }
+
+    public double getFeedPercent(){
+        return getFeed() *100;
     }
 }

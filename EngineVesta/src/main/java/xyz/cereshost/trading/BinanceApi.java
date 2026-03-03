@@ -47,6 +47,8 @@ public interface BinanceApi extends Notifiable {
 
     double getTickerPrice(String symbol);
 
+    double getBalance(String symbol);
+
     JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params);
 
     JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params);
@@ -79,6 +81,7 @@ public interface BinanceApi extends Notifiable {
         if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.3f", qty);
         if (symbol.startsWith("ETH")) return String.format(Locale.US, "%.2f", qty);
         if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.1f", qty);
+        if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", qty);
 
         return String.format(Locale.US, "%.0f", qty); // Default int
     }
@@ -86,6 +89,7 @@ public interface BinanceApi extends Notifiable {
     default String formatPrice(@NotNull String symbol, double price) {
         if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.1f", price);
         if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.4f", price);
+        if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", price);
 
         return String.format(Locale.US, "%.2f", price);
     }

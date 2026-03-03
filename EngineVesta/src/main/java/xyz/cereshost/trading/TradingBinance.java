@@ -192,40 +192,10 @@ public class TradingBinance implements Trading {
 
     @Override
     public double getAvailableBalance() {
-        if (lastBalance != 0){
-            return lastBalance;
+        if (lastBalance == 0) {
+            lastBalance = binanceApi.getBalance(market.getSymbol());
         }
-        // 1. Consultar cuenta (v3 devuelve el objeto con el campo 'assets')
-        JsonNode root = binanceApi.sendSignedRequest("GET", "/fapi/v3/account", new TreeMap<>());
-        // 2. Determinar qué moneda base estamos usando (USDT o USDC)
-        // Si el símbolo es "BNBUSDC", buscamos "USDC". Si es "BNBUSDT", buscamos "USDT".
-        String symbol = getMarket().getSymbol();
-        String quoteAsset = symbol.endsWith("USDC") ? "USDC" : "USDT";
-
-        // 3. Acceder al array de 'assets'
-        if (root.has("assets") && root.get("assets").isArray()) {
-            JsonNode assets = root.get("assets");
-
-            for (JsonNode assetNode : assets) {
-                String assetName = assetNode.get("asset").asText();
-
-                if (quoteAsset.equalsIgnoreCase(assetName)) {
-                    double balance = assetNode.get("availableBalance").asDouble();
-                    Vesta.info("💰 Balance detectado para " + quoteAsset + ": " + balance);
-                    lastBalance = balance;
-                    return balance;
-                }
-            }
-        }
-
-        // 4. Backup: Si por alguna razón no se encuentra en el array,
-        // intentar tomar el availableBalance general del root
-        if (root.has("availableBalance")) {
-            double balance = root.get("availableBalance").asDouble();
-            lastBalance = balance;
-            return balance;
-        }
-        return 0.0;
+        return lastBalance;
     }
 
     @Override
@@ -333,8 +303,8 @@ public class TradingBinance implements Trading {
         Vesta.warning("No hay posición activa en Binance para " + symbol + ". Reconciliando estado local (" + source + ").");
         List<BinanceOpenOperation> snapshot = new ArrayList<>(activeOperations.values());
         for (BinanceOpenOperation op : snapshot) {
-            binanceApi.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
-            binanceApi.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
+//            binanceApi.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
+//            binanceApi.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
             closeAndRemoveOperation(op, ExitReason.STRATEGY, "binance_position_closed");
         }
     }
@@ -386,7 +356,7 @@ public class TradingBinance implements Trading {
         }
 
         private void updateProtectionOrder(boolean isTpOrder, double newPercent, @NotNull String orderType) {
-            if (!Double.isFinite(newPercent) || newPercent <= 0) {
+            if (!Double.isFinite(newPercent)) {
                 Vesta.warning("Valor inválido para %s en %s: %s",
                         isTpOrder ? "TP" : "SL", getUuid(), newPercent);
                 return;

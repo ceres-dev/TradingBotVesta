@@ -1,7 +1,8 @@
 package xyz.cereshost.exception;
 
 public class BinanceApiSignedRequestException extends BinanceApiRequestException {
-    public BinanceApiSignedRequestException(Exception e) {
+    private int code;
+    public BinanceApiSignedRequestException(Exception e, int code) {
         super(e);
     }
 }

@@ -86,7 +86,7 @@ public class BuilderData {
                                     continue;
                                 }
                                 Vesta.info("(idx:%d) 📊 Convirtiendo velas (dia %s, C:%d)", currentMonth, date, market.getCandleSimples().size());
-                                List<Candle> candlesDay = BuilderData.to1mCandles(market, futureWindow);
+                                List<Candle> candlesDay = BuilderData.to1mCandles(market);
                                 market.clear();
                                 if (!candlesDay.isEmpty()) {
                                     candlesThisMonth.addAll(candlesDay);
@@ -326,14 +326,10 @@ public class BuilderData {
         return new Pair<>(X, y);
     }
 
-    public static @NotNull List<Candle> to1mCandles(@NotNull Market market) {
-        return to1mCandles(market, DEFAULT_FUTURE_WINDOW);
-    }
 
-    public static @NotNull List<Candle> to1mCandles(@NotNull Market market, int futureWindow) {
+    public static @NotNull List<Candle> to1mCandles(@NotNull Market market) {
 
         //market.sortd();
-        int remove = 0;
         int idx = 0;
 
         // CandleSimple por minuto
@@ -390,13 +386,13 @@ public class BuilderData {
         RSIIndicator rsi16 = new RSIIndicator(indicator, 16);
 
         // SuperTren
-        SuperTrendIndicator superTrend = new SuperTrendIndicator(series, 5, 0.4);
+        SuperTrendIndicator superTrend = new SuperTrendIndicator(series, 5, 0.35);
 
 
         // MACD
         //MACDIndicator macd = new MACDIndicator(indicator, 12, 26);
 //        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 6, 16, 9);
-        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 10, 18, 6);
+        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 8, 18, 2);
         double[] macdArr = macdRes.macd();
         double[] signalArr = macdRes.signal();
         double[] histArr = macdRes.histogram();
@@ -522,12 +518,10 @@ public class BuilderData {
                         (float) (superTrend.getValue(idx).floatValue() - close)
                 ));
             } catch (IllegalArgumentException ignored) {
-                remove++;
             }
             idx++;
         }
         closes.clear();
-        Vesta.info("Se elimino %d por dar resultado NA o Infinito", remove);
         return candles;
     }
 

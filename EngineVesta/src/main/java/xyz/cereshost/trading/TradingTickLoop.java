@@ -32,7 +32,7 @@ import java.util.concurrent.locks.LockSupport;
 public final class TradingTickLoop implements Notifiable {
 
     private static final long CANDLE_MS = 60_000;
-    private static final long OFFSET = 5_000;
+    private static final long OFFSET = 1_500;
     private final String symbol;
     @Getter
     private final Executor executor = Executors.newFixedThreadPool(6);
@@ -64,7 +64,7 @@ public final class TradingTickLoop implements Notifiable {
         try {
             binanceApi.setExceptionHandler(this::stop);
             binanceApi.setMediaNotification(this.mediaNotification);
-            trading = new TradingBinance(binanceApi, mediaNotification, IOMarket.loadMarkets(DataSource.LOCAL_NETWORK_MINIMAL, symbol));
+            trading = new TradingBinance(binanceApi, mediaNotification, IOMarket.loadMarkets(DataSource.BINANCE, symbol));
             trading.setTradingTickLoop(this);
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
@@ -78,9 +78,10 @@ public final class TradingTickLoop implements Notifiable {
         WORKERS.submit(() -> {
             while (!Thread.currentThread().isInterrupted() && !isClose) {
                 try {
-                    long serverTime = getBinanceServerTime() + OFFSET;
+                    long serverTime = getBinanceServerTime();
                     long nextCandle = ((serverTime / CANDLE_MS) + 1) * CANDLE_MS;
-                    long sleep = Math.abs(nextCandle - (serverTime));
+                    long targetTime = nextCandle + OFFSET;
+                    long sleep = targetTime - serverTime;
 
                     Vesta.info("💤 Tiempo de espera: %.2fs", (float) sleep/1000);
                     if (sleep > 0) LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(sleep));

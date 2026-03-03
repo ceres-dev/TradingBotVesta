@@ -6,6 +6,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.common.market.CandleSimple;
 import xyz.cereshost.utils.BuilderData;
 import xyz.cereshost.common.market.Candle;
 import xyz.cereshost.common.market.Market;
@@ -18,6 +19,8 @@ import xyz.cereshost.trading.TradingBackTest;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 @Getter
 public class BackTestEngine {
@@ -46,14 +49,14 @@ public class BackTestEngine {
     }
 
     public BackTestResult run() {
+        market.sortd();
         List<Candle> allCandles = BuilderData.to1mCandles(market);
-        allCandles.sort(Comparator.comparingLong(Candle::openTime));
         return run(allCandles);
     }
 
     public BackTestResult run(List<Candle> allCandles){
 
-//        market.buildTradeCache(); // Crucial para velocidad
+        market.buildTradeCache();
 
         int totalSamples = allCandles.size();
         int lookBack = engine == null ? 1 : engine.getLookBack();
@@ -92,11 +95,9 @@ public class BackTestEngine {
             }
 
             // Inicia la simulaciónn de una vela de duración
+
             simulateOneTick(
-                    market,
-                    allCandles,
-                    i + 1, // Empezamos a buscar en la siguiente vela
-                    // Debe ser una lista mutable
+                    allCandles.get(i + 1),
                     operations
             );
             operations.getOpens().forEach(Trading.OpenOperation::next);
@@ -157,7 +158,18 @@ public class BackTestEngine {
 
         double grossPnL = getGrossPnL(closeOperation, openOperation, qty);
 
-        return grossPnL - entryFee - exitFee;
+        double netPnL = grossPnL - entryFee - exitFee;
+        return roundPnlAgainst(netPnL);
+    }
+
+    /**
+     * Redondeo conservador a 2 decimales:
+     * positivo -> hacia abajo, negativo -> mas negativo.
+     */
+    private static double roundPnlAgainst(double pnl) {
+        return BigDecimal.valueOf(pnl)
+                .setScale(2, RoundingMode.FLOOR)
+                .doubleValue();
     }
 
     private static double getGrossPnL(Trading.@NotNull CloseOperation closeOperation, Trading.OpenOperation openOperation, double qty) {
@@ -179,17 +191,12 @@ public class BackTestEngine {
      * Simula la vida de un trade a través del tiempo (velas) y trades (ticks).
      */
     private void simulateOneTick(
-            Market market,
-            List<Candle> allCandles,
-            int startIndex,
+            Candle candle,
             TradingBackTest operations
     ) {
-        Candle candle = allCandles.get(startIndex);
         long endTime = candle.openTime() + 60_000;
 
         // Obtener trades reales de este minuto
-
-
         List<Trade> trades = market.getTradesInWindow(candle.openTime(), endTime);
         if (trades.isEmpty()) {
             currentPrice = candle.close();
@@ -295,6 +302,26 @@ public class BackTestEngine {
             return roi*100;
         }
 
+        public double getRoiAvg(){
+            double roi = 0;
+            for (TradeResult tr : trades){
+                roi += tr.pnlPercent()*100;
+            }
+            return roi/trades.size();
+        }
+
+        public double getRoiAvg(Trading.ExitReason reason) {
+            double roi = 0;
+            int count = 0;
+            for (TradeResult tr : trades){
+                if (reason.equals(tr.reason())) {
+                    roi += tr.pnlPercent()*100;
+                    count++;
+                }
+            }
+            return roi/count;
+        }
+
 
         // Para calcular Hold Time promedio
         long totalHoldTimeMillis = 0;
@@ -354,6 +381,14 @@ public class BackTestEngine {
             double roi = 0;
             for (TradeResult tr : trades) {
                 if (tr.reason().equals(Trading.ExitReason.SHORT_STOP_LOSS) || tr.reason().equals(Trading.ExitReason.SHORT_TAKE_PROFIT)) roi += tr.pnlPercent;
+            }
+            return roi*100;
+        }
+
+        public double getRoiStrategy() {
+            double roi = 0;
+            for (TradeResult tr : trades) {
+                if (tr.reason().equals(Trading.ExitReason.STRATEGY)) roi += tr.pnlPercent;
             }
             return roi*100;
         }

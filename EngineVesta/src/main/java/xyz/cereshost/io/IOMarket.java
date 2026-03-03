@@ -75,7 +75,7 @@ public class IOMarket {
             case BINANCE -> {
                 long timeTotal = System.currentTimeMillis();
                 Vesta.info("📡 Solicitud de dato a binance del mercado: " + s);
-                String raw = Utils.getRequest(Utils.BASE_URL_API + "klines" + "?symbol=" + s + "&interval=1m&limit=" + 1000);
+                String raw = Utils.getRequest("https://fapi.binance.com/fapi/v1/klines" + "?symbol=" + s + "&interval=1m&limit=" + 1500);
                 ObjectMapper mapper1 = new ObjectMapper();
                 JsonNode root1;
                 try {
@@ -103,25 +103,25 @@ public class IOMarket {
                             kline.get(4).asDouble(), // close
                             new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)));
                 }
-                ObjectMapper mapper2 = new ObjectMapper();
-                JsonNode root2;
-                try {
-                    root2 = mapper2.readTree(Utils.getRequest(Utils.BASE_URL_API + "trades" + "?symbol=" + s + "&limit=" + 1000));
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
-                Deque<Trade> trades = new ArrayDeque<>();
-                for (JsonNode trade : root2) {
-                    double quoteQty = trade.get("quoteQty").asDouble();
-                    double price = trade.get("price").asDouble();
-                    boolean isBuyerMaker = trade.get("isBuyerMaker").asBoolean();
-                    long time = trade.get("time").asLong();
-                    trades.add(new Trade(time,(float) price, (float) quoteQty, isBuyerMaker));
-                }
+//                ObjectMapper mapper2 = new ObjectMapper();
+//                JsonNode root2;
+//                try {
+//                    root2 = mapper2.readTree(Utils.getRequest("https://fapi.binance.com/fapi/v1/trades" + "?symbol=" + s + "&limit=" + 200));
+//                } catch (JsonProcessingException e) {
+//                    throw new RuntimeException(e);
+//                }
+//                Deque<Trade> trades = new ArrayDeque<>();
+//                for (JsonNode trade : root2) {
+//                    double quoteQty = trade.get("quoteQty").asDouble();
+//                    double price = trade.get("price").asDouble();
+//                    boolean isBuyerMaker = trade.get("isBuyerMaker").asBoolean();
+//                    long time = trade.get("time").asLong();
+//                    trades.add(new Trade(time,(float) price, (float) quoteQty, isBuyerMaker));
+//                }
 
                 Market market = new Market(s);
                 market.addCandles(deque);
-                market.addTrade(trades);
+//                market.addTrade(trades);
                 marketFinal.set(market);
                 Vesta.info("✅ Datos procesado de binance del mercado: %s (%.2fs)", s, (float) (System.currentTimeMillis() - timeTotal) / 1000);
                 latch.countDown();
