@@ -37,7 +37,7 @@ public class TradingBinance implements Trading {
     }
 
     @Override
-    public void open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
+    public OpenOperation open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
         String symbol = getMarket().getSymbol();
         try {
             CountDownLatch latch = new CountDownLatch(3);
@@ -75,7 +75,7 @@ public class TradingBinance implements Trading {
 
             if (Double.parseDouble(qtyStr) <= 0) {
                 Vesta.error("La cantidad calculada es 0. Revisa el balance o apalancamiento.");
-                return;
+                return null;
             }
 
             BinanceOpenOperation op = new BinanceOpenOperation(
@@ -115,21 +115,23 @@ public class TradingBinance implements Trading {
             });
 
             activeOperations.put(op.getUuid(), op);
+            return op;
         } catch (InterruptedException e) {
             Vesta.sendErrorException("Binance Error Open Async", e);
+            return null;
         }
     }
 
     @Override
-    public void close(ExitReason reason, UUID uuidOpenOperation) {
-        BinanceOpenOperation op = activeOperations.get(uuidOpenOperation);
+    public void close(ExitReason reason, OpenOperation openOperation) {
+        BinanceOpenOperation op = activeOperations.get(openOperation.getUuid());
         if (op == null) return;
 
         String symbol = getMarket().getSymbol();
         try {
             CountDownLatch latch = new CountDownLatch(2);
-            Vesta.info("🔒 Cerrando operacion: %s por %s", uuidOpenOperation, reason);
-            info("Cerrando operacion: %s por %s", uuidOpenOperation, reason);
+            Vesta.info("🔒 Cerrando operacion: %s por %s", op.getUuid(), reason);
+            info("Cerrando operacion: %s por %s", op.getUuid(), reason);
 
             // 1. Cancelar SL y TP pendientes
             tradingTickLoop.getExecutor().execute(() -> {
@@ -155,11 +157,11 @@ public class TradingBinance implements Trading {
             // 3. Registrar cierre
             double exitPrice = binanceApi.getTickerPrice(symbol);
             CloseOperation closeOp = new BinanceCloseOperation(
-                    exitPrice, System.currentTimeMillis(), op.getEntryTime(), reason, op.getUuid()
+                    exitPrice, System.currentTimeMillis(), op.getEntryTime(), reason, op
             );
 
             closedOperations.add(closeOp);
-            activeOperations.remove(uuidOpenOperation);
+            activeOperations.remove(op.getUuid());
         } catch (InterruptedException e) {
             Vesta.sendErrorException("Binance Error Open Async", e);
         }
@@ -325,7 +327,7 @@ public class TradingBinance implements Trading {
         closedOperations.add(close);
 
         if (tradingTickLoop != null && tradingTickLoop.getStrategy() != null) {
-            tradingTickLoop.getStrategy().closeOperation(close);
+            tradingTickLoop.getStrategy().closeOperation(close, this);
         }
         Vesta.info("Operación reconciliada por Binance: " + op.getUuid() + " (" + source + ")");
     }
@@ -420,12 +422,12 @@ public class TradingBinance implements Trading {
                     System.currentTimeMillis(),
                     op.getEntryTime(),
                     reason,
-                    op.getUuid()
+                    op
             );
         }
 
-        public BinanceCloseOperation(double exitPrice, long exitTime, long entryTime, ExitReason reason, UUID uuidOpenOperation) {
-            super(exitPrice, exitTime, entryTime, reason, uuidOpenOperation);
+        public BinanceCloseOperation(double exitPrice, long exitTime, long entryTime, ExitReason reason, OpenOperation openOperation) {
+            super(exitPrice, exitTime, entryTime, reason, openOperation);
         }
     }
 

@@ -8,7 +8,10 @@ import xyz.cereshost.engine.BackTestEngine;
 import xyz.cereshost.engine.VestaEngine;
 import xyz.cereshost.io.IOMarket;
 import xyz.cereshost.message.DiscordNotification;
+import xyz.cereshost.strategy.DeltaStrategy;
+import xyz.cereshost.strategy.EpsilonStrategy;
 import xyz.cereshost.strategy.GammaStrategy;
+import xyz.cereshost.strategy.TestStrategy;
 import xyz.cereshost.trading.BinanceApiRest;
 import xyz.cereshost.trading.Trading;
 import xyz.cereshost.trading.TradingTickLoop;
@@ -116,7 +119,7 @@ public class Main {
                     market.concat(m);
                 }
                 AtomicInteger i = new AtomicInteger(4);
-                market.concat(IOMarket.loadMarkets(DataSource.BINANCE, "SOLUSDC"));
+//                market.concat(IOMarket.loadMarkets(DataSource.BINANCE, "SOLUSDC"));
                 market.getCandleSimples().removeIf(cs -> ((cs.openTime() % ((1000 * 60 * 60 * 24))) == 0));
                 Vesta.info("🔙 Ejecutando backtest...");
                 market.sortd();
@@ -151,7 +154,10 @@ public class Main {
         ChartUtils.animateCandlePredictions(stats.getMarket().getSymbol(), stats.getMarket().getCandleSimples().stream().toList(), stats.getAllTrades(), BuilderData.DEFAULT_FUTURE_WINDOW, 200);
         ChartUtils.showCandleChartWithTrades("Trades", stats.getMarket().getCandleSimples().stream().toList(), stats.getMarket().getSymbol(), stats.getTradesComplete());
         double winRate = stats.getTotalTrades() > 0 ? (double) stats.getWins() / stats.getTotalTrades() * 100 : 0;
-        double avgHoldMinutes = stats.getTotalTrades() > 0 ? (stats.getTotalHoldTimeMillis() / 1000.0 / 60.0) / stats.getTotalTrades() : 0;
+        double avgHoldMinutes = stats.getTotalTrades() > 0 ? (stats.getHoldAvg() / 1000.0 / 60.0) : 0;
+        double avgHoldMinutesWin = stats.getWins() > 0 ? (stats.getHoldAvgWins() / 1000.0 / 60.0) : 0;
+        double avgHoldMinutesLoss = stats.getLosses() > 0 ? (stats.getHoldAvgLoss() / 1000.0 / 60.0) : 0;
+        double performer = winRate - (Math.abs(stats.getRoiLosses()) / (Math.abs(stats.getRoiLosses()) + stats.getRoiWins()))*100;
 
         DecimalFormat decimalFormat = new DecimalFormat("###,###,###,###,##0.00");
 
@@ -163,14 +169,15 @@ public class Main {
         Vesta.info("  Total TP/SL/STR:        %d TP / %s SL / %s STR", stats.getTrades(Trading.ExitReason.LONG_TAKE_PROFIT) + stats.getTrades(Trading.ExitReason.SHORT_TAKE_PROFIT), stats.getTrades(Trading.ExitReason.LONG_STOP_LOSS) + stats.getTrades(Trading.ExitReason.SHORT_STOP_LOSS), stats.getTrades(Trading.ExitReason.STRATEGY));
         Vesta.info("  L TP/SL:                %d TP / %s SL", stats.getTrades(Trading.ExitReason.LONG_TAKE_PROFIT), stats.getTrades(Trading.ExitReason.LONG_STOP_LOSS));
         Vesta.info("  S TP/SL:                %d TP / %s SL", stats.getTrades(Trading.ExitReason.SHORT_TAKE_PROFIT), stats.getTrades(Trading.ExitReason.SHORT_STOP_LOSS));
-        Vesta.info("  Ratio (P/M/N)           %.3f %.3f %.3f", stats.getRatioAvg(), stats.getRatioMax(), stats.getRatioMin());
+        Vesta.info("  Ratio (P/M/N/R)         %.3f %.3f %.3f %.3f", stats.getRatioAvg(), stats.getRatioMax(), stats.getRatioMin(), stats.getRoiWins() / Math.abs(stats.getRoiLosses()));
         Vesta.info("  ROI TP (Min)            %.2f%% L %.2f%% S", stats.getRoiTPMinLong(), stats.getRoiTPMinShort());
         Vesta.info("  ROI STR                 %.2f%% (%.2f%%)", stats.getRoiStrategy(), stats.getRoiAvg(Trading.ExitReason.STRATEGY));
         Vesta.info("  DireRate:               (%d %.2f%% L, %d %.2f%% S, %d N)", stats.getLongs(), stats.getRoiLong(), stats.getShorts(), stats.getRoiShort(), stats.getNothing());
-        Vesta.info("  Avg Hold Time:          %.3f min", avgHoldMinutes);
-        Vesta.info("  Avg Trade/Roi           %.3f%%", stats.getRoiAvg());
+        Vesta.info("  Avg Hold Time P/W/L:    %.3fm %.3fm %.3fm", avgHoldMinutes, avgHoldMinutesWin, avgHoldMinutesLoss);
+        Vesta.info("  Roi P/W/L               %.3f%% %.3f%% %.3f%%", stats.getRoiAvg(), stats.getRoiWins(),  stats.getRoiLosses());
         Vesta.info("  PNL Neto:               %s$%s%s", backtestResult.netPnL() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(backtestResult.netPnL()), "\u001B[0m");
         Vesta.info("  ROI Total:              %s%s%%%s", backtestResult.roiPercent() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(backtestResult.roiPercent()), "\u001B[0m");
+        Vesta.info("  Rendimiento:            %s%.2f%%%s ", performer >= 0 ? "\u001B[32m" : "\u001B[31m", performer, "\u001B[0m");
         Vesta.info("  Max Drawdown:           %.2f%%", backtestResult.maxDrawdown()*100);
         Vesta.info("--------------------------------------------------");
 

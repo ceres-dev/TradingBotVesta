@@ -6,7 +6,6 @@ import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.common.market.CandleSimple;
 import xyz.cereshost.utils.BuilderData;
 import xyz.cereshost.common.market.Candle;
 import xyz.cereshost.common.market.Market;
@@ -18,7 +17,6 @@ import xyz.cereshost.trading.TradingBackTest;
 import xyz.cereshost.utils.ChartUtils;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,7 +30,7 @@ public class BackTestEngine {
     @NotNull private final Market market;
     @NotNull private final TradingStrategy strategy;
     @Nullable private final PredictionEngine engine;
-    private double balance = 5;
+    private double balance = 5000;
     private double currentPrice;
     private long currentTime;
 
@@ -61,7 +59,7 @@ public class BackTestEngine {
         market.buildTradeCache();
 
         int totalSamples = allCandles.size();
-        int lookBack = engine == null ? 1 : engine.getLookBack();
+        int lookBack = engine == null ? 150 : engine.getLookBack();
 
         // Empezamos donde tenemos datos suficientes
         int startIndex = lookBack + 1;
@@ -70,8 +68,7 @@ public class BackTestEngine {
         double initialBalance = balance;
 
         // Loop principal
-        for (int i = 5500; i < totalSamples - 1; i++) {
-
+        for (int i = startIndex; i < totalSamples - 1; i++) {
             // Obtener predicción
             List<Candle> window = allCandles.subList(i - lookBack, i + 1);
             PredictionEngine.PredictionResult prediction ;
@@ -109,7 +106,7 @@ public class BackTestEngine {
         stats.getTradesComplete().addAll(extraStats);
         return new BackTestResult(
                 initialBalance, balance, balance - initialBalance, stats.getRoi(),
-                stats.totalTrades, stats.wins, stats.losses, stats.maxDrawdownPercent,
+                stats.totalTrades, stats.getWins(), stats.getLosses(), stats.maxDrawdownPercent,
                 stats
         );
     }
@@ -222,25 +219,25 @@ public class BackTestEngine {
                     boolean computeLimit = false;
                     switch (openOperation.getDireccion()) {
                         case LONG -> {
-                            if (price > openOperation.getTpPrice()) {
-                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.LONG_TAKE_PROFIT, openOperation.getUuid()));
+                            if (price >= openOperation.getTpPrice()) {
+                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.LONG_TAKE_PROFIT, openOperation));
                                 computeLimit = true;
                                 break;
 
                             }
-                            if (price < openOperation.getSlPrice()) {
-                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.LONG_STOP_LOSS, openOperation.getUuid()));
+                            if (price <= openOperation.getSlPrice()) {
+                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.LONG_STOP_LOSS, openOperation));
                                 computeLimit = true;
                             }
                         }
                         case SHORT -> {
-                            if (price < openOperation.getTpPrice()) {
-                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.SHORT_TAKE_PROFIT, openOperation.getUuid()));
+                            if (price <= openOperation.getTpPrice()) {
+                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.SHORT_TAKE_PROFIT, openOperation));
                                 computeLimit = true;
                                 break;
                             }
-                            if (price > openOperation.getSlPrice()) {
-                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.SHORT_STOP_LOSS, openOperation.getUuid()));
+                            if (price >= openOperation.getSlPrice()) {
+                                operations.closeForEngine(new TradingBackTest.CloseOperationBackTest(price, t.time(), openOperation.getEntryTime(), Trading.ExitReason.SHORT_STOP_LOSS, openOperation));
                                 computeLimit = true;
                             }
 
@@ -258,8 +255,6 @@ public class BackTestEngine {
     public static class BackTestStats {
         private final Market market;
         private int totalTrades = 0;
-        private int wins = 0;
-        private int losses = 0;
         private int timeouts = 0;
         private int longs = 0;
         private int shorts = 0;
@@ -327,7 +322,36 @@ public class BackTestEngine {
 
 
         // Para calcular Hold Time promedio
-        long totalHoldTimeMillis = 0;
+
+        public double getHoldAvg(){
+            long totalHoldTimeMillis = 0;
+            for (TradeResult tr : trades) totalHoldTimeMillis += (tr.exitTime - tr.entryTime);
+            return (double) totalHoldTimeMillis / (double) trades.size();
+        }
+
+        public double getHoldAvgWins(){
+            long totalHoldTimeMillis = 0;
+            for (TradeResult tr : trades) if (tr.pnlPercent > 0) totalHoldTimeMillis += (tr.exitTime - tr.entryTime);
+            return (double) totalHoldTimeMillis / (double) getWins();
+        }
+
+        public double getHoldAvgLoss(){
+            long totalHoldTimeMillis = 0;
+            for (TradeResult tr : trades) if (tr.pnlPercent < 0) totalHoldTimeMillis += (tr.exitTime - tr.entryTime);
+            return (double) totalHoldTimeMillis / (double) getLosses();
+        }
+
+        public int getLosses(){
+            int i = 0;
+            for (TradeResult tr : trades) if (tr.pnlPercent < 0 ) i++;
+            return i;
+        }
+
+        public int getWins(){
+            int i = 0;
+            for (TradeResult tr : trades) if (tr.pnlPercent > 0 ) i++;
+            return i;
+        }
 
         public void addComplenteTrade(TradeResult result, double currentBalance) {
             trades.add(result);
@@ -339,14 +363,7 @@ public class BackTestEngine {
             totalTrades++;
             totalPnL += result.pnl;
 
-            if (result.pnl > 0) wins++;
-            else losses++;
-
             if (result.reason == Trading.ExitReason.TIMEOUT) timeouts++;
-
-            if (result.exitTime > 0 && result.entryTime > 0) {
-                totalHoldTimeMillis += (result.exitTime - result.entryTime);
-            }
 
             // Drawdown calculation
             if (currentBalance > peakBalance) {
@@ -364,27 +381,37 @@ public class BackTestEngine {
             return initialBalance > 0 ? (totalPnL / initialBalance) * 100 : 0;
         }
 
+        public double getRoiWins() {
+            double roi = 0;
+            for (TradeResult tr : trades) if (tr.pnlPercent > 0) roi += tr.pnlPercent*100;
+            return roi / getWins();
+        }
+
+        public double getRoiLosses() {
+            double roi = 0;
+            for (TradeResult tr : trades) if (tr.pnlPercent < 0) roi += tr.pnlPercent*100;
+            return roi / getLosses();
+        }
+
         public double getRoiTimeOut() {
             double roi = 0;
-            for (TradeResult tr : trades) {
-                if (tr.reason().equals(Trading.ExitReason.TIMEOUT)) roi += tr.pnlPercent;
-            }
+            for (TradeResult tr : trades) if (tr.reason().equals(Trading.ExitReason.TIMEOUT)) roi += tr.pnlPercent;
             return roi*100;
         }
 
         public double getRoiLong() {
             double roi = 0;
-            for (TradeResult tr : trades) {
-                if (tr.reason().equals(Trading.ExitReason.LONG_STOP_LOSS) || tr.reason().equals(Trading.ExitReason.LONG_TAKE_PROFIT)) roi += tr.pnlPercent;
-            }
+            for (TradeResult tr : trades)
+                if (tr.reason().equals(Trading.ExitReason.LONG_STOP_LOSS) || tr.reason().equals(Trading.ExitReason.LONG_TAKE_PROFIT))
+                    roi += tr.pnlPercent;
             return roi*100;
         }
 
         public double getRoiShort() {
             double roi = 0;
-            for (TradeResult tr : trades) {
-                if (tr.reason().equals(Trading.ExitReason.SHORT_STOP_LOSS) || tr.reason().equals(Trading.ExitReason.SHORT_TAKE_PROFIT)) roi += tr.pnlPercent;
-            }
+            for (TradeResult tr : trades)
+                if (tr.reason().equals(Trading.ExitReason.SHORT_STOP_LOSS) || tr.reason().equals(Trading.ExitReason.SHORT_TAKE_PROFIT))
+                    roi += tr.pnlPercent;
             return roi*100;
         }
 

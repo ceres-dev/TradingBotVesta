@@ -13,7 +13,7 @@ import java.util.List;
 public class DefaultStrategy implements TradingStrategy {
     @Override
     public void executeStrategy(PredictionEngine.@NotNull PredictionResult pred, List<Candle> visibleCandles, Trading openOperations) {
-        for (Trading.OpenOperation op : openOperations.getOpens()) if (op.getCountCandles() >= 1) openOperations.close(Trading.ExitReason.STRATEGY, op.getUuid());
+        for (Trading.OpenOperation op : openOperations.getOpens()) if (op.getMinutesOpen() >= 1) openOperations.close(Trading.ExitReason.STRATEGY, op);
         if (openOperations.openSize() == 0) {
             openOperations.open(
                     0.06,
@@ -26,7 +26,7 @@ public class DefaultStrategy implements TradingStrategy {
     }
 
     @Override
-    public void closeOperation(Trading.CloseOperation closeOperation) {
+    public void closeOperation(Trading.CloseOperation closeOperation, Trading operations) {
 
     }
 }

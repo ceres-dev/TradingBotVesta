@@ -5,18 +5,17 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.common.market.Market;
 import xyz.cereshost.message.Notifiable;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 import static xyz.cereshost.trading.Trading.DireccionOperation.LONG;
 import static xyz.cereshost.trading.Trading.DireccionOperation.SHORT;
 
 public interface Trading extends Notifiable {
     // Abrir una operación
-    void open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage);
+    OpenOperation open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage);
 
     // Cerrar una operación manualmente
-    void close(ExitReason reason, UUID uuidOpenOperation);
+    void close(ExitReason reason, OpenOperation openOperation);
 
     int closeSize();
 
@@ -46,13 +45,15 @@ public interface Trading extends Notifiable {
         private final long exitTime;
         private final long entryTime;
         private final UUID uuidOpenOperation;
+        private final OpenOperation openOperation;
 
-        public CloseOperation(double exitPrice, long exitTime, long entryTime, ExitReason reason, UUID uuidOpenOperation) {
+        public CloseOperation(double exitPrice, long exitTime, long entryTime, ExitReason reason, OpenOperation openOperation) {
             this.exitPrice = exitPrice;
             this.reason = reason;
             this.exitTime = exitTime;
             this.entryTime = entryTime;
-            this.uuidOpenOperation = uuidOpenOperation;
+            this.uuidOpenOperation = openOperation.uuid;
+            this.openOperation = openOperation;
         }
     }
 
@@ -62,7 +63,7 @@ public interface Trading extends Notifiable {
         private final UUID uuid = UUID.randomUUID();
         private double tpPercent;
         private double slPercent;
-        private int countCandles = 0;
+        private int minutesOpen = 0;
         private double lastExitPrices;
 
         private long entryTime;
@@ -74,6 +75,7 @@ public interface Trading extends Notifiable {
         private final double amountInitUSDT;
         private final int leverage;
         private final Trading trading;
+        public final Set<String> flags = new HashSet<>();
 
         // Ojo el TP y SL en Porcentajes ABS sin apalancar
         public OpenOperation(@NotNull Trading trading, double entryPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
@@ -120,7 +122,7 @@ public interface Trading extends Notifiable {
          */
 
         public void next() {
-            countCandles++;
+            minutesOpen++;
         }
     }
 
@@ -131,7 +133,16 @@ public interface Trading extends Notifiable {
         SHORT_STOP_LOSS,
         TIMEOUT,
         STRATEGY,
-        NO_DATA_ERROR
+        STRATEGY_INVERSION,
+        NO_DATA_ERROR;
+
+        public boolean isTakeProfit() {
+            return this == LONG_TAKE_PROFIT || this == SHORT_TAKE_PROFIT;
+        }
+
+        public boolean isStopLoss() {
+            return this == LONG_STOP_LOSS || this == SHORT_STOP_LOSS;
+        }
     }
 
     enum DireccionOperation {

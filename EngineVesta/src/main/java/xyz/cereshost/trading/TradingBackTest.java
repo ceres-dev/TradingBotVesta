@@ -35,9 +35,9 @@ public class TradingBackTest implements Trading {
     }
 
     @Override
-    public void open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
+    public OpenOperation open(double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
         // Lo minimo para invertir en Binance
-        if (amountUSDT*leverage < 5)return;
+        if (amountUSDT*leverage < 5)return null;
         double currentPrice = backTestEngine.getCurrentPrice();
         // Simular el bin y el ask al comprar en mercado
         double realPrice = direccion == DireccionOperation.LONG ? currentPrice + 0.0001 : currentPrice - 0.0001;
@@ -45,11 +45,12 @@ public class TradingBackTest implements Trading {
         o.setEntryTime(backTestEngine.getCurrentTime());
         lastOpenOperation.add(o);
         openOperations.put(o.getUuid() , o);
+        return o;
     }
 
     @Override
-    public void close(ExitReason reason, UUID uuidOpenOperation) {
-        closeOperations.add(new CloseOperationBackTest(backTestEngine.getCurrentPrice(), backTestEngine.getCurrentTime(), openOperations.get(uuidOpenOperation).getEntryTime(), reason, uuidOpenOperation));
+    public void close(ExitReason reason, OpenOperation openOperation) {
+        closeOperations.add(new CloseOperationBackTest(backTestEngine.getCurrentPrice(), backTestEngine.getCurrentTime(), openOperation.getEntryTime(), reason, openOperation));
     }
 
     public void closeForEngine(CloseOperationBackTest closeOperationBackTest){
@@ -93,7 +94,7 @@ public class TradingBackTest implements Trading {
                 backTestEngine.computeClose(closeOperation, open);
                 openOperations.remove(closeOperation.getUuidOpenOperation());
             }
-            backTestEngine.getStrategy().closeOperation(closeOperation);
+            backTestEngine.getStrategy().closeOperation(closeOperation, this);
         }
         closeOperations.clear();
     }
@@ -117,8 +118,8 @@ public class TradingBackTest implements Trading {
 
     public static class CloseOperationBackTest extends CloseOperation {
 
-        public CloseOperationBackTest(double exitPrice, long exitTime, long entryTime, ExitReason reason, UUID uuidOpenOperation) {
-            super(exitPrice, exitTime, entryTime, reason, uuidOpenOperation);
+        public CloseOperationBackTest(double exitPrice, long exitTime, long entryTime, ExitReason reason, OpenOperation openOperation) {
+            super(exitPrice, exitTime, entryTime, reason, openOperation);
         }
     }
 }

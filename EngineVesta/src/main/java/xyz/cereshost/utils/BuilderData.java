@@ -8,8 +8,10 @@ import org.jetbrains.annotations.NotNull;
 import org.ta4j.core.*;
 import org.ta4j.core.indicators.ATRIndicator;
 import org.ta4j.core.indicators.RSIIndicator;
+import org.ta4j.core.indicators.averages.EMAIndicator;
 import org.ta4j.core.indicators.bollinger.*;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.statistics.MeanDeviationIndicator;
 import org.ta4j.core.indicators.supertrend.SuperTrendIndicator;
 import org.ta4j.core.indicators.supertrend.SuperTrendLowerBandIndicator;
 import org.ta4j.core.indicators.supertrend.SuperTrendUpperBandIndicator;
@@ -388,13 +390,14 @@ public class BuilderData {
         RSIIndicator rsi16 = new RSIIndicator(indicator, 16);
 
         // SuperTren
-        SuperTrendIndicator superTrend = new SuperTrendIndicator(series, 5, 0.4);
-
+        SuperTrendIndicator superTrendLow = new SuperTrendIndicator(series, 20, 7);
+        SuperTrendIndicator superTrendMedium = new SuperTrendIndicator(series, 16, 5);
+        SuperTrendIndicator superTrendFast = new SuperTrendIndicator(series, 16, 1.7);
 
         // MACD
         //MACDIndicator macd = new MACDIndicator(indicator, 12, 26);
 //        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 6, 16, 9);
-        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 12, 22, 6);
+        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 6, 22, 5);
         double[] macdArr = macdRes.macd();
         double[] signalArr = macdRes.signal();
         double[] histArr = macdRes.histogram();
@@ -406,7 +409,11 @@ public class BuilderData {
         BollingerBandFacade facadeBand = new BollingerBandFacade(indicator, 20, 2);
 
         // ATR
-        ATRIndicator atr14 = new ATRIndicator(series, 14);
+        ATRIndicator atr14 = new ATRIndicator(series, 20);
+
+        // MAE
+        EMAIndicator emaFast = new EMAIndicator(indicator, 10);
+        EMAIndicator emaSlow = new EMAIndicator(indicator, 80);
 
         // Volumen Normalizado
         Map<String, double[]> vn = FinancialCalculation.computeVolumeNormalizations(simpleByMinute.values().stream().toList(), 14, atr14.stream().map(Num::doubleValue).toList());
@@ -521,7 +528,11 @@ public class BuilderData {
                         facadeBand.bandwidth().getValue(indicatorIndex).doubleValue(),
                         facadeBand.percentB().getValue(indicatorIndex).doubleValue(),
                         atr14.getValue(indicatorIndex).doubleValue(),
-                        (float) (superTrend.getValue(indicatorIndex).floatValue() - close)
+                        (float) (superTrendLow.getValue(indicatorIndex).floatValue() - close),
+                        (float) (superTrendMedium.getValue(indicatorIndex).floatValue() - close),
+                        (float) (superTrendFast.getValue(indicatorIndex).floatValue() - close),
+                        emaSlow.getValue(indicatorIndex).floatValue(),
+                        emaFast.getValue(indicatorIndex).floatValue()
                 ));
             } catch (IllegalArgumentException ignored) {
             }
@@ -693,12 +704,12 @@ public class BuilderData {
                 1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,
                 1,1,1, 1, 1, 1, 1,1,1,1,1,
-                        1, 1 ,1 ,1, 1,1),
+                        1, 1 ,1 ,1, 1,1 ,1,1 ,1 ,1),
                 new Candle(
                 1,1,1,1,1,1,1,1,1,
                 1,1,1,1,1,1,1,1,1,
                 1,1,1, 1, 1, 1,1,1,1,1,1, 1,
-                        1,1,1, 1, 1)
+                        1,1,1, 1, 1,1, 1,1 ,1)
         ).length; // más 2 por que tiene sumar el feature del símbolo en el que esta y todos los símbolos que puede estar
     }
 

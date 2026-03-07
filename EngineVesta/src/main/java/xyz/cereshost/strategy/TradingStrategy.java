@@ -11,8 +11,8 @@ import java.util.List;
  */
 public interface TradingStrategy {
 
-   void executeStrategy(PredictionEngine.PredictionResult prediction, List<Candle> visibleCandles, Trading openOperations);
+   void executeStrategy(PredictionEngine.PredictionResult prediction, List<Candle> visibleCandles, Trading operations);
 
-   void closeOperation(Trading.CloseOperation closeOperation);
+   void closeOperation(Trading.CloseOperation closeOperation, Trading  operations);
 }
 

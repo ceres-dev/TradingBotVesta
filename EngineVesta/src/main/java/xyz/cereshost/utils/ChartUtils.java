@@ -208,8 +208,8 @@ public class ChartUtils {
                 closes[i] = candle.close();
                 volumes[i] = candle.volumeBase();
 
-                // Candle.superTrend() almacena (lineaSuperTrend - close), por eso sumamos close para obtener el precio real de la linea.
-                double superTrendPrice = candle.close() + candle.superTrend();
+                // Candle.superTrendSlow() almacena (lineaSuperTrend - close), por eso sumamos close para obtener el precio real de la linea.
+                double superTrendPrice = candle.emaSlow();// candle.close() + candle.superTrendSlow();
                 if (Double.isFinite(superTrendPrice) && superTrendPrice > 0) {
                     superTrendSeries.add(dates[i].getTime(), superTrendPrice);
                 }
