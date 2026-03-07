@@ -37,7 +37,6 @@ public final class TradingTickLoop implements Notifiable {
     private static final long CANDLE_MS = 60_000;
     private static final long OFFSET = 1_500;
     private static final int LOCAL_ZIP_WARMUP_DAYS = 5;
-    private static final int HISTORY_WINDOW_CANDLES = 5_500;
     private final String symbol;
     @Getter
     private final Executor executor = Executors.newFixedThreadPool(6);
@@ -71,7 +70,7 @@ public final class TradingTickLoop implements Notifiable {
         try {
             binanceApi.setExceptionHandler(this::stop);
             binanceApi.setMediaNotification(this.mediaNotification);
-
+            Vesta.info("Estrategia: %s", strategy.getClass().getSimpleName());
             Market warmupMarket = IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, true);
             if (warmupMarket.getCandleSimples().isEmpty()) {
                 this.localWarmupMarket = null;
@@ -169,27 +168,24 @@ public final class TradingTickLoop implements Notifiable {
             Vesta.warning("No se pudo cargar mercado para este tick.");
             return;
         }
-        tickMarket.getCandleSimples().removeIf(cs -> (cs.openTime() % (1000 * 60 * 60 * 24)) == 0);
         List<Candle> allCandles = BuilderData.to1mCandles(tickMarket);
         if (allCandles.size() <= VestaEngine.LOOK_BACK + 1) {
             Vesta.warning("Histórico insuficiente para tick: %d velas", allCandles.size());
             return;
         }
 
-        int endExclusive = allCandles.size() - 1;
-        int startInclusive = Math.max(VestaEngine.LOOK_BACK, endExclusive - HISTORY_WINDOW_CANDLES);
-        if (startInclusive >= endExclusive) {
-            return;
-        }
-        List<Candle> visible = allCandles.subList(startInclusive, endExclusive);
+
         PredictionEngine.PredictionResult result;
         if (engine != null) {
+            int endExclusive = allCandles.size() - 1;
+            int startInclusive = VestaEngine.LOOK_BACK;
+            List<Candle> visible = allCandles.subList(startInclusive, endExclusive);
             result = engine.predictNextPriceDetail(visible, symbol);
         }else {
             result = null;
         }
         trading.getOpens().forEach(Trading.OpenOperation::next);
-        strategy.executeStrategy(result, visible, trading);
+        strategy.executeStrategy(result, allCandles, trading);
     }
 
     public void updateStatus(){
@@ -249,7 +245,7 @@ public final class TradingTickLoop implements Notifiable {
 
     @Contract(pure = true, value = " -> new")
     public Market loadMarkt() throws IOException, InterruptedException {
-        Market liveMarket = IOMarket.loadMarkets(DataSource.BINANCE, symbol);
+        Market liveMarket = IOMarket.loadMarkets(DataSource.BINANCE, symbol, -1, false);
         if (localWarmupMarket == null || localWarmupMarket.getCandleSimples().isEmpty()) {
             return liveMarket;
         }

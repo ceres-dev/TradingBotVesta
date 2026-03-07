@@ -30,7 +30,7 @@ public class BackTestEngine {
     @NotNull private final Market market;
     @NotNull private final TradingStrategy strategy;
     @Nullable private final PredictionEngine engine;
-    private double balance = 5000;
+    private double balance = 5;
     private double currentPrice;
     private long currentTime;
 
@@ -159,7 +159,7 @@ public class BackTestEngine {
         double grossPnL = getGrossPnL(closeOperation, openOperation, qty);
 
         double netPnL = grossPnL - entryFee - exitFee;
-        return roundPnlAgainst(netPnL);
+        return netPnL;
     }
 
     /**

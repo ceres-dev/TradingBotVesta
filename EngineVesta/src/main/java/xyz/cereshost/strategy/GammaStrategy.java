@@ -16,7 +16,7 @@ public class GammaStrategy implements TradingStrategy {
 
     private static final int MAX_OPEN_CANDLES = 30;
     private static final double RISK_REWARD = 3; // 2:1
-    private static final double MIN_SL_PCT = 0.3;
+    private static final double MIN_SL_PCT = 0.05;
     private static final double MAX_SL_PCT = 6;
 
     private static final double TP_TREND = 0;
@@ -117,8 +117,8 @@ public class GammaStrategy implements TradingStrategy {
             case LONG -> {
 //                if (dirSuperTrendFast != Trading.DireccionOperation.LONG) return;
                 Trading.OpenOperation op = operations.open(
-                        tpPercent + TP_TREND + (deltaMae*15),
-                        slPercent + SL_TREND + (deltaMae*25),
+                        tpPercent + TP_TREND + (deltaMae),
+                        slPercent + SL_TREND + (deltaMae*1.5),
                         Trading.DireccionOperation.LONG, operations.getAvailableBalance() / 2, 4);
                 if (op != null){
                     op.getFlags().add("trend");
@@ -127,8 +127,8 @@ public class GammaStrategy implements TradingStrategy {
             case SHORT -> {
 //                if (dirSuperTrendFast != Trading.DireccionOperation.SHORT) return;
                 Trading.OpenOperation op = operations.open(
-                        tpPercent + TP_TREND + (deltaMae*15),
-                        slPercent + SL_TREND + (deltaMae*25),
+                        tpPercent + TP_TREND + (deltaMae),
+                        slPercent + SL_TREND + (deltaMae*1.5),
                         Trading.DireccionOperation.SHORT, operations.getAvailableBalance() / 2, 4);
                 if (op != null){
                     op.getFlags().add("trend");
@@ -229,7 +229,7 @@ public class GammaStrategy implements TradingStrategy {
 //        if (longSignal) if (dir != Trading.DireccionOperation.LONG) return;
 //        if (shortSignal) if (dir != Trading.DireccionOperation.SHORT) return; && tpPercent > 0.4
                 if (dirSuperTrendSlow == dirSuperTrendMedium && dirSuperTrendMedium == dirSuperTrendFast && dirSuperTrendFast == dirMACD) {
-                    operations.open(tpPercent, slPercent + Math.abs(curr.macdSignal()*10), dirMACD, operations.getAvailableBalance() / 2, 4);
+                    operations.open(tpPercent, slPercent + Math.abs(curr.macdSignal()), dirMACD, operations.getAvailableBalance() / 2, 4);
                 }
             }
         }
@@ -248,8 +248,8 @@ public class GammaStrategy implements TradingStrategy {
             Trading.DireccionOperation direccion = closeOperation.getOpenOperation().isUpDireccion()
                     ? Trading.DireccionOperation.SHORT : Trading.DireccionOperation.LONG;
             Trading.OpenOperation op = operations.open(
-                    trend == Trading.DireccionOperation.NEUTRAL ? 0.5 : 0.6,
-                    trend == Trading.DireccionOperation.NEUTRAL ? 0.4 : 0.6,
+                    closeOperation.getOpenOperation().getTpPercent(),
+                    closeOperation.getOpenOperation().getSlPercent(),
                     direccion,
                     operations.getAvailableBalance() / 2, 4
             );

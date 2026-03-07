@@ -8,10 +8,7 @@ import xyz.cereshost.engine.BackTestEngine;
 import xyz.cereshost.engine.VestaEngine;
 import xyz.cereshost.io.IOMarket;
 import xyz.cereshost.message.DiscordNotification;
-import xyz.cereshost.strategy.DeltaStrategy;
-import xyz.cereshost.strategy.EpsilonStrategy;
-import xyz.cereshost.strategy.GammaStrategy;
-import xyz.cereshost.strategy.TestStrategy;
+import xyz.cereshost.strategy.*;
 import xyz.cereshost.trading.BinanceApiRest;
 import xyz.cereshost.trading.Trading;
 import xyz.cereshost.trading.TradingTickLoop;
@@ -103,7 +100,7 @@ public class Main {
             case "backtest" -> {
                 Market market = new Market("SOLUSDC");
                 List<CompletableFuture<Market>> task = new ArrayList<>();
-                for (int day = 30; day >= 0; day--) {
+                for (int day = 90; day >= 0; day--) {
                     int finalDay = day;
                     task.add(CompletableFuture.supplyAsync(() -> {
                         try {
@@ -118,19 +115,18 @@ public class Main {
                     if (m == null) continue;
                     market.concat(m);
                 }
-                AtomicInteger i = new AtomicInteger(4);
 //                market.concat(IOMarket.loadMarkets(DataSource.BINANCE, "SOLUSDC"));
                 market.getCandleSimples().removeIf(cs -> ((cs.openTime() % ((1000 * 60 * 60 * 24))) == 0));
                 Vesta.info("🔙 Ejecutando backtest...");
                 market.sortd();
-                showDataBackTest(new BackTestEngine(market, null, new GammaStrategy()).run());
+                showDataBackTest(new BackTestEngine(market, null, new ZetaStrategy()).run());
 //                HashMap<String, Double> roiMap = new HashMap<>(); IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, "XRPUSDC", 10)
 //                for (String symbol : Vesta.MARKETS_NAMES) {
 //                    roiMap.put(symbol, new BackTestEngine(IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, symbol, 34), null, new GammaStrategy()).run().roiPercent());
 //                }
 //                Vesta.info(roiMap.toString());
             }
-            case "trading" -> new TradingTickLoop("SOLUSDC", null, new GammaStrategy(), new BinanceApiRest(true), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop("SOLUSDC", null, new ZetaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
             case "diagnose" -> ModelDiagnostics.run();
         }

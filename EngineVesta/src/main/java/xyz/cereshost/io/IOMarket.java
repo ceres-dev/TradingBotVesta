@@ -107,7 +107,7 @@ public class IOMarket {
             case BINANCE -> {
                 long timeTotal = System.currentTimeMillis();
                 Vesta.info("📡 Solicitud de dato a binance del mercado: " + s);
-                String raw = Utils.getRequest("https://fapi.binance.com/fapi/v1/klines" + "?symbol=" + s + "&interval=1m&limit=" + 1438);
+                String raw = Utils.getRequest("https://fapi.binance.com/fapi/v1/klines" + "?symbol=" + s + "&interval=1m&limit=" + 1500);
                 ObjectMapper mapper1 = new ObjectMapper();
                 JsonNode root1;
                 try {
@@ -117,9 +117,7 @@ public class IOMarket {
                 }
                 ArrayDeque<CandleSimple> deque = new ArrayDeque<>();
                 Vesta.info("📂 Datos recibidos de binance del mercado: " + s + " (" + raw.getBytes(StandardCharsets.UTF_8).length / 1024 + "mb)");
-                for (int i = 0; i < 1438; i++) {
-                    JsonNode kline = root1.get(i);
-
+                for (JsonNode kline : root1) {
                     double baseVolume = kline.get(5).asDouble();
                     double quoteVolume = kline.get(7).asDouble();  // USDT
                     double takerBuyQuoteVolume = kline.get(10).asDouble(); // USDT agresivo
