@@ -6,7 +6,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>xyz.cereshost</groupId>
+        <groupId>xyz.cereshost.vesta</groupId>
         <artifactId>TradingBotVesta</artifactId>
         <version>1.0</version>
     </parent>

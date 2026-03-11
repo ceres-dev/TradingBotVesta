@@ -1,6 +1,6 @@
 package xyz.cereshost.vesta.core.io;
 
-import xyz.cereshost.vesta.core.engine.VestaEngine;
+import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.common.market.Trade;
 
 import java.io.DataInputStream;

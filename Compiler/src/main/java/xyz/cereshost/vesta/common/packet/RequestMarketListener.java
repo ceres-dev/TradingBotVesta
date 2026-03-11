@@ -1,11 +1,11 @@
 package xyz.cereshost.vesta.common.packet;
 
+import xyz.cereshost.vesta.common.packet.client.RequestMarketClient;
+import xyz.cereshost.vesta.common.packet.server.MarketDataServer;
 import xyz.cereshost.vesta.compilator.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.compilator.file.IOdata;
 import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.client.RequestMarketClient;
-import xyz.cereshost.vesta.common.server.MarketDataServer;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;

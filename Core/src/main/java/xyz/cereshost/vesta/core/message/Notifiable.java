@@ -2,6 +2,10 @@ package xyz.cereshost.vesta.core.message;
 
 import org.jetbrains.annotations.NotNull;
 
+/**
+ * Las clases que implementa está interfaz podrá enviar notificación al usuario
+ */
+
 public interface Notifiable extends MediaNotification {
     @NotNull MediaNotification getMediaNotification();
 

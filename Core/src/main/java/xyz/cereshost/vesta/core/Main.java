@@ -3,20 +3,19 @@ package xyz.cereshost.vesta.core;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.engine.BackTestEngine;
-import xyz.cereshost.vesta.core.engine.VestaEngine;
+import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
-import xyz.cereshost.vesta.core.strategy.KappaStrategy;
-import xyz.cereshost.vesta.core.strategy.ZetaStrategy;
-import xyz.cereshost.vesta.core.trading.BinanceApiRest;
-import xyz.cereshost.vesta.core.trading.Trading;
-import xyz.cereshost.vesta.core.trading.TradingTickLoop;
+import xyz.cereshost.vesta.core.strategys.LambdaStrategy;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
+import xyz.cereshost.vesta.core.trading.TradingManager;
+import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
+import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
-import xyz.cereshost.vesta.core.utils.EngineUtils;
-import xyz.cereshost.vesta.core.utils.ModelDiagnostics;
+import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
+import xyz.cereshost.vesta.core.ia.utils.ModelDiagnostics;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -29,11 +28,11 @@ public class Main {
 
     public static final String NAME_MODEL = "VestaIA";
 
-    @NotNull public static final List<String> SYMBOLS_TRAINING = List.of("ETHUSDT");
-    @NotNull public static final String SYMBOL = "ETHUSDT";
-    @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZIP;
-    @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZIP;
-    public static final int MAX_MONTH_TRAINING = 3;
+    @NotNull public static final List<String> SYMBOLS_TRAINING = List.of("SOLUSDC");
+    @NotNull public static final String SYMBOL = "SOLUSDC";
+    @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZST;
+    @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZST;
+    public static final int MAX_MONTH_TRAINING = 8;
 
 
     @Getter
@@ -59,11 +58,11 @@ public class Main {
                 Vesta.info("  MAE Promedio TP:           %.8f", evaluateResult.avgMaeTP());
                 Vesta.info("  MAE Promedio SL:           %.8f", evaluateResult.avgMaeSL());
                 Vesta.info("  Acierto de Tendencia:      %.2f%%S %.2f%%A %.2f%%F %.2f%%C", evaluateResult.hitRateSimple(), evaluateResult.hitRateAdvanced(), evaluateResult.hitRateSafe(), evaluateResult.hitRateConfident(0.7f));
-                int[] longHits = evaluateResult.hitRate(Trading.DireccionOperation.LONG);
+                int[] longHits = evaluateResult.hitRate(TradingManager.DireccionOperation.LONG);
                 Vesta.info("  Real Long                  %d L %d S %d N", longHits[0], longHits[1], longHits[2]);
-                int[] shortHits = evaluateResult.hitRate(Trading.DireccionOperation.SHORT);
+                int[] shortHits = evaluateResult.hitRate(TradingManager.DireccionOperation.SHORT);
                 Vesta.info("  Real Short                 %d L %d S %d N", shortHits[0],  shortHits[1], shortHits[2]);
-                int[] NeutralHits = evaluateResult.hitRate(Trading.DireccionOperation.NEUTRAL);
+                int[] NeutralHits = evaluateResult.hitRate(TradingManager.DireccionOperation.NEUTRAL);
                 Vesta.info("  Real Neutral               %d L %d S %d N", NeutralHits[0], NeutralHits[1], NeutralHits[2]);
                 ChartUtils.showPredictionComparison("Backtest " + String.join(" ", symbols), evaluateResult.resultEvaluate());
                 List<EngineUtils.ResultEvaluate> resultEvaluate = evaluateResult.resultEvaluate();
@@ -100,7 +99,7 @@ public class Main {
             case "backtest" -> {
                 Market market = new Market("SOLUSDC");
                 List<CompletableFuture<Market>> task = new ArrayList<>();
-                for (int day = 60; day >= 0; day--) {
+                for (int day = 7; day >= 0; day--) {
                     int finalDay = day;
                     task.add(CompletableFuture.supplyAsync(() -> {
                         try {
@@ -115,17 +114,11 @@ public class Main {
                     if (m == null) continue;
                     market.concat(m);
                 }
-//                market.concat(IOMarket.loadMarkets(DataSource.BINANCE, "SOLUSDC"));
                 Vesta.info("🔙 Ejecutando backtest...");
                 market.sortd();
-                showDataBackTest(new BackTestEngine(market, null, new ZetaStrategy()).run());
-//                HashMap<String, Double> roiMap = new HashMap<>(); IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, "XRPUSDC", 10)
-//                for (String symbol : Vesta.MARKETS_NAMES) {
-//                    roiMap.put(symbol, new BackTestEngine(IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, symbol, 34), null, new GammaStrategy()).run().roiPercent());
-//                }
-//                Vesta.info(roiMap.toString());
+                showDataBackTest(new BackTestEngine(market, null, new LambdaStrategy()).run());
             }
-            case "trading" -> new TradingTickLoop("SOLUSDC", null, new ZetaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop("SOLUSDC", null, new LambdaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
             case "diagnose" -> ModelDiagnostics.run();
         }
@@ -161,12 +154,12 @@ public class Main {
         Vesta.info(" Trades Totales:          %d",  stats.getTotalTrades());
         Vesta.info("  Win Rate:               %.2f%% (%d W / %d L)", winRate, stats.getWins(), stats.getLosses());
         Vesta.info("  Timeouts:               %d (Salida por tiempo) ROI %.2f%% ", stats.getTimeouts(), stats.getRoiTimeOut());
-        Vesta.info("  Total TP/SL/STR:        %d TP / %s SL / %s STR", stats.getTrades(Trading.ExitReason.LONG_TAKE_PROFIT) + stats.getTrades(Trading.ExitReason.SHORT_TAKE_PROFIT), stats.getTrades(Trading.ExitReason.LONG_STOP_LOSS) + stats.getTrades(Trading.ExitReason.SHORT_STOP_LOSS), stats.getTrades(Trading.ExitReason.STRATEGY));
-        Vesta.info("  L TP/SL:                %d TP / %s SL", stats.getTrades(Trading.ExitReason.LONG_TAKE_PROFIT), stats.getTrades(Trading.ExitReason.LONG_STOP_LOSS));
-        Vesta.info("  S TP/SL:                %d TP / %s SL", stats.getTrades(Trading.ExitReason.SHORT_TAKE_PROFIT), stats.getTrades(Trading.ExitReason.SHORT_STOP_LOSS));
+        Vesta.info("  Total TP/SL/STR:        %d TP / %s SL / %s STR", stats.getTrades(TradingManager.ExitReason.LONG_TAKE_PROFIT) + stats.getTrades(TradingManager.ExitReason.SHORT_TAKE_PROFIT), stats.getTrades(TradingManager.ExitReason.LONG_STOP_LOSS) + stats.getTrades(TradingManager.ExitReason.SHORT_STOP_LOSS), stats.getTrades(TradingManager.ExitReason.STRATEGY));
+        Vesta.info("  L TP/SL:                %d TP / %s SL", stats.getTrades(TradingManager.ExitReason.LONG_TAKE_PROFIT), stats.getTrades(TradingManager.ExitReason.LONG_STOP_LOSS));
+        Vesta.info("  S TP/SL:                %d TP / %s SL", stats.getTrades(TradingManager.ExitReason.SHORT_TAKE_PROFIT), stats.getTrades(TradingManager.ExitReason.SHORT_STOP_LOSS));
         Vesta.info("  Ratio (P/M/N/R)         %.3f %.3f %.3f %.3f", stats.getRatioAvg(), stats.getRatioMax(), stats.getRatioMin(), stats.getRoiWins() / Math.abs(stats.getRoiLosses()));
         Vesta.info("  ROI TP (Min)            %.2f%% L %.2f%% S", stats.getRoiTPMinLong(), stats.getRoiTPMinShort());
-        Vesta.info("  ROI STR                 %.2f%% (%.2f%%)", stats.getRoiStrategy(), stats.getRoiAvg(Trading.ExitReason.STRATEGY));
+        Vesta.info("  ROI STR                 %.2f%% (%.2f%%)", stats.getRoiStrategy(), stats.getRoiAvg(TradingManager.ExitReason.STRATEGY));
         Vesta.info("  DireRate:               (%d %.2f%% L, %d %.2f%% S, %d N)", stats.getLongs(), stats.getRoiLong(), stats.getShorts(), stats.getRoiShort(), stats.getNothing());
         Vesta.info("  Avg Hold Time P/W/L:    %.3fm %.3fm %.3fm", avgHoldMinutes, avgHoldMinutesWin, avgHoldMinutesLoss);
         Vesta.info("  Roi P/W/L               %.3f%% %.3f%% %.3f%%", stats.getRoiAvg(), stats.getRoiWins(),  stats.getRoiLosses());

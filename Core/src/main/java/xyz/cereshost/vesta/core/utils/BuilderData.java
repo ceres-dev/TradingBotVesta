@@ -21,7 +21,7 @@ import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.core.FinancialCalculation;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.engine.VestaEngine;
+import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.IOdata;
 
@@ -38,7 +38,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 
-import static xyz.cereshost.vesta.core.engine.VestaEngine.LOOK_BACK;
+import static xyz.cereshost.vesta.core.ia.VestaEngine.LOOK_BACK;
 
 public class BuilderData {
 
@@ -99,7 +99,7 @@ public class BuilderData {
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
                             Vesta.info("(idx:%d) 📦 Exportando Pair (C:%d)", currentMonth, candlesThisMonth.size());
-                            Pair<float[][][], float[][]> pair = BuilderData.build(candlesThisMonth, LOOK_BACK, futureWindow);
+                            Pair<float[][][], float[][]> pair = BuilderData.buildPair(candlesThisMonth, LOOK_BACK, futureWindow);
                             AtomicReference<float[][][]> Xraw = new AtomicReference<>(pair.getKey());
                             AtomicReference<float[][]> yraw = new AtomicReference<>(pair.getValue());
                             if (Xraw.get().length == 0) {
@@ -270,7 +270,7 @@ public class BuilderData {
      * firstHitFlag: 0 si el mínimo se alcanza primero, 1 si el máximo se alcanza primero.
      */
     @Contract("_, _, _ -> new")
-    public static @NotNull Pair<float[][][], float[][]> build(@NotNull List<Candle> candles, int lookBack, int futureWindow) {
+    public static @NotNull Pair<float[][][], float[][]> buildPair(@NotNull List<Candle> candles, int lookBack, int futureWindow) {
         int n = candles.size();
         int samples = n - lookBack - futureWindow;
 

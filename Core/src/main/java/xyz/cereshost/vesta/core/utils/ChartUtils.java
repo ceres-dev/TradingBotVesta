@@ -20,10 +20,11 @@ import org.jfree.data.xy.OHLCDataset;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.engine.BackTestEngine;
+import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
+import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.CandleSimple;
-import xyz.cereshost.vesta.core.trading.Trading;
+import xyz.cereshost.vesta.core.trading.TradingManager;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -38,7 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
 import static org.jfree.chart.axis.NumberAxis.createIntegerTickUnits;
-import static xyz.cereshost.vesta.core.engine.PredictionEngine.THRESHOLD_RELATIVE;
+import static xyz.cereshost.vesta.core.ia.PredictionEngine.THRESHOLD_RELATIVE;
 
 public class ChartUtils {
 
@@ -1352,9 +1353,9 @@ public class ChartUtils {
                 double entryX = entryCandle.openTime();
 
                 // Agregar marker de entrada
-                if (trade.getDirection() == Trading.DireccionOperation.LONG) {
+                if (trade.getDirection() == TradingManager.DireccionOperation.LONG) {
                     entryLongSeries.add(entryX, trade.getEntryPrice());
-                } else if (trade.getDirection() == Trading.DireccionOperation.SHORT) {
+                } else if (trade.getDirection() == TradingManager.DireccionOperation.SHORT) {
                     entryShortSeries.add(entryX, trade.getEntryPrice());
                 }
 
@@ -1501,16 +1502,16 @@ public class ChartUtils {
         if (trades != null && !trades.isEmpty()) {
             // Contar estadísticas
             long longWins = trades.stream()
-                    .filter(t -> t.getDirection() == Trading.DireccionOperation.LONG && t.getPnl() > 0)
+                    .filter(t -> t.getDirection() == TradingManager.DireccionOperation.LONG && t.getPnl() > 0)
                     .count();
             long longLosses = trades.stream()
-                    .filter(t -> t.getDirection() == Trading.DireccionOperation.LONG && t.getPnl() <= 0)
+                    .filter(t -> t.getDirection() == TradingManager.DireccionOperation.LONG && t.getPnl() <= 0)
                     .count();
             long shortWins = trades.stream()
-                    .filter(t -> t.getDirection() == Trading.DireccionOperation.SHORT && t.getPnl() > 0)
+                    .filter(t -> t.getDirection() == TradingManager.DireccionOperation.SHORT && t.getPnl() > 0)
                     .count();
             long shortLosses = trades.stream()
-                    .filter(t -> t.getDirection() == Trading.DireccionOperation.SHORT && t.getPnl() <= 0)
+                    .filter(t -> t.getDirection() == TradingManager.DireccionOperation.SHORT && t.getPnl() <= 0)
                     .count();
 
             String legendText = String.format(
@@ -1553,8 +1554,8 @@ public class ChartUtils {
         for (int i = 0; i < trades.size(); i++) {
             BackTestEngine.CompleteTrade trade = trades.get(i);
 
-            String direction = trade.getDirection() == Trading.DireccionOperation.LONG ? "LONG" :
-                    trade.getDirection() == Trading.DireccionOperation.SHORT ? "SHORT" : "NEUT";
+            String direction = trade.getDirection() == TradingManager.DireccionOperation.LONG ? "LONG" :
+                    trade.getDirection() == TradingManager.DireccionOperation.SHORT ? "SHORT" : "NEUT";
 
             String exitReason = trade.getExitReason().name()
                     .replace("LONG_", "")

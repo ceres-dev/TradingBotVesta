@@ -7,6 +7,8 @@ import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.NotNull;
+import xyz.cereshost.vesta.common.packet.client.RequestMarketClient;
+import xyz.cereshost.vesta.common.packet.server.MarketDataServer;
 import xyz.cereshost.vesta.core.DataSource;
 import xyz.cereshost.vesta.common.packet.Utils;
 import xyz.cereshost.vesta.common.Vesta;
@@ -15,8 +17,6 @@ import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.common.market.Volumen;
 import xyz.cereshost.vesta.core.packet.PacketHandler;
-import xyz.cereshost.vesta.common.client.RequestMarketClient;
-import xyz.cereshost.vesta.common.server.MarketDataServer;
 
 import java.io.*;
 import java.net.URL;
@@ -64,7 +64,7 @@ public class IOMarket {
         for (int dayIndex = normalizedDays; dayIndex >= DEFAULT_LOOKBACK_DAY_INDEX; dayIndex--) {
             Market dayMarket;
             try {
-                dayMarket = loadMarkets(DataSource.LOCAL_ZIP, s, dayIndex, loadTrades);
+                dayMarket = loadMarkets(DataSource.LOCAL_ZST, s, dayIndex, loadTrades);
             } catch (IOException e) {
                 Vesta.warning("No se pudo cargar LOCAL_ZIP %s (idx=%d): %s", s, dayIndex, e.getMessage());
                 continue;
@@ -161,7 +161,7 @@ public class IOMarket {
                 Vesta.info("✅ Datos procesado de binance del mercado: %s (%.2fs)", s, (float) (System.currentTimeMillis() - timeTotal) / 1000);
                 latch.countDown();
             }
-            case LOCAL_ZIP -> {
+            case LOCAL_ZST -> {
                 // Normalizar dayIndex a >= 1
                 int normalizedDayIndex = Math.max(1, dayIndex);
                 LocalDate targetDate = resolveDateFromDayIndex(normalizedDayIndex);

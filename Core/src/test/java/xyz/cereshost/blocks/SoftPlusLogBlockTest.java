@@ -7,7 +7,7 @@ import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.training.ParameterStore;
 import org.junit.jupiter.api.Test;
-import xyz.cereshost.vesta.core.blocks.SoftPlusLogBlock;
+import xyz.cereshost.vesta.core.ia.blocks.SoftPlusLogBlock;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 

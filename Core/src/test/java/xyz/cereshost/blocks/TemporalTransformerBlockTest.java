@@ -8,9 +8,9 @@ import ai.djl.ndarray.types.DataType;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.training.ParameterStore;
 import org.junit.jupiter.api.Test;
-import xyz.cereshost.vesta.core.blocks.CausalMaskManager;
-import xyz.cereshost.vesta.core.blocks.TemporalTransformerBlock;
-import xyz.cereshost.vesta.core.engine.VestaEngine;
+import xyz.cereshost.vesta.core.ia.blocks.CausalMaskManager;
+import xyz.cereshost.vesta.core.ia.blocks.TemporalTransformerBlock;
+import xyz.cereshost.vesta.core.ia.VestaEngine;
 
 import java.lang.reflect.Field;
 

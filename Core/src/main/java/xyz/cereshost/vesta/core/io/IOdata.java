@@ -9,11 +9,11 @@ import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.packet.Utils;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.engine.VestaEngine;
+import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.TrainingData;
-import xyz.cereshost.vesta.core.utils.XNormalizer;
-import xyz.cereshost.vesta.core.utils.YNormalizer;
+import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
+import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;

@@ -3,7 +3,7 @@ package xyz.cereshost.vesta.common.packet;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.client.HelloClient;
+import xyz.cereshost.vesta.common.packet.client.HelloClient;
 
 import java.io.*;
 import java.net.InetSocketAddress;

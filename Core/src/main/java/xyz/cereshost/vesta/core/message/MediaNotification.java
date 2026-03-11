@@ -2,6 +2,9 @@ package xyz.cereshost.vesta.core.message;
 
 import org.jetbrains.annotations.Nullable;
 
+/**
+ * El medio que se usa para enviar la notificación
+ */
 public interface MediaNotification {
     void critical(String message, Object... param);
     void error(String message, Object... param);

@@ -2,8 +2,9 @@ package xyz.cereshost.vesta.core.packet;
 
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.client.HelloClient;
+
 import xyz.cereshost.vesta.common.packet.*;
+import xyz.cereshost.vesta.common.packet.client.HelloClient;
 
 import java.io.*;
 import java.net.InetSocketAddress;
@@ -53,6 +54,7 @@ public class PacketHandler extends BasePacketHandler {
 
                     sendAllPacket();          // Enviar en bloques
                     sendPacket(new HelloClient());
+
                     Vesta.info("✅ UUID del cliente: %s", idClient);
                     latch.countDown();
                     handleClientConnection(); // Leer en bloques
