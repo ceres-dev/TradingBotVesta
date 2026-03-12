@@ -21,11 +21,11 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.trading.TradingManager;
 
 import java.io.IOException;
 import java.nio.FloatBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static xyz.cereshost.vesta.core.ia.PredictionEngine.THRESHOLD_RELATIVE;

@@ -2,8 +2,8 @@ package xyz.cereshost.vesta.core.strategys;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 

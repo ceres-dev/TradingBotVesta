@@ -11,16 +11,16 @@ import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategys.DefaultStrategy;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.strategys.TradingStrategy;
+import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
+import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.ArrayList;
+import java.util.List;
 
 @Getter
 public class BackTestEngine {

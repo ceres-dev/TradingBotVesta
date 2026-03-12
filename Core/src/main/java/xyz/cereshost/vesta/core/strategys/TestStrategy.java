@@ -14,9 +14,7 @@ public class TestStrategy implements TradingStrategy {
     private boolean isPeekClose = false;
     @Override
     public void executeStrategy(PredictionEngine.PredictionResult prediction, List<Candle> visibleCandles, TradingManager openOperations) {
-        if (openOperations.hasOpenOperation()){
-
-        }else {
+        if (!openOperations.hasOpenOperation()) {
             boolean b = isHigh(visibleCandles, 60);
             if (!isPeekClose) isPeekClose = b;
             if (isPeekClose && !b)

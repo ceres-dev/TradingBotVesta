@@ -21,11 +21,11 @@ import org.jfree.data.xy.OHLCDataset;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
-import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.CandleSimple;
-import xyz.cereshost.vesta.core.trading.TradingManager;
+import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
+import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;

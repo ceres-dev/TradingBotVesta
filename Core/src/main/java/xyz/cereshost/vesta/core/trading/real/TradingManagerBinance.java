@@ -152,9 +152,18 @@ public class TradingManagerBinance implements TradingManager {
             double quantity = (op.getAmountInitUSDT() * op.getLeverage()) / op.getEntryPrice();
             String qtyStr = binanceApi.formatQuantity(symbol, quantity);
 
-            tradingTickLoop.getExecutor().execute(() -> {
-                binanceApi.placeOrder(symbol, op.getDireccion().inverse(), TypeOrder.MARKET, op.getTimeInForce(), qtyStr, null, true, false);
-            });
+            tradingTickLoop.getExecutor().execute(() ->
+                    binanceApi.placeOrder(
+                            symbol,
+                            op.getDireccion().inverse(),
+                            TypeOrder.MARKET,
+                            op.getTimeInForce(),
+                            qtyStr,
+                            null,
+                            true,
+                            false
+                    )
+            );
 
             // 3. Registrar cierre
             double exitPrice = binanceApi.getTickerPrice(symbol);

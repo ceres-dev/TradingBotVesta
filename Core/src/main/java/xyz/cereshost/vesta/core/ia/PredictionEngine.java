@@ -14,14 +14,13 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.utils.BuilderData;
-import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
-import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
-import xyz.cereshost.vesta.core.io.IOdata;
-import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.PredictionUtils;
+import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
+import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
+import xyz.cereshost.vesta.core.io.IOdata;
+import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.utils.BuilderData;
 
 import java.io.IOException;
 import java.util.Comparator;
@@ -207,10 +206,6 @@ public class PredictionEngine {
 
         public double getRatio(){
             return getTpPercent() / getSlPercent();
-        }
-
-        public boolean isProfitableSetup() {
-            return getRatio() <= 1f;
         }
     }
 

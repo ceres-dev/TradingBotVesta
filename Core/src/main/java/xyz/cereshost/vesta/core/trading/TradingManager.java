@@ -2,16 +2,17 @@ package xyz.cereshost.vesta.core.trading;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.Getter;
 import lombok.experimental.Delegate;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 import static xyz.cereshost.vesta.core.trading.DireccionOperation.LONG;
 import static xyz.cereshost.vesta.core.trading.DireccionOperation.SHORT;

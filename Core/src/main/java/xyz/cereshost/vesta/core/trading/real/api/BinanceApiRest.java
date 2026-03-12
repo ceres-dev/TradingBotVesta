@@ -15,7 +15,6 @@ import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
-import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 
 import java.io.IOException;

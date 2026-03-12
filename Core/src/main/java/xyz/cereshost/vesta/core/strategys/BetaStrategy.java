@@ -1,7 +1,7 @@
 package xyz.cereshost.vesta.core.strategys;
 
-import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
