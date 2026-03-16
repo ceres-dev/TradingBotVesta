@@ -10,22 +10,22 @@ import java.util.List;
 
 public class BetaStrategy implements TradingStrategy {
 
-    private static final MaType MA_TYPE = MaType.EMA;
-    private static final int MA_LEN = 100;
+    private static final MaType MA_TYPE = MaType.VWMA;
+    private static final int MA_LEN = 60;
     private static final Source MA_SOURCE = Source.CLOSE;
 
-    private static final MaType ATR_TYPE = MaType.RMA;
+    private static final MaType ATR_TYPE = MaType.SMA;
     private static final double ATR_MULT = 3;
-    private static final int ATR_LEN = 7;
+    private static final int ATR_LEN = 15;
 
-    private static final int CONFIRM_BARS = 2;
-    private static final ConfirmSource CONFIRM_SOURCE = ConfirmSource.CLOSE;
+    private static final int CONFIRM_BARS = 1;
+    private static final ConfirmSource CONFIRM_SOURCE = ConfirmSource.LOW_HIGH;
 
     private static final EntryMethod ENTRY_METHOD = EntryMethod.MA_CROSS;
-    private static final double TP_PERCENT = 3.5;
-    private static final double SL_PERCENT = 1.25;
+    private static final double TP_PERCENT = 1.5;
+    private static final double SL_PERCENT = 1.4;
 
-    private static final int LEVERAGE = 3;
+    private static final int LEVERAGE = 4;
     private static final double ORDER_BALANCE_FRACTION = 0.2;
     private static final double MIN_ORDER_NOTIONAL = 5.2;
 
@@ -40,6 +40,7 @@ public class BetaStrategy implements TradingStrategy {
         if (visibleCandles == null || visibleCandles.size() < Math.max(MA_LEN, ATR_LEN) + 3) {
             return;
         }
+        if (couldDown > 0) couldDown--;
 
         int lastIndex = visibleCandles.size() - 1;
         int prevIndex = lastIndex - 1;
@@ -79,7 +80,7 @@ public class BetaStrategy implements TradingStrategy {
             crossUsed = false;
         }
 
-        if (operations.hasOpenOperation()) {
+        if (operations.hasOpenOperation() || couldDown > 0) {
             return;
         }
 
@@ -113,9 +114,19 @@ public class BetaStrategy implements TradingStrategy {
 
     }
 
+    private short strikeLosses = 0;
+    private int couldDown = 0;
+
     @Override
     public void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations) {
-
+        if (closeOperation.getReason().isTakeProfit()) {
+            strikeLosses = 0;
+        }else {
+            strikeLosses++;
+        }
+        if (strikeLosses >= 3) {
+            couldDown = 60*12;
+        }
     }
 
     private void open(TradingManager operations, DireccionOperation direction) {
@@ -132,7 +143,8 @@ public class BetaStrategy implements TradingStrategy {
             return;
         }
 
-        operations.open(TP_PERCENT, SL_PERCENT, direction, amountUsdt, LEVERAGE);
+        TradingManager.OpenOperation open = operations.open(TP_PERCENT, SL_PERCENT , direction, amountUsdt, LEVERAGE);
+        if (open != null) open.getFlags().add("Beta");
     }
 
     private static double computeAtr(List<Candle> candles, int endIndex, int length, MaType atrType) {

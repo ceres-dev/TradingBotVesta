@@ -31,7 +31,7 @@ public class BackTestEngine {
     @NotNull private final Market market;
     @NotNull private final TradingStrategy strategy;
     @Nullable private final PredictionEngine engine;
-    private double balance = 7;
+    private double balance = 6;
     private double currentPrice;
     private long currentTime;
 

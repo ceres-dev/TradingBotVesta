@@ -28,8 +28,8 @@ public class KappaStrategy implements TradingStrategy {
     private static final double RSI_LONG_THRESHOLD = 50.0;
     private static final double RSI_SHORT_THRESHOLD = 40.0;
 
-    private static final double TP_POINTS = 3;
-    private static final double SL_POINTS = 2;
+    private static final double TP_POINTS = 1.5;
+    private static final double SL_POINTS = 1;
     private static final double TICKS_PER_POINT = 19;
     private static final double PRICE_TICK_SIZE = 0.01;
 
@@ -37,7 +37,7 @@ public class KappaStrategy implements TradingStrategy {
     private static final double TRAIL_POINTS_MULTIPLIER = 0.55;
     private static final double TRAIL_OFFSET_TICKS = 50.0;
 
-    private static final int LEVERAGE = 4;
+    private static final int LEVERAGE = 3;
     private static final double ORDER_BALANCE_FRACTION = 1.0;
     private static final double MIN_ORDER_NOTIONAL = 8.0;
 

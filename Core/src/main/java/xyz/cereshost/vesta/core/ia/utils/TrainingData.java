@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.utils;
+package xyz.cereshost.vesta.core.ia.utils;
 
 
 import ai.djl.util.Pair;
@@ -11,10 +11,6 @@ import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
-import xyz.cereshost.vesta.core.ia.utils.AutoStopListener;
-import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
-import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
-import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
 import xyz.cereshost.vesta.core.io.IOdata;
 
 import java.io.IOException;
@@ -275,7 +271,7 @@ public class TrainingData {
             for (int i = 0; i < amount; i++){
                 int j = i;
                 pairsLoaded.add(CompletableFuture.supplyAsync(() ->
-                    getPairNormalizeFromDisk(trainingList.get(j))
+                    getPairNormalizeFromDisk(trainingList.get(j % trainingList.size()))
                 ));
             }
         }

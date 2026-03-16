@@ -10,12 +10,12 @@ import xyz.cereshost.vesta.core.trading.TradingManager;
 import java.util.List;
 
 public class ZetaStrategy implements TradingStrategy {
-    private static final double GRID_POINT_PERCENT = 0.3;
-    private static final double BASE_ORDER_UNITS = 1.8;
+    private static final double GRID_POINT_PERCENT = 0.2;
+    private static final double BASE_ORDER_UNITS = 0.04;
     private static final double BASE_ORDER_MARGIN_USDT = 10.0;
     private static final double MARTINGALE_MULTIPLIER = 2;
     private static final boolean ANTI_MARTINGALE = false;
-    private static final int LEVERAGE = 4;
+    private static final int LEVERAGE = 35;
     private static final double MIN_ORDER_NOTIONAL = 5.0;
 
     @Nullable
@@ -68,11 +68,16 @@ public class ZetaStrategy implements TradingStrategy {
             operations.log("Momento no optimo para operar baseline: " + baseline + " previousBaseline: " + previousBaseline);
             return;
         }
+
+        if (current.atr14() < .7){
+            return;
+        }
+
         double rsi = current.rsi8();
         double strong = Math.abs(rsi -50)/100;
         double atrPercent = (lastVisibleCandles.getLast().atr14() / close) * 100.0;
         if (atrPercent < 0.15) return;
-        double distancePercent = GRID_POINT_PERCENT + ((strong) * GRID_POINT_PERCENT);//* ((atrPercent - 0.01) * 0.1);// baselineMovePercent;
+        double distancePercent = GRID_POINT_PERCENT;//* ((atrPercent - 0.01) * 0.1);// baselineMovePercent;
         if (!Double.isFinite(distancePercent) || distancePercent <= 0) {
             operations.log("EL distancePercent dio infinito");
             return;
@@ -88,12 +93,17 @@ public class ZetaStrategy implements TradingStrategy {
 
         if (operations.hasOpenOperation()) {
             operations.log("Ya hay una operacion abierta");
-            return;
+            TradingManager.OpenOperation openOperation = operations.getOpens().getFirst();
+            if (openOperation.getFlags().contains("Beta")) {
+                openOperation.close();
+            }else {
+                return;
+            }
         }
 
         operations.open(
                 distancePercent,
-                distancePercent*0.9,
+                distancePercent/3,
                 signal,
                 operations.getAvailableBalance()/2,
                 LEVERAGE

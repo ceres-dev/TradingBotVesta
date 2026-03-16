@@ -37,7 +37,7 @@ public class MetricsListener extends TrainingListenerAdapter {
         float lossValidation = result.getValidateLoss();
         float maeTrain = result.getTrainEvaluation("mae");
         float maeValidation = result.getValidateEvaluation("mae");
-        float minValidation = result.getValidateEvaluation("min_diff");
+//        float minValidation = result.getValidateEvaluation("min_diff");
         float maxValidation = result.getValidateEvaluation("max_diff");
         // Calucar porgreso
         double progress = (double) trainer.getTrainingResult().getEpoch() / (VestaEngine.EPOCH * (Main.MAX_MONTH_TRAINING) * VestaEngine.AUXILIAR_EPOCH);
@@ -72,8 +72,8 @@ public class MetricsListener extends TrainingListenerAdapter {
                 datasetLoss = ChartUtils.plot("Training Losses Max/Min " + String.join(", ", symbols), "epochs",
                         List.of(new ChartUtils.DataPlot("Loss max", List.of(l.max()), new Color(0, 64, 0), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
                                 new ChartUtils.DataPlot("Loss min", List.of(l.min()), new Color(64, 0, 0), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
-                                new ChartUtils.DataPlot("max", List.of(maxValidation), Color.GREEN, ChartUtils.DataPlot.StyleLine.NORMAL),
-                                new ChartUtils.DataPlot("min", List.of(minValidation), Color.RED, ChartUtils.DataPlot.StyleLine.NORMAL)
+                                new ChartUtils.DataPlot("max", List.of(maxValidation), Color.GREEN, ChartUtils.DataPlot.StyleLine.NORMAL)//,
+//                                new ChartUtils.DataPlot("min", List.of(minValidation), Color.RED, ChartUtils.DataPlot.StyleLine.NORMAL)
                         )
                 );
                 datasetRoi = ChartUtils.plot("diff " + String.join(", ", symbols), "epochs",
@@ -88,7 +88,7 @@ public class MetricsListener extends TrainingListenerAdapter {
             datasetNormal.getSeries("Loss V").add(count, lossValidation);
             datasetNormal.getSeries("MAE V").add(count, maeValidation);
             datasetLoss.getSeries("max").add(count, maxValidation);
-            datasetLoss.getSeries("min").add(count, minValidation);
+//            datasetLoss.getSeries("min").add(count, minValidation);
             datasetLoss.getSeries("Loss max").add(count, l.max());
             datasetLoss.getSeries("Loss min").add(count, l.min());
             datasetRoi.getSeries("diff").add(count, l.meanReal() - l.meanPred());

@@ -14,11 +14,11 @@ public class TestStrategy implements TradingStrategy {
     private boolean isPeekClose = false;
     @Override
     public void executeStrategy(PredictionEngine.PredictionResult prediction, List<Candle> visibleCandles, TradingManager openOperations) {
-        if (!openOperations.hasOpenOperation()) {
-            boolean b = isHigh(visibleCandles, 60);
-            if (!isPeekClose) isPeekClose = b;
-            if (isPeekClose && !b)
-                openOperations.open(0.4, 0.2, DireccionOperation.SHORT, openOperations.getAvailableBalance()/2, 1);
+        if (openOperations.hasOpenOperation()) {
+            openOperations.getOpens().getFirst().close();
+        }else {
+            openOperations.open(0.4, 0.2, DireccionOperation.SHORT, openOperations.getAvailableBalance()/2, 1);
+
         }
     }
 

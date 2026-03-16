@@ -43,7 +43,7 @@ public class YNormalizer implements Normalizer<float[][]> {
         }
         for (float[] row : y) {
             for (int col = 0; col < numOutputs; col++) {
-                if (col >= 2 || col >= row.length) {
+                if (/*col >= 2 || */col >= row.length) {
                     continue;
                 }
                 float v = row[col];
@@ -97,15 +97,11 @@ public class YNormalizer implements Normalizer<float[][]> {
         float[][] normalized = new float[y.length][numOutputs];
         for (int i = 0; i < y.length; i++) {
             for (int col = 0; col < numOutputs; col++) {
-                if (col < 2) {
-                    float raw = y[i][col];
-                    if (!Float.isFinite(raw) || raw < 0f) raw = 0f;
-                    double lv = Math.log1p(raw);
-                    float z = (float) ((lv - means[col]) / stds[col]);
-                    normalized[i][col] = Float.isFinite(z) ? z : 0f;
-                } else {
-                    normalized[i][col] = y[i][col];
-                }
+                float raw = y[i][col];
+                if (!Float.isFinite(raw) || raw < 0f) raw = 0f;
+                double lv = Math.log1p(raw);
+                float z = (float) ((lv - means[col]) / stds[col]);
+                normalized[i][col] = Float.isFinite(z) ? z : 0f;
             }
         }
         return normalized;
@@ -116,13 +112,9 @@ public class YNormalizer implements Normalizer<float[][]> {
         float[][] original = new float[yNorm.length][yNorm[0].length];
         for (int i = 0; i < yNorm.length; i++) {
             for (int col = 0; col < yNorm[i].length; col++) {
-                if (col < 2) {
-                    double lv = (yNorm[i][col] * stds[col]) + means[col];
-                    double v = Math.expm1(lv);
-                    original[i][col] = Double.isFinite(v) && v > 0.0 ? (float) v : 0f;
-                } else {
-                    original[i][col] = yNorm[i][col];
-                }
+                double lv = (yNorm[i][col] * stds[col]) + means[col];
+                double v = Math.expm1(lv);
+                original[i][col] = Double.isFinite(v) && v > 0.0 ? (float) v : 0f;
             }
         }
         return original;

@@ -22,6 +22,7 @@ import xyz.cereshost.vesta.core.FinancialCalculation;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
+import xyz.cereshost.vesta.core.ia.utils.TrainingData;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.IOdata;
 
@@ -272,55 +273,63 @@ public class BuilderData {
     @Contract("_, _, _ -> new")
     public static @NotNull Pair<float[][][], float[][]> buildPair(@NotNull List<Candle> candles, int lookBack, int futureWindow) {
         int n = candles.size();
-        int samples = n - lookBack - futureWindow;
+        int samples = n - lookBack;// - futureWindow;
 
         if (samples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
 
         float[][][] X = new float[samples][lookBack][FEATURES];
         float[][] y = new float[samples][5];
 
-        for (int i = 0; i < samples; i++) {
-            // 1. Extraer Features (X)
-            for (int j = 0; j < lookBack; j++) {
-                X[i][j] = extractFeatures(candles.get(i + j + 1), candles.get(i + j));
-            }
-
-            // 2. Definir punto de entrada (Cierre de la ultima vela del lookback)
-            double entryPrice = candles.get(i + lookBack).close();
-
-            // --- ESCANEO DEL FUTURO (Max/Min por mecha) ---
-            double maxWick = -Double.MAX_VALUE;
-            double minWick = Double.MAX_VALUE;
-            int maxIndex = -1;
-            int minIndex = -1;
-
-            for (int f = 1; f <= futureWindow; f++) {
-                Candle future = candles.get(i + lookBack + f);
-
-                if (future.high() > maxWick) {
-                    maxWick = future.high();
-                    maxIndex = f;
-                }
-                if (future.low() < minWick) {
-                    minWick = future.low();
-                    minIndex = f;
-                }
-            }
-
-            double upMove = Math.abs(maxWick - entryPrice);
-            double downMove = Math.abs(entryPrice - minWick);
-            float firstHitFlag = (maxIndex <= minIndex) ? 1f : 0f;
-
-            // 3. ASIGNACION DE ETIQUETAS (Y):
-            // output 0: upMove (mecha) en porcentaje sobre entryPrice
-            y[i][0] = (float) ((entryPrice > 0) ? Math.max(0.0, (upMove / entryPrice)) : 0.0);
-            // output 1: downMove (mecha) en porcentaje sobre entryPrice
-            y[i][1] = (float) ((entryPrice > 0) ? Math.max(0.0, (downMove / entryPrice)) : 0.0);
-
-            // output 2: 0 si mínimo primero, 1 si máximo primero
-            y[i][2] = firstHitFlag;
-            y[i][3] = 0f;
+        for (int i = 1; i < samples; i++) {
+//            // 1. Extraer Features (X)
+//            for (int j = 0; j < lookBack; j++) {
+//                X[i][j] = extractFeatures(candles.get(i + j + 1), candles.get(i + j));
+//            }
+//
+//            // 2. Definir punto de entrada (Cierre de la ultima vela del lookback)
+//            double entryPrice = candles.get(i + lookBack).close();
+//
+//            // --- ESCANEO DEL FUTURO (Max/Min por mecha) ---
+//            double maxWick = -Double.MAX_VALUE;
+//            double minWick = Double.MAX_VALUE;
+//            int maxIndex = -1;
+//            int minIndex = -1;
+//
+//            for (int f = 1; f <= futureWindow; f++) {
+//                Candle future = candles.get(i + lookBack + f);
+//
+//                if (future.high() > maxWick) {
+//                    maxWick = future.high();
+//                    maxIndex = f;
+//                }
+//                if (future.low() < minWick) {
+//                    minWick = future.low();
+//                    minIndex = f;
+//                }
+//            }
+//
+//            double upMove = Math.abs(maxWick - entryPrice);
+//            double downMove = Math.abs(entryPrice - minWick);
+//            float firstHitFlag = (maxIndex <= minIndex) ? 1f : 0f;
+//
+//            // 3. ASIGNACION DE ETIQUETAS (Y):
+//            // output 0: upMove (mecha) en porcentaje sobre entryPrice
+//            y[i][0] = (float) ((entryPrice > 0) ? Math.max(0.0, (upMove / entryPrice)) : 0.0);
+//            // output 1: downMove (mecha) en porcentaje sobre entryPrice
+//            y[i][1] = (float) ((entryPrice > 0) ? Math.max(0.0, (downMove / entryPrice)) : 0.0);
+//
+//            // output 2: 0 si mínimo primero, 1 si máximo primero
+//            y[i][2] = firstHitFlag;
+//            y[i][3] = 0f;
+//            y[i][4] = 0f;
+            Candle c = candles.get(i);
+            Candle preC = candles.get(i - 1);
+            y[i][0] = (float) c.getDiffPercent()/100;
+            y[i][1] = (float) ((c.high() - preC.high())/c.high());
+            y[i][2] = (float) ((c.low() - preC.low())/c.low());
+            y[i][3] = (float) (c.volZscore());
             y[i][4] = 0f;
+
         }
 
         return new Pair<>(X, y);
@@ -607,25 +616,25 @@ public class BuilderData {
 
         // 1-4: Precios relativos (Log Returns)
         fList.add(safeLogRatio(curr.high(), prev.high()));
-        fList.add(safeLogRatio(curr.open(), prev.open()));
+//        fList.add(safeLogRatio(curr.open(), prev.open()));
         fList.add(safeLogRatio(curr.close(), prev.close()));
         fList.add(safeLogRatio(curr.low(), prev.low()));
 
-        fList.add(safeFloat(curr.direccion()));
-        fList.add(safeLog1p(curr.amountTrades()));
+//        fList.add(safeFloat(curr.direccion()));
+//        fList.add(safeLog1p(curr.amountTrades()));
 
         // Volúmenes relativos
-        fList.add(safeFloat(curr.volRatioToMean()));
+//        fList.add(safeFloat(curr.volRatioToMean()));
         fList.add(safeFloat(curr.volZscore()));
-        fList.add(safeFloat(curr.volPerAtr()));
+//        fList.add(safeFloat(curr.volPerAtr()));
 //        fList.add((float) Math.log(curr.quoteVolume() / prevClose));
 //        fList.add((float) Math.log((curr.buyQuoteVolume() - prev.buyQuoteVolume()) / curr.buyQuoteVolume()));// Dan 0
 //        fList.add((float) Math.log((curr.sellQuoteVolume() - prev.sellQuoteVolume()) / curr.sellQuoteVolume()));
 
         // Delta y Buy Ratio
-        double totalVol = curr.buyQuoteVolume() + curr.sellQuoteVolume();
-        fList.add(safeDiv(curr.deltaUSDT(), totalVol));
-        fList.add(safeFloat(curr.buyRatio()));
+//        double totalVol = curr.buyQuoteVolume() + curr.sellQuoteVolume();
+//        fList.add(safeDiv(curr.deltaUSDT(), totalVol));
+//        fList.add(safeFloat(curr.buyRatio()));
 
 //        fList.add((float) Math.log(curr.bidLiquidity() / prevClose));
 //        fList.add((float) Math.log(curr.askLiquidity() / prevClose));
@@ -637,16 +646,16 @@ public class BuilderData {
 
         // RSI
 //        fList.add(safeDiv(curr.rsi4(), 100.0));
-        fList.add(safeDiv(curr.rsi8(), 100.0));
-        fList.add(safeDiv(curr.rsi16(), 100.0));
+//        fList.add(safeDiv(curr.rsi8(), 100.0));
+//        fList.add(safeDiv(curr.rsi16(), 100.0));
 
         // MACD
-        fList.add(safeDiv(curr.macdVal(), curr.close()));
-        fList.add(safeDiv(curr.macdSignal(), curr.close()));
-        fList.add(safeDiv(curr.macdHist(), curr.close()));
+//        fList.add(safeDiv(curr.macdVal(), curr.close()));
+//        fList.add(safeDiv(curr.macdSignal(), curr.close()));
+//        fList.add(safeDiv(curr.macdHist(), curr.close()));
 
         // NVI
-        fList.add(safeDiv(curr.nvi(), curr.close()));
+//        fList.add(safeDiv(curr.nvi(), curr.close()));
 
         // Bollinger
         double bbUpper = curr.upperBand();
@@ -657,10 +666,10 @@ public class BuilderData {
         float bbBandwidth = safeDiv(bbRange, bbMiddle);
         float bbPos = safeDiv(curr.close() - bbMiddle, bbRange);
 
-        fList.add(bbBandwidth);
-        fList.add(bbPos);
+//        fList.add(bbBandwidth);
+//        fList.add(bbPos);
         // ATR
-        fList.add(safeDiv(curr.atr14(), curr.close()));
+//        fList.add(safeDiv(curr.atr14(), curr.close()));
 
         float[] f = new float[fList.size()];
         for (int i = 0; i < fList.size(); i++) {

@@ -106,13 +106,13 @@ public class TradingManagerBinance implements TradingManager {
             DireccionOperation direccionInverse = direccion.inverse();
 
             tradingTickLoop.getExecutor().execute(() ->{
-                long slOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.STOP_LOSS, op.getTimeInForce(), null, slPrice, true, true);
+                long slOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.STOP_MARKET, op.getTimeInForce(), null, slPrice, true, true);
                 op.setSlBinanceId(slOrderId);
                 op.setSlIsAlgo(true);
             });
 
             tradingTickLoop.getExecutor().execute(() -> {
-                long tpOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.TAKE_PROFIT,  op.getTimeInForce(),null, tpPrice, true, true);
+                long tpOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.TAKE_PROFIT_MARKET,  op.getTimeInForce(),null, tpPrice, true, true);
                 op.setTpBinanceId(tpOrderId);
                 op.setTpIsAlgo(true);
             });
@@ -123,6 +123,11 @@ public class TradingManagerBinance implements TradingManager {
             Vesta.sendErrorException("Binance Error Open Async", e);
             return null;
         }
+    }
+
+    @Override
+    public @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
+        return null;
     }
 
     @Override
@@ -178,11 +183,6 @@ public class TradingManagerBinance implements TradingManager {
             Vesta.sendErrorException("Binance Error Open Async", e);
             return null;
         }
-    }
-
-    @Override
-    public @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
-        return null;
     }
 
     @Override
@@ -248,7 +248,15 @@ public class TradingManagerBinance implements TradingManager {
     public void updateOrdens(String symbol) {
         lastBalance = 0;
         if (activeOperations.isEmpty()) {
-            return;
+            try {
+                restoreOpenOperationFromBinance(symbol);
+            } catch (Exception e) {
+                Vesta.error("Error restaurando operación desde Binance: " + e.getMessage());
+                return;
+            }
+            if (activeOperations.isEmpty()) {
+                return;
+            }
         }
 
         try {
@@ -290,6 +298,75 @@ public class TradingManagerBinance implements TradingManager {
                 Vesta.error("Error updating state: " + e.getMessage());
             }
         }
+    }
+
+    @Nullable
+    private BinanceOpenOperation restoreOpenOperationFromBinance(String symbol) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("symbol", symbol);
+        JsonNode positions = binanceApi.sendSignedRequest("GET", "/fapi/v2/positionRisk", params);
+
+        if (positions == null || positions.isNull()) {
+            return null;
+        }
+
+        JsonNode positionNode = null;
+        if (positions.isArray()) {
+            for (JsonNode position : positions) {
+                if (!symbol.equalsIgnoreCase(position.path("symbol").asText())) {
+                    continue;
+                }
+                if (Math.abs(position.path("positionAmt").asDouble(0.0)) > POSITION_EPSILON) {
+                    positionNode = position;
+                    break;
+                }
+            }
+        } else if (positions.isObject() && symbol.equalsIgnoreCase(positions.path("symbol").asText(symbol))) {
+            positionNode = positions;
+        }
+
+        if (positionNode == null) {
+            return null;
+        }
+
+        double positionAmt = positionNode.path("positionAmt").asDouble(0.0);
+        if (Math.abs(positionAmt) <= POSITION_EPSILON) {
+            return null;
+        }
+
+        DireccionOperation direccion = positionAmt > 0 ? DireccionOperation.LONG : DireccionOperation.SHORT;
+        double entryPrice = positionNode.path("entryPrice").asDouble(0.0);
+        if (entryPrice <= 0.0) {
+            entryPrice = positionNode.path("markPrice").asDouble(0.0);
+        }
+
+        if (entryPrice <= 0.0) {
+            Vesta.warning("No se pudo reconstruir la operación de " + symbol + " (precio de entrada inválido).");
+            return null;
+        }
+
+        int leverage = positionNode.path("leverage").asInt(1);
+        if (leverage <= 0) {
+            leverage = 1;
+        }
+
+        double amountUSDT = Math.abs(positionAmt) * entryPrice / leverage;
+
+        BinanceOpenOperation op = new BinanceOpenOperation(
+                this,
+                entryPrice,
+                0.0,
+                0.0,
+                direccion,
+                amountUSDT,
+                leverage
+        );
+
+        activeOperations.put(op.getUuid(), op);
+        lastLeverage = leverage;
+        Vesta.warning("Operación abierta detectada en Binance para " + symbol + ". Se reconstruyó localmente: " + op.getUuid());
+        info("Operación abierta detectada en Binance para **%s**. Se reconstruyó localmente: %s", symbol, op.getUuid());
+        return op;
     }
 
     private boolean hasOpenPositionOnBinance(String symbol) {
@@ -372,12 +449,12 @@ public class TradingManagerBinance implements TradingManager {
 
         @Override
         public synchronized void setTpPercent(double tpPercent) {
-            updateProtectionOrder(true, tpPercent, TypeOrder.TAKE_PROFIT);
+            updateProtectionOrder(true, tpPercent, TypeOrder.TAKE_PROFIT_MARKET);
         }
 
         @Override
         public synchronized void setSlPercent(double slPercent) {
-            updateProtectionOrder(false, slPercent, TypeOrder.STOP_LOSS);
+            updateProtectionOrder(false, slPercent, TypeOrder.STOP_MARKET);
         }
 
         private void updateProtectionOrder(boolean isTpOrder, double newPercent, @NotNull TypeOrder orderType) {

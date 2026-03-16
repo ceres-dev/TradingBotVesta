@@ -9,10 +9,7 @@ import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 
 import static xyz.cereshost.vesta.core.trading.DireccionOperation.LONG;
 import static xyz.cereshost.vesta.core.trading.DireccionOperation.SHORT;
@@ -29,6 +26,8 @@ public interface TradingManager extends Notifiable {
      */
     @Nullable OpenOperation open(double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
 
+    @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
+
     /**
      * Cierras una Operación previamente Abierta
      * @param reason Razón de la salida
@@ -36,7 +35,6 @@ public interface TradingManager extends Notifiable {
      */
     @Nullable CloseOperation close(ExitReason reason, OpenOperation openOperation);
 
-    @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
 
     int closeSize();
 

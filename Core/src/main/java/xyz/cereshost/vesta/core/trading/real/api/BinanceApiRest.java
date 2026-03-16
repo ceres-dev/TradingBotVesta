@@ -73,7 +73,7 @@ public final class BinanceApiRest implements BinanceApi {
         params.put("symbol", symbol);
         params.put("side", side.getSide());
         params.put("type", type.name());
-        params.put("timeInForce", timeInForce.name());
+        if (type.isLimit()) params.put("timeInForce", timeInForce.name());
         if (closePosition) {
             params.put("closePosition", "true");
         } else if (quantity != null) {
@@ -107,7 +107,7 @@ public final class BinanceApiRest implements BinanceApi {
         params.put("symbol", symbol);
         params.put("side", side.getSide());
         params.put("type", type.name());                       // STOP_MARKET, TAKE_PROFIT_MARKET
-        params.put("timeInForce", timeInForce.name());         // Recomendado para condicionales
+        if (type.isLimit()) params.put("timeInForce", timeInForce.name());         // Recomendado para condicionales
 
         // Si se quiere cerrar la posición completa, se usa closePosition y NO se envía quantity
         if (closePosition) {
@@ -268,7 +268,7 @@ public final class BinanceApiRest implements BinanceApi {
     @Override
     public JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
         params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-        params.put("recvWindow", "20000");
+        params.put("recvWindow", "5000");
         try {
             String queryString = buildQueryString(params);
             String signature = hmacSha256(queryString, secretKey);
@@ -300,7 +300,7 @@ public final class BinanceApiRest implements BinanceApi {
     public JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiRequestException {
         try {
             params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-            params.put("recvWindow", "20000");
+            params.put("recvWindow", "5000");
             String queryString = buildQueryString(params);
             String finalUrl = baseUrl + endpoint + "?" + queryString;
 

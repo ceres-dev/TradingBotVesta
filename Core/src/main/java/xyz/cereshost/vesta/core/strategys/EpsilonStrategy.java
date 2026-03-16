@@ -10,9 +10,6 @@ import xyz.cereshost.vesta.core.utils.StrategyUtils;
 
 import java.util.List;
 
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.isHigh;
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.isLow;
-
 public class EpsilonStrategy implements TradingStrategy {
 
     private static final int MIN_VISIBLE_CANDLES = 140;
@@ -71,7 +68,7 @@ public class EpsilonStrategy implements TradingStrategy {
             boolean inversion = open.getFlags().contains("inversion");
             boolean margenTakeProfit = open.getRoiRaw() > open.getTpPercent()/2 || (inversion && open.getRoiRaw() > 0);
             if (open.isUpDireccion()){
-                boolean b = isHigh(visibleCandles, inversion ? 15 : 60);
+                boolean b = StrategyUtils.isHigh(visibleCandles, inversion ? 15 : 60);
                 if (!isPeekClose) isPeekClose = b;
                 if (isPeekClose && !b && margenTakeProfit) {
                     isPeekClose = false;
@@ -79,7 +76,7 @@ public class EpsilonStrategy implements TradingStrategy {
                     operations.close(TradingManager.ExitReason.STRATEGY, open);
                 }
             }else {
-                boolean b = isLow(visibleCandles, inversion ? 15 : 60);
+                boolean b = StrategyUtils.isLow(visibleCandles, inversion ? 15 : 60);
                 if (!isPeekClose) isPeekClose = b;
                 if (isPeekClose && !b && margenTakeProfit) {
                     isPeekClose = false;

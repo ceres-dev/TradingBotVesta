@@ -64,7 +64,7 @@ public class VestaLoss extends Loss {
 //        NDArray lossOrder = computeFirstHitLoss(trueUp, trueDown, trueFirstHit, predParts.get(2));
 
         NDArray directionPenalty = computeDirectionPenalty(trueUp, trueDown, predParts.get(0), predParts.get(1));
-        NDArray totalLoss = lossUp.add(lossDown);//.mul(directionPenalty.mean());
+        NDArray totalLoss = computeDistance(trueParts.get(0), predParts.get(0));
         CompletableFuture<LossReport> request = dataRequest;
         if (request != null && !request.isDone()) {
             // Solo aquí pagamos el costo de sincronización GPU -> CPU
@@ -83,7 +83,7 @@ public class VestaLoss extends Loss {
 
     public NDArray computeDistance(NDArray trueND, NDArray predND){
         NDArray diff = trueND.sub(predND).abs();
-        return diff.max();
+        return diff.mean();
     }
     public NDArray computeRelative(NDArray trueND, NDArray predND){
         NDManager manager = trueND.getManager();

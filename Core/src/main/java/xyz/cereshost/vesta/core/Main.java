@@ -9,7 +9,7 @@ import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.ModelDiagnostics;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
-import xyz.cereshost.vesta.core.strategys.BetaStrategy;
+import xyz.cereshost.vesta.core.strategys.LambdaStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
@@ -35,7 +35,7 @@ public class Main {
     @NotNull public static final String SYMBOL = "SOLUSDC";
     @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZST;
     @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZST;
-    public static final int MAX_MONTH_TRAINING = 8;
+    public static final int MAX_MONTH_TRAINING = 3;
 
 
     @Getter
@@ -102,7 +102,7 @@ public class Main {
             case "backtest" -> {
                 Market market = new Market("SOLUSDC");
                 List<CompletableFuture<Market>> task = new ArrayList<>();
-                for (int day = 30; day >= 0; day--) {
+                for (int day = 60; day >= 0; day--) {
                     int finalDay = day;
                     task.add(CompletableFuture.supplyAsync(() -> {
                         try {
@@ -119,9 +119,9 @@ public class Main {
                 }
                 Vesta.info("🔙 Ejecutando backtest...");
                 market.sortd();
-                showDataBackTest(new BackTestEngine(market, null, new BetaStrategy()).run());
+                showDataBackTest(new BackTestEngine(market, null, new LambdaStrategy()).run());
             }
-            case "trading" -> new TradingTickLoop("SOLUSDC", null, new BetaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop("SOLUSDC", null, new LambdaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
             case "diagnose" -> ModelDiagnostics.run();
         }

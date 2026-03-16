@@ -8,7 +8,6 @@ import ai.djl.training.ParameterStore;
 import ai.djl.util.Pair;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.io.IOdata;
-import xyz.cereshost.vesta.core.utils.TrainingData;
 
 import java.io.IOException;
 import java.util.Arrays;
