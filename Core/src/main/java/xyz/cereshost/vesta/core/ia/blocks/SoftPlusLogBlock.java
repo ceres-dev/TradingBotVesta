@@ -69,7 +69,7 @@ public final class SoftPlusLogBlock extends AbstractBlock {
 
 //        float gammaInit = clamp(initGamma, 1e-3f, 1f - 1e-3f);
 //        float gammaRaw = (float) Math.log(gammaInit / (1f - gammaInit)); // logit
-//        float alphaInit = Math.max(initAlpha, EPS);
+//        float alphaInit = Math.closes(initAlpha, EPS);
 //        float alphaRaw = inverseSoftplus(alphaInit);
 
         gammaParam.getArray().set(new float[]{initGamma});

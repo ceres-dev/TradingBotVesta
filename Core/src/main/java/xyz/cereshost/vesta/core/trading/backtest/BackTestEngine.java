@@ -49,7 +49,7 @@ public class BackTestEngine {
     }
 
     public BackTestResult run() {
-        market.sortd();
+        market.sortdInChunks();
         List<Candle> allCandles = BuilderData.to1mCandles(market);
         ChartUtils.showCandleChart("Mercado", allCandles, market.getSymbol());
         return run(allCandles);
@@ -60,7 +60,7 @@ public class BackTestEngine {
         market.buildTradeCache();
 
         int totalSamples = allCandles.size();
-        int lookBack = engine == null ? 150 : engine.getLookBack();
+        int lookBack = engine == null ? 250 : engine.getLookBack();
 
         // Empezamos donde tenemos datos suficientes
         int startIndex = lookBack + 1;
@@ -74,8 +74,8 @@ public class BackTestEngine {
             List<Candle> window = allCandles.subList(i - lookBack, i + 1);
             PredictionEngine.PredictionResult prediction ;
             if (engine != null) {
-                prediction = engine.predictNextPriceDetail(window, market.getSymbol());
-                stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
+                prediction = engine.predictNextPriceDetail(window);
+//                stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
             }else {
                 prediction = null;
             }

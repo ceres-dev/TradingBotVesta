@@ -5,17 +5,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.luben.zstd.ZstdInputStream;
 import com.github.luben.zstd.ZstdOutputStream;
+import lombok.Getter;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.NotNull;
+import xyz.cereshost.vesta.common.Vesta;
+import xyz.cereshost.vesta.common.market.*;
+import xyz.cereshost.vesta.common.packet.Utils;
 import xyz.cereshost.vesta.common.packet.client.RequestMarketClient;
 import xyz.cereshost.vesta.common.packet.server.MarketDataServer;
 import xyz.cereshost.vesta.core.DataSource;
-import xyz.cereshost.vesta.common.packet.Utils;
-import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.CandleSimple;
-import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Trade;
-import xyz.cereshost.vesta.common.market.Volumen;
+import xyz.cereshost.vesta.core.Main;
+import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.packet.PacketHandler;
 
 import java.io.*;
@@ -35,14 +35,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipInputStream;
 
-import static xyz.cereshost.vesta.core.io.KlinesSerializable.parseKlineLine;
-import static xyz.cereshost.vesta.core.io.TradeSerializable.parseTradeLine;
-
 @UtilityClass
 public class IOMarket {
 
-    public static final int TRADE_BIN_MAGIC = 0x54524431;
-    public static final int KLINE_BIN_MAGIC = 0x4B4C4E31;
+//    public static final int TRADE_BIN_MAGIC = 0x54524431;
+//    public static final int KLINE_BIN_MAGIC = 0x4B4C4E31;
     static final int BIN_VERSION = 1;
     private static final int BATCH_SIZE = 50_000;
     public static final String STORAGE_DIR = "data";
@@ -79,7 +76,7 @@ public class IOMarket {
         }
 
         if (!merged.getCandleSimples().isEmpty() || !merged.getTrades().isEmpty()) {
-            merged.sortd();
+            merged.sortdInChunks();
         }
         return merged;
     }
@@ -90,6 +87,69 @@ public class IOMarket {
 
     public static Market loadMarkets(DataSource data, String s, int dayIndex) throws InterruptedException, IOException {
         return loadMarkets(data, s, dayIndex, true);
+    }
+
+    public static Market loadMarketsBinance(String s,
+                                            int limitCandle,
+                                            int limitTrade,
+                                            int limitDepth
+    ){
+        Vesta.info("📡 Solicitud de dato a binance del mercado: " + s);
+        String rawCandles = Utils.getRequest("https://fapi.binance.com/fapi/v1/klines" + "?symbol=" + s + "&interval=1m&limit=" + limitCandle);
+        ObjectMapper mapperCandles = new ObjectMapper();
+        JsonNode root1;
+        try {
+            root1 = mapperCandles.readTree(rawCandles);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        ArrayDeque<CandleSimple> deque = new ArrayDeque<>();
+        Vesta.info("📂 Datos recibidos de binance del mercado: " + s + " (" + rawCandles.getBytes(StandardCharsets.UTF_8).length / 1024 + "mb)");
+        for (JsonNode kline : root1) {
+            double baseVolume = kline.get(5).asDouble();
+            double quoteVolume = kline.get(7).asDouble();  // USDT
+            double takerBuyQuoteVolume = kline.get(10).asDouble(); // USDT agresivo
+
+            double sellQuoteVolume = quoteVolume - takerBuyQuoteVolume;
+            double deltaUSDT = takerBuyQuoteVolume - sellQuoteVolume;
+            double buyRatio = takerBuyQuoteVolume / quoteVolume;
+            deque.add(new CandleSimple(
+                    kline.get(0).asLong(),
+                    kline.get(1).asDouble(), // open
+                    kline.get(2).asDouble(), // high
+                    kline.get(3).asDouble(), // low
+                    kline.get(4).asDouble(), // close
+                    new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)));
+        }
+        Market market = new Market(s);
+        ObjectMapper mapperTrade = new ObjectMapper();
+        JsonNode rootTrade;
+        try {
+            rootTrade = mapperTrade.readTree(Utils.getRequest("https://fapi.binance.com/fapi/v1/trades" + "?symbol=" + s + "&limit=" + limitTrade));
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+        Deque<Trade> trades = new ArrayDeque<>();
+        for (JsonNode trade : rootTrade) {
+            double quoteQty = trade.get("quoteQty").asDouble();
+            double price = trade.get("price").asDouble();
+            boolean isBuyerMaker = trade.get("isBuyerMaker").asBoolean();
+            long time = trade.get("time").asLong();
+            trades.add(new Trade(time, (float) price, (float) quoteQty, isBuyerMaker));
+        }
+        market.addTrade(trades);
+        String rawDepth = Utils.getRequest("https://fapi.binance.com/fapi/v1/depth" + "?symbol=" + s + "&limit=" + limitDepth);
+        OrderBookRaw orderBookRaw = Main.GSON.fromJson(rawDepth, OrderBookRaw.class);
+        Depth depth = new Depth(System.currentTimeMillis(),
+                orderBookRaw.getBids().stream().map(list ->
+                        new Depth.OrderLevel(Double.parseDouble(list.getFirst()), Double.parseDouble(list.get(1)))).toList(),
+                orderBookRaw.getAsks().stream().map(list ->
+                        new Depth.OrderLevel(Double.parseDouble(list.getFirst()), Double.parseDouble(list.get(1)))).toList()
+        );
+
+        market.addCandles(deque);
+        market.addDepth(depth);
+        return market;
     }
 
     public static Market loadMarkets(DataSource data, String s, int dayIndex, boolean loadTrades) throws InterruptedException, IOException {
@@ -109,55 +169,7 @@ public class IOMarket {
             }
             case BINANCE -> {
                 long timeTotal = System.currentTimeMillis();
-                Vesta.info("📡 Solicitud de dato a binance del mercado: " + s);
-                String raw = Utils.getRequest("https://fapi.binance.com/fapi/v1/klines" + "?symbol=" + s + "&interval=1m&limit=" + 1500);
-                ObjectMapper mapper1 = new ObjectMapper();
-                JsonNode root1;
-                try {
-                    root1 = mapper1.readTree(raw);
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
-                ArrayDeque<CandleSimple> deque = new ArrayDeque<>();
-                Vesta.info("📂 Datos recibidos de binance del mercado: " + s + " (" + raw.getBytes(StandardCharsets.UTF_8).length / 1024 + "mb)");
-                for (JsonNode kline : root1) {
-                    double baseVolume = kline.get(5).asDouble();
-                    double quoteVolume = kline.get(7).asDouble();  // USDT
-                    double takerBuyQuoteVolume = kline.get(10).asDouble(); // USDT agresivo
-
-                    double sellQuoteVolume = quoteVolume - takerBuyQuoteVolume;
-                    double deltaUSDT = takerBuyQuoteVolume - sellQuoteVolume;
-                    double buyRatio = takerBuyQuoteVolume / quoteVolume;
-                    deque.add(new CandleSimple(
-                            kline.get(0).asLong(),
-                            kline.get(1).asDouble(), // open
-                            kline.get(2).asDouble(), // high
-                            kline.get(3).asDouble(), // low
-                            kline.get(4).asDouble(), // close
-                            new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)));
-                }
-                Market market = new Market(s);
-                if (loadTrades){
-                    ObjectMapper mapper2 = new ObjectMapper();
-                    JsonNode root2;
-                    try {
-                        root2 = mapper2.readTree(Utils.getRequest("https://fapi.binance.com/fapi/v1/trades" + "?symbol=" + s + "&limit=" + 200));
-                    } catch (JsonProcessingException e) {
-                        throw new RuntimeException(e);
-                    }
-                    Deque<Trade> trades = new ArrayDeque<>();
-                    for (JsonNode trade : root2) {
-                        double quoteQty = trade.get("quoteQty").asDouble();
-                        double price = trade.get("price").asDouble();
-                        boolean isBuyerMaker = trade.get("isBuyerMaker").asBoolean();
-                        long time = trade.get("time").asLong();
-                        trades.add(new Trade(time, (float) price, (float) quoteQty, isBuyerMaker));
-                    }
-                    market.addTrade(trades);
-                }
-
-                market.addCandles(deque);
-                marketFinal.set(market);
+                marketFinal.set(loadMarketsBinance(s, 1000, 1000, 100));
                 Vesta.info("✅ Datos procesado de binance del mercado: %s (%.2fs)", s, (float) (System.currentTimeMillis() - timeTotal) / 1000);
                 latch.countDown();
             }
@@ -240,6 +252,13 @@ public class IOMarket {
         return marketFinal.get();
     }
 
+    @Getter
+    private class OrderBookRaw {
+        private long lastUpdateId;
+        private List<List<String>> bids;
+        private List<List<String>> asks;
+    }
+
     public static LocalDate resolveDateFromDayIndex(int dayIndex) {
         int normalized = Math.max(1, dayIndex);
         return getReferenceBaseDate().minusDays(normalized - 1L);
@@ -282,12 +301,14 @@ public class IOMarket {
         File targetFileBin = new File(dir, fileNameBin);
         File targetFileBinZst = new File(dir, fileNameBinZst);
 
+        ParseSerializable<?> serializable = type.equals("klines") ? new KlinesSerializable() : new TradeSerializable();
+
         if (targetFileBin.exists() && targetFileBin.length() > 0) {
             return targetFileBin;
         } else if (targetFileBinZst.exists() && targetFileBinZst.length() > 0) {
             return targetFileBinZst;
         } else if (targetFileZip.exists() && targetFileZip.length() > 0) {
-            convertZipToBinZst(targetFileZip, targetFileBinZst, type);
+            buildSourceBinFromZst(targetFileZip, targetFileBinZst, serializable);
             safeDelete(targetFileZip);
             return targetFileBinZst;
         }
@@ -309,7 +330,7 @@ public class IOMarket {
             throw new IOException("Fallo al descargar " + urlString, e);
         }
         Vesta.info("✅ Descargando completada: " + fileNameZip);
-        convertZipToBinZst(targetFileZip, targetFileBinZst, type);
+        buildSourceBinFromZst(targetFileZip, targetFileBinZst, serializable);
         safeDelete(targetFileZip);
 
         return targetFileBinZst;
@@ -437,7 +458,14 @@ public class IOMarket {
         boolean wrote = false;
         if (!list.isEmpty()) {
             try {
-                SerializableBin.writeBin(file, list);
+                String entryName = binEntryName(file);
+                rewriteZipWithBinEntry(file, entryName, out -> {
+                    out.writeInt(SerializableBin.getMagic());
+                    out.writeInt(BIN_VERSION);
+                    for (T trade : list) {
+                        SerializableBin.writeBin(out, trade);
+                    }
+                });
                 wrote = true;
             } catch (Exception e) {
                 Vesta.info("Error guardando binario: " + e.getMessage());
@@ -450,12 +478,27 @@ public class IOMarket {
     }
 
     public interface SerializableBin<T> {
-        void writeBin(File zipFile, Deque<T> source) throws IOException;
+        void writeBin(DataOutput out, T source) throws IOException;
         Deque<T> readBin(DataInputStream in) throws IOException;
+        int getMagic();
     }
 
     public interface SerializableCSV<T> {
-        void submitBatch(Deque<FutureTask<List<T>>> tasks, List<String> batch);
+        T parseLine(String line);
+
+        default void submitBatch(Deque<FutureTask<List<T>>> tasks, List<String> batch) {
+            List<String> batchCopy = new ArrayList<>(batch);
+            FutureTask<List<T>> task = new FutureTask<>(() -> {
+                List<T> sources = new ArrayList<>(batchCopy.size());
+                for (String line : batchCopy) {
+                    T source = parseLine(line);
+                    sources.add(source);
+                }
+                return sources;
+            });
+            tasks.addLast(task);
+            VestaEngine.EXECUTOR_AUXILIAR_BUILD.execute(task);
+        }
     }
 
     public <T> void drainTask(Deque<FutureTask<List<T>>> tasks, Deque<T> list) {
@@ -568,14 +611,8 @@ public class IOMarket {
         }
     }
 
-    private static void convertZipToBinZst(File zipFile, File binZstFile, String type) throws IOException {
-        if ("trades".equals(type)) {
-            buildTradeBinFromZip(zipFile, binZstFile);
-        } else if ("klines".equals(type)) {
-            buildKlineBinFromZip(zipFile, binZstFile);
-        } else {
-            throw new IOException("Tipo no soportado: " + type);
-        }
+    private static <T> void convertZipToBinZst(File zipFile, File binZstFile, String type, SerializableCSV<T> serializableCSV, SerializableBin<T> serializableBin) throws IOException {
+
     }
 
     private static void safeDelete(File file) {
@@ -587,13 +624,13 @@ public class IOMarket {
         }
     }
 
-    private static void buildTradeBinFromZip(File zipFile, File binFile) throws IOException {
+    private static <T> void buildSourceBinFromZst(File zipFile, File binFile, ParseSerializable<T> serializable) throws IOException {
         if (binFile.getParentFile() != null) {
             Files.createDirectories(binFile.getParentFile().toPath());
         }
         try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile), (1 << 20) * BUFFER_READ_MB));
              DataOutputStream out = openBinOutputStream(binFile, binFile.getName().endsWith(EXT_ZST))) {
-            out.writeInt(TRADE_BIN_MAGIC);
+            out.writeInt(serializable.getMagic());
             out.writeInt(BIN_VERSION);
             ZipEntry entry;
             while ((entry = zis.getNextEntry()) != null) {
@@ -602,46 +639,7 @@ public class IOMarket {
                     String line;
                     while ((line = br.readLine()) != null) {
                         if (line.isEmpty() || Character.isLetter(line.charAt(0))) continue; // Skip Header
-                        Trade trade = parseTradeLine(line);
-                        if (trade == null) continue;
-                        out.writeLong(trade.time());
-                        out.writeDouble(trade.price());
-                        out.writeDouble(trade.qty());
-                        out.writeBoolean(trade.isBuyerMaker());
-                    }
-                }
-            }
-        }
-    }
-
-    private static void buildKlineBinFromZip(File zipFile, File binFile) throws IOException {
-        if (binFile.getParentFile() != null) {
-            Files.createDirectories(binFile.getParentFile().toPath());
-        }
-        try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile), (1 << 20) * BUFFER_READ_MB));
-             DataOutputStream out = openBinOutputStream(binFile, binFile.getName().endsWith(EXT_ZST))) {
-            out.writeInt(KLINE_BIN_MAGIC);
-            out.writeInt(BIN_VERSION);
-            ZipEntry entry;
-            while ((entry = zis.getNextEntry()) != null) {
-                if (!entry.isDirectory() && entry.getName().endsWith(".csv")) {
-                    BufferedReader br = new BufferedReader(new InputStreamReader(zis), (1 << 20) * BUFFER_READ_MB);
-                    String line;
-                    while ((line = br.readLine()) != null) {
-                        if (line.isEmpty() || Character.isLetter(line.charAt(0))) continue; // Skip Header
-                        CandleSimple candle = parseKlineLine(line);
-                        Volumen vol = candle.volumen();
-                        out.writeLong(candle.openTime());
-                        out.writeDouble(candle.open());
-                        out.writeDouble(candle.high());
-                        out.writeDouble(candle.low());
-                        out.writeDouble(candle.close());
-                        out.writeDouble(vol.quoteVolume());
-                        out.writeDouble(vol.baseVolume());
-                        out.writeDouble(vol.takerBuyQuoteVolume());
-                        out.writeDouble(vol.sellQuoteVolume());
-                        out.writeDouble(vol.deltaUSDT());
-                        out.writeDouble(vol.buyRatio());
+                        serializable.writeBin(out, serializable.parseLine(line));
                     }
                 }
             }
@@ -686,7 +684,6 @@ public class IOMarket {
                      StandardOpenOption.TRUNCATE_EXISTING), (1 << 20) * BUFFER_READ_MB)) {
             copyStream(in, out);
         }
-        System.out.println("Extraido: " + outputPath);
     }
 
     private static void extractBinFromZip(Path zipPath) throws IOException {
@@ -711,7 +708,6 @@ public class IOMarket {
                     }
 
                     // Solo el primer .bin
-                    System.out.println("Extraido: " + outputPath);
                     break;
                 }
             }

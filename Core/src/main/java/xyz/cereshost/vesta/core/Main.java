@@ -1,20 +1,31 @@
 package xyz.cereshost.vesta.core;
 
+import ai.djl.util.Pair;
+import com.google.gson.Gson;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
+import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.common.market.CandleSimple;
 import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.common.market.Volumen;
+import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
-import xyz.cereshost.vesta.core.ia.utils.ModelDiagnostics;
+import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
+import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
 import xyz.cereshost.vesta.core.io.IOMarket;
+import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
-import xyz.cereshost.vesta.core.strategys.LambdaStrategy;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.strategys.AlfaStrategy;
+import xyz.cereshost.vesta.core.strategys.BetaStrategy;
+import xyz.cereshost.vesta.core.strategys.EtaStrategy;
+import xyz.cereshost.vesta.core.strategys.ZetaStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
+import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
 
 import java.io.IOException;
@@ -22,10 +33,8 @@ import java.nio.file.Path;
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.*;
 
 public class Main {
 
@@ -35,7 +44,8 @@ public class Main {
     @NotNull public static final String SYMBOL = "SOLUSDC";
     @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZST;
     @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZST;
-    public static final int MAX_MONTH_TRAINING = 3;
+    public static final int MAX_MONTH_TRAINING = 12*2;
+    public static final Gson GSON = new Gson();
 
 
     @Getter
@@ -54,79 +64,50 @@ public class Main {
                 EngineUtils.ResultsEvaluate evaluateResult = result.evaluate();
                 BackTestEngine.BackTestResult backtestResult = result.backtest();
 
-                Vesta.info("--------------------------------------------------");
-                String fullNameSymbol = String.join(" ", symbols);
-
-                Vesta.info("RESULTADOS FINALES DE " + fullNameSymbol.toUpperCase(Locale.ROOT) + ":");
-                Vesta.info("  MAE Promedio TP:           %.8f", evaluateResult.avgMaeTP());
-                Vesta.info("  MAE Promedio SL:           %.8f", evaluateResult.avgMaeSL());
-                Vesta.info("  Acierto de Tendencia:      %.2f%%S %.2f%%A %.2f%%F %.2f%%C", evaluateResult.hitRateSimple(), evaluateResult.hitRateAdvanced(), evaluateResult.hitRateSafe(), evaluateResult.hitRateConfident(0.7f));
-                int[] longHits = evaluateResult.hitRate(DireccionOperation.LONG);
-                Vesta.info("  Real Long                  %d L %d S %d N", longHits[0], longHits[1], longHits[2]);
-                int[] shortHits = evaluateResult.hitRate(DireccionOperation.SHORT);
-                Vesta.info("  Real Short                 %d L %d S %d N", shortHits[0],  shortHits[1], shortHits[2]);
-                int[] NeutralHits = evaluateResult.hitRate(DireccionOperation.NEUTRAL);
-                Vesta.info("  Real Neutral               %d L %d S %d N", NeutralHits[0], NeutralHits[1], NeutralHits[2]);
-                ChartUtils.showPredictionComparison("Backtest " + String.join(" ", symbols), evaluateResult.resultEvaluate());
-                List<EngineUtils.ResultEvaluate> resultEvaluate = evaluateResult.resultEvaluate();
-
-                // Mostrar dispersión de predicción vs real
-                ChartUtils.plotPredictionVsRealScatter(resultEvaluate, "Predición VS Real");
-
                 // Mostrar distribución de errores por dirección
-                ChartUtils.plotErrorDistributionByDirection(resultEvaluate, "Error de distrución por distacia");
-                ChartUtils.plotRatioDistribution("Ratios " + String.join(" ", symbols), evaluateResult.resultEvaluate());
                 showDataBackTest(backtestResult);
-                // Gráfica de distribución de errores porcentuales
-
-//                resultPrediction.sort(Comparator.comparingDouble(EngineUtils.ResultPrediction::tpDiff));
-//                ChartUtils.plot("Desviación del SL de " + fullNameSymbol, "Resultados De la evaluación",
-//                        List.of(new ChartUtils.DataPlot("Diferencia", resultPrediction.stream().map(EngineUtils.ResultPrediction::tpDiff).toList()),
-//                                new ChartUtils.DataPlot("Predicción", resultPrediction.stream().map(EngineUtils.ResultPrediction::predSL).toList()),
-//                                new ChartUtils.DataPlot("Real", resultPrediction.stream().map(EngineUtils.ResultPrediction::realSL).toList())
-//                        ));
-//                resultPrediction.sort(Comparator.comparingDouble(EngineUtils.ResultPrediction::lsDiff));
-//                ChartUtils.plot("Desviación del TP de " + fullNameSymbol, "Resultados De la evaluación",
-//                        List.of(new ChartUtils.DataPlot("Diferencia", resultPrediction.stream().map(EngineUtils.ResultPrediction::lsDiff).toList()),
-//                                new ChartUtils.DataPlot("Predicción", resultPrediction.stream().map(EngineUtils.ResultPrediction::predTP).toList()),
-//                                new ChartUtils.DataPlot("Real", resultPrediction.stream().map(EngineUtils.ResultPrediction::realTP).toList())
-//                        ));
-//                resultPrediction.sort(Comparator.comparingDouble(EngineUtils.ResultPrediction::dirDiff));
-//                ChartUtils.plot("Desviación dela Dirección de " + fullNameSymbol, "Resultados De la evaluación",
-//                        List.of(new ChartUtils.DataPlot("Diferencia", resultPrediction.stream().map(EngineUtils.ResultPrediction::dirDiff).toList()),
-//                                new ChartUtils.DataPlot("Predicción", resultPrediction.stream().map(EngineUtils.ResultPrediction::predDir).toList()),
-//                                new ChartUtils.DataPlot("Real", resultPrediction.stream().map(EngineUtils.ResultPrediction::realDir).toList())
-//                        ));
             }
 //            case "backtest" -> showDataBackTest(new BackTestEngine(IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, SYMBOL).limit(3), PredictionEngine.loadPredictionEngine("VestaIA"), new AlfaStrategy()).run());
             case "backtest" -> {
-                Market market = new Market("SOLUSDC");
-                List<CompletableFuture<Market>> task = new ArrayList<>();
-                for (int day = 60; day >= 0; day--) {
-                    int finalDay = day;
-                    task.add(CompletableFuture.supplyAsync(() -> {
-                        try {
-                            return Objects.requireNonNull(IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_BACK_TEST, "SOLUSDC", finalDay), "Dia: " + finalDay);
-                        } catch (InterruptedException | IOException e) {
-                            return null;
-                        }
-                    }, VestaEngine.EXECUTOR_AUXILIAR_BUILD));
-                }
-                for (CompletableFuture<Market> future : task) {
-                    Market m = future.get();
-                    if (m == null) continue;
-                    market.concat(m);
-                }
+                Market market = getMarket();
                 Vesta.info("🔙 Ejecutando backtest...");
-                market.sortd();
-                showDataBackTest(new BackTestEngine(market, null, new LambdaStrategy()).run());
+                market.sortdInChunks();
+                Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
+                showDataBackTest(new BackTestEngine(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(), VestaEngine.LOOK_BACK, BuilderData.FEATURES), new AlfaStrategy()).run());
             }
-            case "trading" -> new TradingTickLoop("SOLUSDC", null, new LambdaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop("SOLUSDC", null, new ZetaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
-            case "diagnose" -> ModelDiagnostics.run();
+            case "diagnose" -> {
+                Market market = getMarket();
+                Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
+                List<Integer> indexes = List.of(120, 180, 240, 300, 360, 420, 480);
+                for (int i : indexes) {
+                    showPredictionSnapshot(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(), VestaEngine.LOOK_BACK, BuilderData.FEATURES), i, 30);
+                }
+            }
         }
     }
 
+    private static @NotNull Market getMarket() throws InterruptedException, ExecutionException {
+        Market market = new Market(SYMBOL);
+        List<CompletableFuture<Market>> task = new ArrayList<>();
+        for (int day = 2; day >= 0; day--) {
+            int finalDay = day;
+            task.add(CompletableFuture.supplyAsync(() -> {
+                try {
+                    return Objects.requireNonNull(IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_BACK_TEST, SYMBOL, finalDay), "Dia: " + finalDay);
+                } catch (InterruptedException | IOException e) {
+                    return null;
+                }
+            }, VestaEngine.EXECUTOR_AUXILIAR_BUILD));
+        }
+        for (CompletableFuture<Market> future : task) {
+            Market m = future.get();
+            if (m == null) continue;
+            market.concat(m);
+        }
+        return market;
+    }
 
 
     private static void showDataBackTest(BackTestEngine.BackTestResult backtestResult) {
@@ -173,5 +154,102 @@ public class Main {
         Vesta.info("--------------------------------------------------");
 
         System.gc();
+    }
+
+    public static void showPredictionSnapshot(Market market, PredictionEngine engine) {
+        showPredictionSnapshot(market, engine, 250, BuilderData.DEFAULT_FUTURE_WINDOW);
+    }
+
+    public static void showPredictionSnapshot(Market market, PredictionEngine engine, int predictionIndex, int horizon) {
+        if (market == null || engine == null) {
+            Vesta.error("Market o PredictionEngine es null");
+            return;
+        }
+
+        List<Candle> candles = BuilderData.to1mCandles(market);
+        List<CandleSimple> candleSimples = candles.stream()
+                .map(c -> new CandleSimple(
+                        c.openTime(),
+                        c.open(),
+                        c.high(),
+                        c.low(),
+                        c.close(),
+                        new Volumen(
+                                c.quoteVolume(),
+                                c.volumeBase(),
+                                c.buyQuoteVolume(),
+                                c.sellQuoteVolume(),
+                                c.deltaUSDT(),
+                                c.buyRatio()
+                        )
+                ))
+                .toList();
+
+        if (candles.isEmpty() || candleSimples.isEmpty()) {
+            Vesta.error("No hay velas para mostrar");
+            return;
+        }
+
+        int lookBack = engine.getLookBack();
+        int safeHorizon = Math.max(1, horizon);
+        int maxIndex = candles.size() - safeHorizon - 1;
+        if (maxIndex < lookBack) {
+            Vesta.error("Historial insuficiente para prediccion: %d velas (se requieren %d)",
+                    candles.size(), lookBack + safeHorizon + 1);
+            return;
+        }
+
+        int idx = predictionIndex < 0 ? maxIndex : Math.min(predictionIndex, maxIndex);
+        if (idx < lookBack) {
+            Vesta.error("predictionIndex debe ser >= lookBack (%d)", lookBack);
+            return;
+        }
+
+        int start = idx - lookBack + 1;
+        List<CandleSimple> lookbackCandles = candleSimples.subList(start, idx + 1);
+
+        List<Candle> window = candles.subList(0, idx + 1);
+        PredictionEngine.PredictionResult result = engine.predictNextPriceDetail(window, safeHorizon);
+        System.out.println(result.getCandles());
+        if (result == null || result.getCandles() == null || result.getCandles().isEmpty()) {
+            Vesta.error("No se pudo generar prediccion");
+            return;
+        }
+
+        List<ChartUtils.ClosePredictionPoint> predicted = new ArrayList<>();
+        double lastClose = candles.get(idx).close();
+        long baseTime = candles.get(idx).openTime();
+        for (int k = 0; k < result.getCandles().size(); k++) {
+            double diff = result.getCandles().get(k).close();
+            double predictedClose = lastClose * (1.0 + diff);
+            lastClose = predictedClose;
+
+            long time;
+            int tIdx = idx + 1 + k;
+            if (tIdx < candles.size()) {
+                time = candles.get(tIdx).openTime();
+            } else {
+                time = baseTime + (k + 1L) * 60_000L;
+            }
+            predicted.add(new ChartUtils.ClosePredictionPoint(time, predictedClose));
+        }
+
+        List<ChartUtils.ClosePredictionPoint> actual = new ArrayList<>();
+        for (int k = 0; k < safeHorizon; k++) {
+            int tIdx = idx + 1 + k;
+            if (tIdx >= candles.size()) {
+                break;
+            }
+            Candle c = candles.get(tIdx);
+            actual.add(new ChartUtils.ClosePredictionPoint(c.openTime(), c.close()));
+        }
+
+        ChartUtils.showCandlePredictionSnapshot(
+                "Prediccion " + market.getSymbol(),
+                lookbackCandles,
+                predicted,
+                actual,
+                candles.get(idx).openTime()
+        );
     }
 }

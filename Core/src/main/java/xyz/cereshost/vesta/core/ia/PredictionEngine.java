@@ -14,6 +14,7 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.PredictionUtils;
 import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
@@ -23,6 +24,7 @@ import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
@@ -87,28 +89,23 @@ public class PredictionEngine {
             throw new RuntimeException("El modelo debe tener 5 salidas. Forma actual: " + prediction.getShape());
         }
 
-        // Reorganizar el array plano en [batch_size, 5]
-        int batch = (int) shape[0];
-        float[][] output2D = new float[batch][5];
-
-        for (int i = 0; i < batch; i++) {
-            int base = i * 5;
-            output2D[i][0] = normalizedOutput[base];
-            output2D[i][1] = normalizedOutput[base + 1];
-            output2D[i][2] = 0f;
-            output2D[i][3] = 0f;
-            output2D[i][4] = 0f;
-        }
-
-        // Des normalizar outputs 0 y 1 (upMove/downMove)
-        float[][] denormalized = yNormalizer.inverseTransform(output2D);
-        float upMove = denormalized[0][0] * 100.0f;
-        float downMove = denormalized[0][1] * 100.0f;
-//            manager.close();
-        return new float[]{upMove , downMove, 0f, 0f, 0f};
+        float[][] output2D = new float[1][5];
+        output2D[0][0] = normalizedOutput[0];
+        output2D[0][1] = normalizedOutput[1];
+        output2D[0][2] = normalizedOutput[2];
+        output2D[0][3] = normalizedOutput[3];
+        output2D[0][4] = normalizedOutput[4];
+        return yNormalizer.inverseTransform(output2D)[0];
     }
 
-    public PredictionResult predictNextPriceDetail(List<Candle> candles, String symbol) {
+    public PredictionResult predictNextPriceDetail(List<Candle> candles) {
+        return predictNextPriceDetail(candles, 20);
+    }
+
+    public PredictionResult predictNextPriceDetail(List<Candle> candles, int futureCandles) {
+        if (futureCandles <= 0) {
+            return new PredictionResult(List.of());
+        }
         candles.sort(Comparator.comparingLong(Candle::openTime));
 
         if (candles.size() < lookBack + 1) {
@@ -117,120 +114,125 @@ public class PredictionEngine {
 
         List<Candle> subList = candles.subList((candles.size() - (lookBack + 1)), candles.size());
 
-        // Construir entrada
+        // Construir entrada inicial
         float[][][] X = new float[1][Math.toIntExact(lookBack)][Math.toIntExact(features - 2)];
         for (int j = 0; j < lookBack; j++) {
             X[0][j] = BuilderData.extractFeatures(subList.get(j + 1), subList.get(j));
         }
 
-        // Inferencia
-        float[] rawPredictions = predictRaw(X); // Output del modelo
-
-        float upMovePercent = rawPredictions[0];
-        float downMovePercent = rawPredictions[1];
-
-        float currentPrice = (float) subList.getLast().close();
-        if (currentPrice <= 0f) {
-            return new PredictionResult(currentPrice, currentPrice, currentPrice, 0f, 0f, 0f, 0);
+        if (X[0][0].length < 4) {
+            throw new IllegalStateException("Se requieren al menos 4 features para inyectar la prediccion.");
         }
 
-        float upMove = Math.max(0f, upMovePercent) * currentPrice / 100f;
-        float downMove = Math.max(0f, downMovePercent) * currentPrice / 100f;
+        List<PredictionCandleResult> results = new ArrayList<>(futureCandles);
 
-        float maxDownMove = currentPrice * 0.999f;
-        if (downMove > maxDownMove) {
-            downMove = maxDownMove;
+        for (int step = 0; step < futureCandles; step++) {
+            // Inferencia
+            float[] rawPredictions = predictRaw(X); // Output del modelo
+            PredictionCandleResult predicted = new PredictionCandleResult(
+                    rawPredictions[0],
+                    rawPredictions[1],
+                    rawPredictions[2],
+                    rawPredictions[3]
+            );
+            results.add(predicted);
+
+            // Shift de ventana y agregar la prediccion como nueva entrada
+            for (int t = 0; t < lookBack - 1; t++) {
+                X[0][t] = X[0][t + 1];
+            }
+
+            float[] nextFeatures = new float[X[0][0].length];
+            nextFeatures[0] = (float) predicted.close();
+            nextFeatures[1] = (float) predicted.high();
+            nextFeatures[2] = (float) predicted.low();
+            nextFeatures[3] = predicted.volumen();
+            X[0][lookBack - 1] = nextFeatures;
         }
 
-        float ratio = ratioFromMoves(upMove, downMove);
-        int direction = PredictionUtils.directionFromRatioRaw(ratio);
-
-        float tpReturn = 0f;
-        float slReturn = 0f;
-        float tpPrice = currentPrice;
-        float slPrice = currentPrice;
-
-        if (direction > 0) {
-            tpPrice = currentPrice + upMove;
-            slPrice = currentPrice - downMove;
-            tpReturn = (tpPrice - currentPrice) / currentPrice;
-            slReturn = (currentPrice - slPrice) / currentPrice;
-        } else if (direction < 0) {
-            tpPrice = currentPrice - downMove;
-            slPrice = currentPrice + upMove;
-            tpReturn = (currentPrice - tpPrice) / currentPrice;
-            slReturn = (slPrice - currentPrice) / currentPrice;
-        }
-        float confidence = Float.isFinite(ratio) ? Math.abs(ratio) : 0f;
-        return new PredictionResult(
-                currentPrice, tpPrice, slPrice, tpReturn, slReturn, confidence, direction
-        );
+        return new PredictionResult(results);
     }
-
-    private static float ratioFromMoves(float upMove, float downMove) {
-        float maxMove = Math.max(upMove, downMove);
-        if (!Float.isFinite(maxMove) || maxMove <= 0f) return 0f;
-        float ratio = (upMove - downMove) / maxMove;
-        return PredictionUtils.clampRatio(ratio);
-    }
-
     @Data
     @AllArgsConstructor
     public static class PredictionResult {
-        private final double currentPrice;
-        private final double tpPrice;       // Precio de Take Profit
-        private final double slPrice;       // Precio de Stop Loss
-        private final double tpReturn;   // Return ratio para TP (positivo)
-        private final double slReturn;   // Return ratio para SL (positivo)
-        private final double confident;
-        private final int direction;   // -1 Short, 0 Neutral, 1 Long
+        List<PredictionCandleResult> candles;
 
-        public DireccionOperation directionOperation() {
-            return EngineUtils.directionToOperation(direction);
-        }
-        public double getTpDistance() {
-            return Math.abs(tpPrice - currentPrice);
+        public double maxClose() {
+            if (candles == null || candles.isEmpty()) return Double.NaN;
+            double max = Double.NEGATIVE_INFINITY;
+            for (PredictionCandleResult c : candles) {
+                max = Math.max(max, c.close());
+            }
+            return max;
         }
 
-        public double getSlDistance() {
-            return Math.abs(slPrice - currentPrice);
+        public double minClose() {
+            if (candles == null || candles.isEmpty()) return Double.NaN;
+            double min = Double.POSITIVE_INFINITY;
+            for (PredictionCandleResult c : candles) {
+                min = Math.min(min, c.close());
+            }
+            return min;
         }
 
-        public double getTpPercent() {
-            return tpReturn * 100.0;
+        public double maxHigh() {
+            if (candles == null || candles.isEmpty()) return Double.NaN;
+            double max = Double.NEGATIVE_INFINITY;
+            for (PredictionCandleResult c : candles) {
+                max = Math.max(max, c.high());
+            }
+            return max;
         }
 
-        public double getSlPercent() {
-            return slReturn * 100.0;
+        public double minLow() {
+            if (candles == null || candles.isEmpty()) return Double.NaN;
+            double min = Double.POSITIVE_INFINITY;
+            for (PredictionCandleResult c : candles) {
+                min = Math.min(min, c.low());
+            }
+            return min;
         }
 
-        public double getRatio(){
-            return getTpPercent() / getSlPercent();
+        public double ratioClose() {
+            double min = minClose();
+            double max = maxClose();
+            if (!Double.isFinite(min) || !Double.isFinite(max)) return Double.NaN;
+            double a = Math.abs(min);
+            double b = Math.abs(max);
+            if (a == 0.0 || b == 0.0) return Double.NaN;
+            return Math.max(a, b) / Math.min(a, b);
+        }
+
+        public DireccionOperation getDireccion() {
+            double min = minClose();
+            double max = maxClose();
+            if (max > Math.abs(min)){
+                return DireccionOperation.LONG;
+            }else {
+                return DireccionOperation.SHORT;
+            }
+        }
+
+        public double tpPercent(){
+            double min = minClose();
+            double max = maxClose();
+            if (getDireccion().equals(DireccionOperation.LONG)) {
+                return max *100;
+            }else {
+                return Math.abs(min) * 100;
+            }
+        }
+
+        public double slPercent(){
+            double min = minClose();
+            double max = maxClose();
+            if (getDireccion().equals(DireccionOperation.SHORT)) {
+                return max * 100;
+            }else {
+                return Math.abs(min) * 100;
+            }
         }
     }
 
-    private static int directionFromRatioRaw(float ratio) {
-        if (!Float.isFinite(ratio)) return 0;
-        if (ratio > 0f) return 1;  // ratio positivo => domina el máximo => LONG
-        if (ratio < 0f) return -1; // ratio negativo => domina el mínimo => SHORT
-        return 0;
-    }
-
-    @Contract("_ -> new")
-    public static @NotNull PredictionEngine loadPredictionEngine(String modelName) throws IOException {
-
-        Model model = IOdata.loadModel();
-        Pair<XNormalizer, YNormalizer> normalizers = IOdata.loadNormalizers();
-
-        int lookBack = VestaEngine.LOOK_BACK;
-        // Ajuste automático de features
-        int features = normalizers.getKey().getMedians().length;
-
-        Vesta.info("✅ Sistema completo cargado:");
-        Vesta.info("  Modelo: " + modelName);
-        Vesta.info("  Lookback: " + lookBack);
-        Vesta.info("  Features detectadas: " + features);
-
-        return new PredictionEngine(normalizers.getKey(), normalizers.getValue(), model, lookBack, features);
-    }
+    public record PredictionCandleResult(double close, double high, double low, float volumen) {}
 }

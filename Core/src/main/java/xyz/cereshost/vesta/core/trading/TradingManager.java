@@ -171,7 +171,7 @@ public interface TradingManager extends Notifiable {
         }
 
         /**
-         * Obtienes el roi de la operación sin comisión y sin apalancamiénto
+         * Obtienes el low de la operación sin comisión y sin apalancamiénto
          * @return El Roi crudo
          */
         public double getRoiRaw() {

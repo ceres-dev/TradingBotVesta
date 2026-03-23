@@ -37,6 +37,7 @@ public interface BinanceApi extends Notifiable {
                     TypeOrder type,
                     TimeInForce timeInForce,
                     String quantity,
+                    Double price,
                     Double stopPrice,
                     boolean reduceOnly,
                     boolean closePosition

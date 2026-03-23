@@ -10,7 +10,7 @@ import java.util.List;
 
 public class BetaStrategy implements TradingStrategy {
 
-    private static final MaType MA_TYPE = MaType.VWMA;
+    private static final MaType MA_TYPE = MaType.WMA;
     private static final int MA_LEN = 60;
     private static final Source MA_SOURCE = Source.CLOSE;
 
@@ -18,12 +18,12 @@ public class BetaStrategy implements TradingStrategy {
     private static final double ATR_MULT = 3;
     private static final int ATR_LEN = 15;
 
-    private static final int CONFIRM_BARS = 1;
+    private static final int CONFIRM_BARS = 3;
     private static final ConfirmSource CONFIRM_SOURCE = ConfirmSource.LOW_HIGH;
 
     private static final EntryMethod ENTRY_METHOD = EntryMethod.MA_CROSS;
-    private static final double TP_PERCENT = 1.5;
-    private static final double SL_PERCENT = 1.4;
+    private static final double TP_PERCENT = 0.5;
+    private static final double SL_PERCENT = 0.1;
 
     private static final int LEVERAGE = 4;
     private static final double ORDER_BALANCE_FRACTION = 0.2;
@@ -34,6 +34,8 @@ public class BetaStrategy implements TradingStrategy {
     private boolean crossUsed = false;
     private int uptrendBars = 0;
     private int downtrendBars = 0;
+    boolean isPeekClose = false;
+
 
     @Override
     public void executeStrategy(PredictionEngine.PredictionResult pred, List<Candle> visibleCandles, TradingManager operations) {
@@ -78,10 +80,6 @@ public class BetaStrategy implements TradingStrategy {
             trend = -1;
             breakPoint = -1;
             crossUsed = false;
-        }
-
-        if (operations.hasOpenOperation() || couldDown > 0) {
-            return;
         }
 
         if (ENTRY_METHOD == EntryMethod.BREAKOUT) {
@@ -135,15 +133,7 @@ public class BetaStrategy implements TradingStrategy {
             return;
         }
 
-        double minMarginUsdt = MIN_ORDER_NOTIONAL / Math.max(LEVERAGE, 1);
-        double amountUsdt = Math.max(availableBalance * ORDER_BALANCE_FRACTION, minMarginUsdt);
-        amountUsdt = Math.min(amountUsdt, availableBalance);
-        if (amountUsdt * LEVERAGE < MIN_ORDER_NOTIONAL) {
-            operations.log("Balance insuficiente para abrir BetaStrategy");
-            return;
-        }
-
-        TradingManager.OpenOperation open = operations.open(TP_PERCENT, SL_PERCENT , direction, amountUsdt, LEVERAGE);
+        TradingManager.OpenOperation open = operations.open(TP_PERCENT, SL_PERCENT , direction, availableBalance/2, LEVERAGE);
         if (open != null) open.getFlags().add("Beta");
     }
 

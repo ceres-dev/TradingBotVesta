@@ -63,7 +63,7 @@ public class Market {
         this.candleSimples = candleSimple;
     }
 
-    public synchronized void sortd(){
+    public synchronized void sortdInChunks(){
         int chunkSize = 10_000;
         trades = sortInChunks(trades, chunkSize, Trade::time);
         depths = sortInChunks(depths, chunkSize, Depth::getDate);

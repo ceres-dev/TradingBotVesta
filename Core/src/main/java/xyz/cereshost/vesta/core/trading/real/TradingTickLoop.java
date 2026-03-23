@@ -7,8 +7,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.common.market.CandleSimple;
+import xyz.cereshost.vesta.common.market.Depth;
 import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.core.DataSource;
+import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.core.exception.BinanceCodeWeakException;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
@@ -19,6 +21,7 @@ import xyz.cereshost.vesta.core.strategys.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 import xyz.cereshost.vesta.core.utils.BuilderData;
+import xyz.cereshost.vesta.core.utils.ChartUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -26,6 +29,8 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URL;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.*;
@@ -36,6 +41,8 @@ public final class TradingTickLoop implements Notifiable {
 
     private static final long CANDLE_MS = 60_000;
     private static final long OFFSET = 1_500;
+    private static final long MAX_ALLOWED_GAP_MS = TimeUnit.MINUTES.toMillis(5);
+    private static final long RECENT_WINDOW_MS = TimeUnit.DAYS.toMillis(1);
     private static final int LOCAL_ZIP_WARMUP_DAYS = 5;
     private final String symbol;
     @Getter
@@ -50,6 +57,8 @@ public final class TradingTickLoop implements Notifiable {
     private MediaNotification mediaNotification;
     @Nullable
     private final Market localWarmupMarket;
+    @Nullable
+    private final Market recentMarket;
 
     private static final ScheduledExecutorService WORKERS = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r);
@@ -81,8 +90,9 @@ public final class TradingTickLoop implements Notifiable {
                         LOCAL_ZIP_WARMUP_DAYS, warmupMarket.getCandleSimples().size()
                 );
             }
-
-            Market bootMarket = loadMarkt();
+            Market recent = IOMarket.loadMarketsBinance(symbol, 1440, 1000, 100);
+            this.recentMarket = recent.getCandleSimples().isEmpty() ? null : recent;
+            Market bootMarket = loadMarket();
             trading = new TradingManagerBinance(binanceApi, mediaNotification, bootMarket);
             trading.setTradingTickLoop(this);
         } catch (InterruptedException | IOException e) {
@@ -97,8 +107,10 @@ public final class TradingTickLoop implements Notifiable {
         if (localWarmupMarket != null) {
             WORKERS.scheduleAtFixedRate(() -> {
                 try {
-                    localWarmupMarket.clear();
-                    localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, false));
+                    synchronized (localWarmupMarket) {
+                        localWarmupMarket.clear();
+                        localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, false));
+                    }
                 } catch (InterruptedException | IOException e) {
                     throw new RuntimeException(e);
                 }
@@ -143,13 +155,15 @@ public final class TradingTickLoop implements Notifiable {
         }
     }
 
-    private void performTick() throws InterruptedException {
+    private int counter = 0;
+
+    private void performTick() throws InterruptedException, IOException {
         AtomicReference<Market> market = new AtomicReference<>(null);
         CountDownLatch latch = new CountDownLatch(2);
-
+        counter++;
         executor.execute(() -> {
             try {
-                market.set(loadMarkt());
+                market.set(loadMarket());
             } catch (InterruptedException | IOException e) {
                 stop(e);
             } finally {
@@ -168,11 +182,21 @@ public final class TradingTickLoop implements Notifiable {
             Vesta.warning("No se pudo cargar mercado para este tick.");
             return;
         }
+        if (hasLargeGap(tickMarket, MAX_ALLOWED_GAP_MS)) {
+            if ((counter % 10) == 0 && localWarmupMarket != null) {
+                synchronized (localWarmupMarket) {
+                    localWarmupMarket.clear();
+                    localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, false));
+                }
+            }
+            return;
+        }
         List<Candle> allCandles = BuilderData.to1mCandles(tickMarket);
         if (allCandles.size() <= VestaEngine.LOOK_BACK + 1) {
             Vesta.warning("Histórico insuficiente para tick: %d velas", allCandles.size());
             return;
         }
+        ChartUtils.showCandleChart("temporal", allCandles, "?");
 
         Vesta.info("💰 Precio del %s: %.2f", symbol, allCandles.getLast().close());
         PredictionEngine.PredictionResult result;
@@ -180,12 +204,58 @@ public final class TradingTickLoop implements Notifiable {
             int endExclusive = allCandles.size() - 1;
             int startInclusive = VestaEngine.LOOK_BACK;
             List<Candle> visible = allCandles.subList(startInclusive, endExclusive);
-            result = engine.predictNextPriceDetail(visible, symbol);
+            result = engine.predictNextPriceDetail(visible);
         }else {
             result = null;
         }
         trading.getOpens().forEach(TradingManager.OpenOperation::nextMinute);
         strategy.executeStrategy(result, allCandles, trading);
+    }
+
+    private static boolean hasLargeGap(@NotNull Market market, long maxGapMs) {
+        Iterator<CandleSimple> iterator = market.getCandleSimples().iterator();
+        if (!iterator.hasNext()) {
+            return false;
+        }
+        long prev = iterator.next().openTime();
+        long maxGap = 0;
+        while (iterator.hasNext()) {
+            long current = iterator.next().openTime();
+            long gap = current - prev;
+            if (gap > maxGap) {
+                maxGap = gap;
+            }
+            prev = current;
+        }
+        if (maxGap >= maxGapMs) {
+            Vesta.warning("Hueco temporal detectado: %.2f minutos (umbral %.2f). Se omite estrategia.",
+                    maxGap / 60_000.0, maxGapMs / 60_000.0);
+            return true;
+        }
+        return false;
+    }
+
+    private static void trimMarketToWindow(@NotNull Market market, long minOpenTime) {
+        trimSetByTime(market.getCandleSimples(), CandleSimple::openTime, minOpenTime);
+        trimSetByTime(market.getTrades(), Trade::time, minOpenTime);
+        trimSetByTime(market.getDepths(), Depth::getDate, minOpenTime);
+    }
+
+    private static <T> void trimSetByTime(@NotNull LinkedHashSet<T> set,
+                                          @NotNull Market.TimeAccessor<T> accessor,
+                                          long minTime
+    ) {
+        if (set.isEmpty()) {
+            return;
+        }
+        Iterator<T> iterator = set.iterator();
+        while (iterator.hasNext()) {
+            T item = iterator.next();
+            if (accessor.time(item) >= minTime) {
+                break;
+            }
+            iterator.remove();
+        }
     }
 
     public void updateStatus(){
@@ -243,17 +313,37 @@ public final class TradingTickLoop implements Notifiable {
         }
     }
 
-    @Contract(pure = true, value = " -> new")
-    public Market loadMarkt() throws IOException, InterruptedException {
-        Market liveMarket = IOMarket.loadMarkets(DataSource.BINANCE, symbol, -1, false);
-        if (localWarmupMarket == null || localWarmupMarket.getCandleSimples().isEmpty()) {
-            return liveMarket;
+    @Contract(pure = true, value = "-> new")
+    public Market loadMarket() throws IOException, InterruptedException {
+        Market liveMarket = IOMarket.loadMarketsBinance(symbol, 5, 30, 10);
+        if (recentMarket != null) {
+            synchronized (recentMarket) {
+                recentMarket.concat(liveMarket);
+                trimMarketToWindow(recentMarket, System.currentTimeMillis() - RECENT_WINDOW_MS);
+            }
         }
 
         Market merged = new Market(symbol);
-        merged.concat(localWarmupMarket);
-        merged.concat(liveMarket);
-        merged.sortd();
-        return merged;
+        if (localWarmupMarket == null || localWarmupMarket.getCandleSimples().isEmpty()) {
+            if (recentMarket != null) {
+                synchronized (recentMarket) {
+                    merged.concat(recentMarket);
+                }
+                return merged;
+            }
+            return liveMarket;
+        }else {
+            synchronized (localWarmupMarket) {
+                merged.concat(localWarmupMarket);
+            }
+            if (recentMarket != null) {
+                synchronized (recentMarket) {
+                    merged.concat(recentMarket);
+                }
+            } else {
+                merged.concat(liveMarket);
+            }
+            return merged;
+        }
     }
 }

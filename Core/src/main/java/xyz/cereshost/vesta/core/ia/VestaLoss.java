@@ -16,7 +16,7 @@ import java.util.concurrent.ExecutionException;
 
 public class VestaLoss extends Loss {
 
-    public record LossReport(float total, float max, float min, float roi, float meanReal, float meanPred) {}
+    public record LossReport(float total, float closes, float high, float low, float meanReal, float meanPred) {}
 
     private static final float RELATIVE_WEIGHT_ALPHA = 2.5f;
     private static final float ROI_SIGMOID_K = 5.0f;
@@ -40,41 +40,26 @@ public class VestaLoss extends Loss {
         NDArray yPred = prediction.singletonOrThrow();
         NDArray yTrue = target.singletonOrThrow();
 
-        NDManager manager = yTrue.getManager();
-
         // 1. Cálculos vectorizados rápidos (GPU)
         NDList trueParts = yTrue.split(new long[]{1, 2, 3, 4}, 1);
         NDList predParts = yPred.split(new long[]{1, 2, 3, 4}, 1);
 
-        NDArray trueUp;
-        NDArray trueDown;
-        NDArray trueFirstHit;
-        if (FORCE_CONSTANT_TARGET) {
-            trueUp = manager.full(trueParts.get(0).getShape(), CONSTANT_TARGET_VALUE);
-            trueDown = manager.full(trueParts.get(1).getShape(), CONSTANT_TARGET_VALUE);
-            trueFirstHit = manager.full(trueParts.get(2).getShape(), CONSTANT_FIRST_HIT);
-        }else {
-            trueUp = trueParts.get(0);
-            trueDown = trueParts.get(1);
-            trueFirstHit = trueParts.get(2);
-        }
+        NDArray lossCloses = computeDistance(trueParts.get(0), predParts.get(0));
+        NDArray lossHigh = computeDistance(trueParts.get(1), predParts.get(1));
+        NDArray lossLow = computeDistance(trueParts.get(2), predParts.get(2));
+        NDArray lossVolumen = computeDistance(trueParts.get(3), predParts.get(3));
 
-        NDArray lossUp = computeDistance(trueUp, predParts.get(0));
-        NDArray lossDown = computeDistance(trueDown, predParts.get(1));
-//        NDArray lossOrder = computeFirstHitLoss(trueUp, trueDown, trueFirstHit, predParts.get(2));
-
-        NDArray directionPenalty = computeDirectionPenalty(trueUp, trueDown, predParts.get(0), predParts.get(1));
-        NDArray totalLoss = computeDistance(trueParts.get(0), predParts.get(0));
+        NDArray totalLoss = lossCloses.add(lossHigh).add(lossLow).add(lossVolumen);
         CompletableFuture<LossReport> request = dataRequest;
         if (request != null && !request.isDone()) {
             // Solo aquí pagamos el costo de sincronización GPU -> CPU
             request.complete(new LossReport(
                     totalLoss.getFloat(),
-                    lossUp.getFloat(),
-                    lossDown.getFloat(),
-                    0,
-                    trueParts.get(0).add(trueParts.get(1)).mean().getFloat(),
-                    predParts.get(0).add(predParts.get(1)).mean().getFloat()
+                    lossCloses.getFloat(),
+                    lossHigh.getFloat(),
+                    lossLow.getFloat(),
+                    trueParts.getFirst().mean().getFloat(),
+                    predParts.getFirst().mean().getFloat()
             ));
             dataRequest = null;
         }
@@ -82,7 +67,7 @@ public class VestaLoss extends Loss {
     }
 
     public NDArray computeDistance(NDArray trueND, NDArray predND){
-        NDArray diff = trueND.sub(predND).abs();
+        NDArray diff = trueND.sub(predND).square();
         return diff.mean();
     }
     public NDArray computeRelative(NDArray trueND, NDArray predND){

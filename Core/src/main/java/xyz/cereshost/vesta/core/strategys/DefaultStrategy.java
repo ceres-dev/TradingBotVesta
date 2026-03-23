@@ -16,8 +16,8 @@ public class DefaultStrategy implements TradingStrategy {
         for (TradingManager.OpenOperation op : openOperations.getOpens()) if (op.getMinutesOpen() >= 30) openOperations.close(TradingManager.ExitReason.STRATEGY, op);
         if (!openOperations.hasOpenOperation() && pred != null) {
             openOperations.open(
-                    pred.getTpPercent(),
-                    pred.getSlPercent(),
+                    1,
+                    1,
                     DireccionOperation.LONG,
                     openOperations.getAvailableBalance()/2,
                     4

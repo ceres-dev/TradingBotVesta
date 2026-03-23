@@ -287,290 +287,93 @@ public class EngineUtils {
     /**
      * Evalúa el modelo con lógica de 3 salidas: Regresión (UP/DOWN) + Clasificación (DIR)
      */
-    public static ResultsEvaluate evaluateModel(
-            Trainer trainer,
-            NDArray X_test,
-            NDArray y_test,
-            YNormalizer yNormalizer,
-            int chunkSize // Recomendado: 512 o 1024
-    ) {
-        long totalSamples = X_test.getShape().get(0);
-        int targetCols = (int) y_test.getShape().get(1); // Dinamico: usualmente 5
-        int predCols = 5; // Formato Vesta: 5 salidas
-
-        double totalMaeUP = 0;
-        double totalMaeDOWN = 0;
-        double totalMaeDir = 0;
-        List<ResultEvaluate> allResults = new ArrayList<>();
-
-        // Procesar por bloques
-        for (int start = 0; start < totalSamples; start += chunkSize) {
-            int end = (int) Math.min(start + chunkSize, totalSamples);
-            int currentBatchSize = end - start;
-
-            // 1. Slicing de los datos de prueba (sin copiar memoria si es posible)
-            try (NDArray xChunk = X_test.get(new NDIndex("{}:{}", start, end));
-                 NDArray yChunk = y_test.get(new NDIndex("{}:{}", start, end))) {
-
-                // 2. Inferencia del bloque
-                NDList predictions = trainer.evaluate(new NDList(xChunk));
-                NDArray yPred = predictions.singletonOrThrow();
-
-                // 3. Conversion a arrays planos para procesamiento rapido en CPU
-                float[] yTestFlat = yChunk.toFloatArray();
-                float[] yPredFlat = yPred.toFloatArray();
-
-                // 4. Procesar cada muestra dentro del chunk
-                for (int i = 0; i < currentBatchSize; i++) {
-                    int targetIdx = i * targetCols;
-                    int predIdx = i * predCols;
-
-                    // Extraer Target: output0 (upMove) y output1 (downMove)
-                    float rawRealUp = yTestFlat[targetIdx];
-                    float rawRealDown = yTestFlat[targetIdx + 1];
-
-                    // Extraer Prediccion
-                    float rawPredUp = yPredFlat[predIdx];
-                    float rawPredDown = yPredFlat[predIdx + 1];
-
-                    // 5. Desnormalizacion (outputs 0 y 1) en porcentaje
-                    float[][] denormTarget = yNormalizer.inverseTransform(new float[][]{{rawRealUp, rawRealDown, 0, 0, 0}});
-                    float[][] denormPred = yNormalizer.inverseTransform(new float[][]{{rawPredUp, rawPredDown, 0, 0, 0}});
-
-                    float realUpPercent = Math.max(0f, denormTarget[0][0] * 100.0f);
-                    float realDownPercent = Math.max(0f, denormTarget[0][1] * 100.0f);
-                    float predUpPercent = Math.max(0f, denormPred[0][0] * 100.0f);
-                    float predDownPercent = Math.max(0f, denormPred[0][1] * 100.0f);
-
-                    float rawRealDir = ratioFromMoves(realUpPercent, realDownPercent);
-                    float predDirection = ratioFromMoves(predUpPercent, predDownPercent);
-
-                    // 6. Acumular metricas
-                    totalMaeUP += Math.abs(realUpPercent - predUpPercent);
-                    totalMaeDOWN += Math.abs(realDownPercent - predDownPercent);
-                    totalMaeDir += Math.abs(rawRealDir - predDirection);
-
-                    // 7. Guardar resultado individual
-                    allResults.add(new ResultEvaluate(
-                            predUpPercent, predDownPercent, predDirection,
-                            realUpPercent, realDownPercent, rawRealDir,
-                            start + i // Indice global
-                    ));
-                }
-
-                // Liberar prediccion del chunk
-                predictions.close();
-            }
-        }
-
-        // 8. Consolidar promedios finales
-        double avgMaeUP = totalMaeUP / totalSamples;
-        double avgMaeDOWN = totalMaeDOWN / totalSamples;
-        double avgMaeDir = totalMaeDir / totalSamples;
-
-        Vesta.info("Evaluacion Finalizada -> MAE TP: %.6f, MAE SL: %.6f, MAE Dir: %.6f", avgMaeUP, avgMaeDOWN, avgMaeDir);
-
-        return new ResultsEvaluate("VestaIA", avgMaeUP, avgMaeDOWN, allResults);
-    }
+//    public static ResultsEvaluate evaluateModel(
+//            Trainer trainer,
+//            NDArray X_test,
+//            NDArray y_test,
+//            YNormalizer yNormalizer,
+//            int chunkSize // Recomendado: 512 o 1024
+//    ) {
+//        long totalSamples = X_test.getShape().get(0);
+//        int targetCols = (int) y_test.getShape().get(1); // Dinamico: usualmente 5
+//        int predCols = 5; // Formato Vesta: 5 salidas
+//
+//        double totalMaeUP = 0;
+//        double totalMaeDOWN = 0;
+//        double totalMaeDir = 0;
+//        List<ResultEvaluate> allResults = new ArrayList<>();
+//
+//        // Procesar por bloques
+//        for (int start = 0; start < totalSamples; start += chunkSize) {
+//            int end = (int) Math.high(start + chunkSize, totalSamples);
+//            int currentBatchSize = end - start;
+//
+//            // 1. Slicing de los datos de prueba (sin copiar memoria si es posible)
+//            try (NDArray xChunk = X_test.get(new NDIndex("{}:{}", start, end));
+//                 NDArray yChunk = y_test.get(new NDIndex("{}:{}", start, end))) {
+//
+//                // 2. Inferencia del bloque
+//                NDList predictions = trainer.evaluate(new NDList(xChunk));
+//                NDArray yPred = predictions.singletonOrThrow();
+//
+//                // 3. Conversion a arrays planos para procesamiento rapido en CPU
+//                float[] yTestFlat = yChunk.toFloatArray();
+//                float[] yPredFlat = yPred.toFloatArray();
+//
+//                // 4. Procesar cada muestra dentro del chunk
+//                for (int i = 0; i < currentBatchSize; i++) {
+//                    int targetIdx = i * targetCols;
+//                    int predIdx = i * predCols;
+//
+//                    // Extraer Target: output0 (upMove) y output1 (downMove)
+//                    float rawRealUp = yTestFlat[targetIdx];
+//                    float rawRealDown = yTestFlat[targetIdx + 1];
+//
+//                    // Extraer Prediccion
+//                    float rawPredUp = yPredFlat[predIdx];
+//                    float rawPredDown = yPredFlat[predIdx + 1];
+//
+//                    // 5. Desnormalizacion (outputs 0 y 1) en porcentaje
+//                    float[][] denormTarget = yNormalizer.inverseTransform(new float[][]{{rawRealUp, rawRealDown, 0, 0, 0}});
+//                    float[][] denormPred = yNormalizer.inverseTransform(new float[][]{{rawPredUp, rawPredDown, 0, 0, 0}});
+//
+//                    float realUpPercent = Math.closes(0f, denormTarget[0][0] * 100.0f);
+//                    float realDownPercent = Math.closes(0f, denormTarget[0][1] * 100.0f);
+//                    float predUpPercent = Math.closes(0f, denormPred[0][0] * 100.0f);
+//                    float predDownPercent = Math.closes(0f, denormPred[0][1] * 100.0f);
+//
+//                    float rawRealDir = ratioFromMoves(realUpPercent, realDownPercent);
+//                    float predDirection = ratioFromMoves(predUpPercent, predDownPercent);
+//
+//                    // 6. Acumular metricas
+//                    totalMaeUP += Math.abs(realUpPercent - predUpPercent);
+//                    totalMaeDOWN += Math.abs(realDownPercent - predDownPercent);
+//                    totalMaeDir += Math.abs(rawRealDir - predDirection);
+//
+//                    // 7. Guardar resultado individual
+//                    allResults.add(new ResultEvaluate(
+//                            start + i // Indice global
+//                    ));
+//                }
+//
+//                // Liberar prediccion del chunk
+//                predictions.close();
+//            }
+//        }
+//
+//        return new ResultsEvaluate();
+//    }
 
     public record ResultsEvaluate(
             String modelName,
-            double avgMaeTP,
-            double avgMaeSL,
-            List<ResultEvaluate> resultEvaluate
-    ) {
-        public float hitRateSimple(){
-            int hits = 0;
-            int fails = 0;
-            for (ResultEvaluate prediction : resultEvaluate) {
-                if (prediction.getPredDirection() == DireccionOperation.NEUTRAL || prediction.getRealDirection() == DireccionOperation.NEUTRAL) continue;
-                // ley de los signos
-                if (prediction.getPredDirection() == prediction.getRealDirection()) {
-                    hits++;
-                }else {
-                    fails++;
-                }
-
-            }
-            int total = fails + hits;
-            return total > 0 ? ((float) hits / total) *100 : -1;
-        }
-
-        public float hitRateAdvanced() {
-            int hits = 0;
-            int total = 0;
-
-            for (ResultEvaluate prediction : resultEvaluate) {
-                int realDir = directionFromRatio(prediction.getRealDir());
-                int predDir = directionFromRatio(prediction.getPredDir());
-                if (realDir == predDir) {
-                    hits++;
-                }
-                total++;
-            }
-
-            return total > 0 ? ((float) hits / total) * 100 : -1;
-        }
-
-        public float hitRateSafe() {
-            int hits = 0;
-            int fails = 0;
-
-            float threshold = THRESHOLD_RATIO;
-
-            for (ResultEvaluate prediction : resultEvaluate) {
-                float pred = prediction.getPredDir();
-                float real = prediction.getRealDir();
-                if (real > threshold) { // Long real
-                    if (pred > threshold) hits++;
-                    else fails++;
-                }
-                else if (real < -threshold) { // Short real
-                    if (pred < -threshold) hits++;
-                    else fails++;
-                }
-                // si está entre -threshold y +threshold no cuenta
-            }
-
-            int total = hits + fails;
-            // A / (A + B) * 100
-            return total > 0 ? ((float) hits / total) * 100f : -1f;
-        }
-
-        public int @NotNull [] hitRateLongOneFloat() {
-            int[] hits = new int[3];
-            for (ResultEvaluate prediction : resultEvaluate){
-                if (prediction.getRealDir() > THRESHOLD_RATIO){
-                    computeDir(hits, prediction);
-                }
-            }
-            return hits;
-        }
-
-        public int @NotNull [] hitRateShortOneFloat() {
-            int[] hits = new int[3];
-            for (ResultEvaluate prediction : resultEvaluate){
-                if (prediction.getRealDir() < -THRESHOLD_RATIO){
-                    computeDir(hits, prediction);
-                }
-            }
-            return hits;
-        }
-
-        public int @NotNull [] hitRateNeutralOneFloat() {
-            int[] hits = new int[3];
-            for (ResultEvaluate prediction : resultEvaluate){
-                if (prediction.getRealDir() > -THRESHOLD_RATIO && prediction.getRealDir() < THRESHOLD_RATIO) {
-                    computeDir(hits, prediction);
-                }
-            }
-            return hits;
-        }
-
-        public int[] hitRate(DireccionOperation direccion){
-            int[] hits = new int[3];
-            for (ResultEvaluate prediction : resultEvaluate){
-                if (prediction.getRealDirection() == direccion) {
-                    switch (prediction.getPredDirection()) {
-                        case LONG -> hits[0]++;
-                        case SHORT -> hits[1]++;
-                        case NEUTRAL -> hits[2]++;
-                    }
-                }
-            }
-            return hits;
-        }
-
-        public float hitRateConfident(float minConfidence) {
-            int hits = 0;
-            int total = 0;
-
-            // Usamos el threshold para definir qué es un acierto real
-            float threshold = (float) THRESHOLD_RELATIVE;
-
-            for (ResultEvaluate prediction : resultEvaluate) {
-                float pred = prediction.getPredDir();
-                float real = prediction.getRealDir();
-
-                // 1. FILTRO DE CONFIANZA:
-                // Solo evaluamos si el valor absoluto de la predicción supera el mínimo (ej: 0.7)
-                if (Math.abs(pred) >= minConfidence) {
-                    total++;
-
-                    // 2. VERIFICACIÓN DE ACIERTO:
-                    // Debe coincidir el signo y el real debe haber superado el umbral
-                    if (pred > 0 && real > threshold) {
-                        hits++; // Acierto Long seguro
-                    } else if (pred < 0 && real < -threshold) {
-                        hits++; // Acierto Short seguro
-                    }
-                }
-            }
-            return total > 0 ? ((float) hits / total) * 100f : 0f;
-        }
-
-        private void computeDir(int[] hits, @NotNull EngineUtils.ResultEvaluate prediction) {
-            boolean signalLong = prediction.getPredDir() > THRESHOLD_RATIO;
-            boolean signalShort = prediction.getPredDir() < -THRESHOLD_RATIO;
-            if (signalLong) {
-                hits[0]++; // Long
-            } else if (signalShort) {
-                hits[1]++; // Short
-            } else {
-                hits[2]++; // Neutral
-            }
-        }
-
-    }
+            List<Double> resultEvaluate
+    ) {}
 
     private static float ratioFromMoves(float upMove, float downMove) {
         float maxMove = Math.max(upMove, downMove);
         if (!Float.isFinite(maxMove) || maxMove <= 0f) return 0f;
         float ratio = (upMove - downMove) / maxMove;
         return PredictionUtils.clampRatio(ratio);
-    }
-
-    @Data
-    @EqualsAndHashCode(callSuper = true)
-    public static class ResultEvaluate extends PredictionEngine.PredictionResult {
-        private final float predDir;
-        private final float realTP;
-        private final float realSL;
-        private final float realDir;
-        private final long timestamp;
-
-        public ResultEvaluate(
-                float predTP, float predSL, float predDir,
-                float realTP, float realSL, float realDir,
-                long timestamp
-        ) {
-            super(0d, predTP, predSL, 0d, 0d, Math.abs(predDir), directionFromRatio(predDir));
-            this.predDir = predDir;
-            this.realTP = realTP;
-            this.realSL = realSL;
-            this.realDir = realDir;
-            this.timestamp = timestamp;
-        }
-
-        public float lsDiff() {
-            return realSL - (float) getSlPrice();
-        }
-
-        public float tpDiff() {
-            return realTP - (float) getTpPrice();
-        }
-
-        public float dirDiff() {
-            return realDir - predDir;
-        }
-
-        public DireccionOperation getRealDirection() {
-            return directionToOperation(directionFromRatio(realDir));
-        }
-
-        public DireccionOperation getPredDirection() {
-            return directionToOperation(directionFromRatio(predDir));
-        }
     }
 
     private static float[][][] extractSplit3D(float[][][] data, int startIndex, int endIndex) {

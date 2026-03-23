@@ -9,6 +9,7 @@ import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
@@ -100,7 +101,7 @@ public class TradingManagerBinance implements TradingManager {
             double tpPrice = op.getTpPrice();
             double slPrice = op.getSlPrice();
 
-            long entryOrderId = binanceApi.placeOrder(symbol, direccion, TypeOrder.MARKET, op.getTimeInForce(), qtyStr, null, false, false);
+            long entryOrderId = binanceApi.placeOrder(symbol, direccion, TypeOrder.MARKET, op.getTimeInForce(), qtyStr, null, null, false, false);
             op.setEntryBinanceId(entryOrderId);
 
             DireccionOperation direccionInverse = direccion.inverse();
@@ -127,7 +128,85 @@ public class TradingManagerBinance implements TradingManager {
 
     @Override
     public @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
-        return null;
+        String symbol = getMarket().getSymbol();
+        if (!Double.isFinite(entryPrice) || entryPrice <= 0) {
+            Vesta.error("Precio de entrada invalido para orden limite en %s: %s", symbol, entryPrice);
+            return null;
+        }
+        try {
+            CountDownLatch latch = new CountDownLatch(2);
+
+            tradingTickLoop.getExecutor().execute(() -> {
+                try {
+                    if (lastLeverage != leverage) {
+                        binanceApi.changeLeverage(symbol, leverage);
+                    }
+                    lastLeverage = leverage;
+                } finally {
+                    latch.countDown();
+                }
+            });
+
+            AtomicReference<Double> safeAmountUSDT = new AtomicReference<>(amountUSD);
+            tradingTickLoop.getExecutor().execute(() -> {
+                try {
+                    double balance = getAvailableBalance();
+                    if (balance <= 0) {
+                        Vesta.error("Balance insuficiente o no detectado para operar en " + symbol);
+                        return;
+                    }
+
+                    if (safeAmountUSDT.get() >= balance) {
+                        safeAmountUSDT.set(balance * 0.98);
+                    } else {
+                        safeAmountUSDT.set(safeAmountUSDT.get() * 0.99);
+                    }
+                } finally {
+                    latch.countDown();
+                }
+            });
+
+            latch.await();
+
+            double quantity = (safeAmountUSDT.get() * leverage) / entryPrice;
+            String qtyStr = binanceApi.formatQuantity(symbol, quantity);
+
+            if (Double.parseDouble(qtyStr) <= 0) {
+                Vesta.error("La cantidad calculada es 0. Revisa el balance o apalancamiento.");
+                return null;
+            }
+
+            BinanceLimitOperation op = new BinanceLimitOperation(
+                    this, entryPrice, tpPercent, slPercent, direccion, amountUSD, leverage
+            );
+            op.setTimeInForce(TimeInForce.GTX);
+
+            String colorGreen = "\u001B[32m";
+            String colorRed = "\u001B[31m";
+            String reset = "\u001B[0m";
+            String displayDireccion = direccion == DireccionOperation.LONG ? colorGreen + direccion.name() + reset : colorRed + direccion.name() + reset;
+            Vesta.info(String.format("Enviando orden LIMITE POST-ONLY %s: %.4f$ (margen %.3f$) TP %.2f%% SL %.2f%% (%s)",
+                    displayDireccion, entryPrice, amountUSD, tpPercent, slPercent, op.getUuid()
+            ));
+            info("Enviando orden LIMITE POST-ONLY **%s**: %.4f$ (margen %.3f$)", direccion.name(), entryPrice, amountUSD);
+
+            long entryOrderId = binanceApi.placeOrder(
+                    symbol,
+                    direccion,
+                    TypeOrder.LIMIT,
+                    op.getTimeInForce(),
+                    qtyStr,
+                    entryPrice,
+                    null,
+                    false,
+                    false
+            );
+            op.setEntryBinanceId(entryOrderId);
+            return op;
+        } catch (InterruptedException e) {
+            Vesta.sendErrorException("Binance Error Limit Async", e);
+            return null;
+        }
     }
 
     @Override
@@ -164,6 +243,7 @@ public class TradingManagerBinance implements TradingManager {
                             TypeOrder.MARKET,
                             op.getTimeInForce(),
                             qtyStr,
+                            null,
                             null,
                             true,
                             false
@@ -526,6 +606,18 @@ public class TradingManagerBinance implements TradingManager {
 
         public BinanceCloseOperation(double exitPrice, long exitTime, ExitReason reason, OpenOperation openOperation) {
             super(exitPrice, exitTime, reason, openOperation);
+        }
+    }
+
+    @Getter
+    @Setter
+    public static class BinanceLimitOperation extends LimiteOperation {
+        private long entryBinanceId;
+        private final TradingManagerBinance tradingBinance;
+
+        public BinanceLimitOperation(TradingManagerBinance binance, double entryPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
+            super(entryPrice, direccion, tpPercent, slPercent, amountUSDT, leverage, binance);
+            this.tradingBinance = binance;
         }
     }
 

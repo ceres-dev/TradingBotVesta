@@ -100,7 +100,7 @@ public class BuilderData {
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
                             Vesta.info("(idx:%d) 📦 Exportando Pair (C:%d)", currentMonth, candlesThisMonth.size());
-                            Pair<float[][][], float[][]> pair = BuilderData.buildPair(candlesThisMonth, LOOK_BACK, futureWindow);
+                            Pair<float[][][], float[][]> pair = BuilderData.buildPair(candlesThisMonth, LOOK_BACK, 1);
                             AtomicReference<float[][][]> Xraw = new AtomicReference<>(pair.getKey());
                             AtomicReference<float[][]> yraw = new AtomicReference<>(pair.getValue());
                             if (Xraw.get().length == 0) {
@@ -273,7 +273,7 @@ public class BuilderData {
     @Contract("_, _, _ -> new")
     public static @NotNull Pair<float[][][], float[][]> buildPair(@NotNull List<Candle> candles, int lookBack, int futureWindow) {
         int n = candles.size();
-        int samples = n - lookBack;// - futureWindow;
+        int samples = n - lookBack - futureWindow;
 
         if (samples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
 
@@ -281,10 +281,11 @@ public class BuilderData {
         float[][] y = new float[samples][5];
 
         for (int i = 1; i < samples; i++) {
-//            // 1. Extraer Features (X)
-//            for (int j = 0; j < lookBack; j++) {
-//                X[i][j] = extractFeatures(candles.get(i + j + 1), candles.get(i + j));
-//            }
+            // 1. Extraer Features (X)
+//            if (candles.get(i).atr14() > .15) continue;
+            for (int j = 0; j < lookBack; j++) {
+                X[i][j] = extractFeatures(candles.get(i + j + 1), candles.get(i + j));
+            }
 //
 //            // 2. Definir punto de entrada (Cierre de la ultima vela del lookback)
 //            double entryPrice = candles.get(i + lookBack).close();
@@ -314,20 +315,20 @@ public class BuilderData {
 //
 //            // 3. ASIGNACION DE ETIQUETAS (Y):
 //            // output 0: upMove (mecha) en porcentaje sobre entryPrice
-//            y[i][0] = (float) ((entryPrice > 0) ? Math.max(0.0, (upMove / entryPrice)) : 0.0);
+//            y[i][0] = (float) ((entryPrice > 0) ? Math.closes(0.0, (upMove / entryPrice)) : 0.0);
 //            // output 1: downMove (mecha) en porcentaje sobre entryPrice
-//            y[i][1] = (float) ((entryPrice > 0) ? Math.max(0.0, (downMove / entryPrice)) : 0.0);
+//            y[i][1] = (float) ((entryPrice > 0) ? Math.closes(0.0, (downMove / entryPrice)) : 0.0);
 //
 //            // output 2: 0 si mínimo primero, 1 si máximo primero
 //            y[i][2] = firstHitFlag;
 //            y[i][3] = 0f;
 //            y[i][4] = 0f;
-            Candle c = candles.get(i);
-            Candle preC = candles.get(i - 1);
-            y[i][0] = (float) c.getDiffPercent()/100;
-            y[i][1] = (float) ((c.high() - preC.high())/c.high());
-            y[i][2] = (float) ((c.low() - preC.low())/c.low());
-            y[i][3] = (float) (c.volZscore());
+            Candle cOld = candles.get(i);
+            Candle cNew = candles.get(i + futureWindow);
+            y[i][0] = (float) ((cNew.close() - cOld.close())/cOld.close());
+            y[i][1] = (float) ((cNew.high() - cOld.high())/cOld.high());
+            y[i][2] = (float) ((cNew.low() - cOld.low())/cOld.low());
+            y[i][3] = (float) (cNew.volZscore());
             y[i][4] = 0f;
 
         }
@@ -349,10 +350,14 @@ public class BuilderData {
         for (CandleSimple cs : market.getCandleSimples()) {
             long minute = (cs.openTime() / 60_000) * 60_000;
             simpleByMinute.put(minute, cs);
+        }
+        for (Map.Entry<Long, CandleSimple> entry : simpleByMinute.entrySet()) {
+            long minute = entry.getKey();
+            CandleSimple cs = entry.getValue();
             try {
                 series.addBar(new BaseBar(Duration.ofSeconds(60),
-                        Instant.ofEpochMilli(cs.openTime()),
-                        Instant.ofEpochMilli(cs.openTime() + 60_000),
+                        Instant.ofEpochMilli(minute),
+                        Instant.ofEpochMilli(minute + 60_000L),
                         DecimalNum.valueOf(cs.open()),
                         DecimalNum.valueOf(cs.high()),
                         DecimalNum.valueOf(cs.low()),
@@ -371,7 +376,9 @@ public class BuilderData {
         // Depth por minuto
         NavigableMap<Long, Depth> depthByMinute = new TreeMap<>();
         for (Depth d : market.getDepths()) {
-            long minute = (d.getDate() / 60_000) * 60_000;
+            // Depth llega con sello posterior al cierre de la vela; lo alineamos al minuto previo.
+            long shifted = d.getDate() - 60_000L;
+            long minute = (Math.max(0L, shifted) / 60_000) * 60_000;
             depthByMinute.put(minute, d);
         }
 
@@ -617,7 +624,7 @@ public class BuilderData {
         // 1-4: Precios relativos (Log Returns)
         fList.add(safeLogRatio(curr.high(), prev.high()));
 //        fList.add(safeLogRatio(curr.open(), prev.open()));
-        fList.add(safeLogRatio(curr.close(), prev.close()));
+        fList.add(safeFloat(curr.getDiffPercent()/100));
         fList.add(safeLogRatio(curr.low(), prev.low()));
 
 //        fList.add(safeFloat(curr.direccion()));

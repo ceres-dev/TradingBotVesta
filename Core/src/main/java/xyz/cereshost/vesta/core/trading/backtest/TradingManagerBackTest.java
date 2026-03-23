@@ -43,8 +43,8 @@ public class TradingManagerBackTest implements TradingManager {
         if (amountUSD *leverage < 5)return null;
         double currentPrice = backTestEngine.getCurrentPrice();
         // Simular el bin y el ask al comprar en mercado
-        double realPrice = direccion == DireccionOperation.LONG ? currentPrice + 0.0001 : currentPrice - 0.0001;
-        BackTestOpenOperation o = new BackTestOpenOperation(this, realPrice, tpPercent, slPercent, direccion, amountUSD, leverage);
+//        double realPrice = direccion == DireccionOperation.LONG ? currentPrice + 0.0001 : currentPrice - 0.0001;
+        BackTestOpenOperation o = new BackTestOpenOperation(this, currentPrice, tpPercent, slPercent, direccion, amountUSD, leverage);
         lastOpenOperation.add(o);
         openOperations.put(o.getUuid() , o);
         return o;

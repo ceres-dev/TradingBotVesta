@@ -156,7 +156,7 @@ public final class CausalMaskManager {
             h.lock.writeLock().lock();
             try {
                 if (h.subManager != null) {
-                    h.closeAllAndSubManager(); // closes arrays and subManager
+                    h.closeAllAndSubManager(); // total arrays and subManager
                 }
             } finally {
                 h.lock.writeLock().unlock();

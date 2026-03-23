@@ -1,265 +1,201 @@
 package xyz.cereshost.vesta.core.strategys;
 
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-import xyz.cereshost.vesta.core.utils.StrategyUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static xyz.cereshost.vesta.core.utils.StrategyUtils.highestHigh;
+import static xyz.cereshost.vesta.core.utils.StrategyUtils.lowestLow;
+import static xyz.cereshost.vesta.core.utils.StrategyUtils.priceDistanceToPercent;
 
 public class EpsilonStrategy implements TradingStrategy {
 
-    private static final int MIN_VISIBLE_CANDLES = 140;
-    private static final int MAX_MINUTE_OPEN = 90;
+    private static final int SL_PIPS = 200;
+    private static final int TP_PIPS = 400;
+    private static final int TRAIL_PIPS = 150;
+    private static final int LOOKBACK = 10;
 
-    private static final int PIVOT_LEFT = 2;
-    private static final int PIVOT_RIGHT = 2;
-    private static final int STRUCTURE_LOOKBACK = 200;
-    private static final double MIN_BREAK_PERCENT = 0.06;
+    private static final double PIP_SIZE = 0.0001;
+    private static final int LEVERAGE = 1;
+    private static final double ORDER_BALANCE_FRACTION = 1.0;
+    private static final double MIN_ORDER_NOTIONAL = 5.0;
 
-    private static final double ATR_MULTIPLIER = 1.15;
-    private static final double RISK_REWARD = 6;
-    private static final double MIN_SL_PERCENT = 0.30;
-    private static final double MAX_SL_PERCENT = 2.0;
-    private static final double MIN_TP_PERCENT = 0.40;
-    private static final double MAX_TP_PERCENT = 3.80;
-
-    private static final int STOP_LOSS_COOLDOWN_CANDLES = 16;
-    private static final int INVERSION_COOLDOWN_CANDLES = 8;
-
-    private long lastTriggeredPivotTime = -1L;
-    private int longCooldown = 0;
-    private int shortCooldown = 0;
-
-    private boolean isPeekClose = false;
-    @NotNull
-    private DireccionOperation direccionOperationWindow = DireccionOperation.NEUTRAL;
-    private int candlesValid;
+    private final Map<UUID, TrailingState> trailingStates = new ConcurrentHashMap<>();
 
     @Override
     public void executeStrategy(PredictionEngine.@Nullable PredictionResult pred, List<Candle> visibleCandles, TradingManager operations) {
-        if (visibleCandles == null || visibleCandles.size() < MIN_VISIBLE_CANDLES) {
+        if (visibleCandles == null || visibleCandles.size() < LOOKBACK + 2) {
             return;
         }
 
-        tickCooldowns();
-        Candle curr = visibleCandles.getLast();
-        Candle prev = visibleCandles.get(visibleCandles.size() - 2);
-        StrategyUtils.BosChochSignal signal = StrategyUtils.detectBosChoch(
-                visibleCandles,
-                PIVOT_LEFT,
-                PIVOT_RIGHT,
-                STRUCTURE_LOOKBACK,
-                MIN_BREAK_PERCENT
-        );
+        int lastIndex = visibleCandles.size() - 1;
+        int prevIndex = lastIndex - 1;
+        Candle current = visibleCandles.get(lastIndex);
 
-        for (TradingManager.OpenOperation open : operations.getOpens()) {
-            if (open.getMinutesOpen() >= MAX_MINUTE_OPEN) {
-                operations.close(TradingManager.ExitReason.TIMEOUT, open);
-                continue;
-            }
-//            if (shouldCloseByInversion(open, signal)) {
-//                open.getFlags().add("inversion");
-//                operations.close(Trading.ExitReason.STRATEGY_INVERSION, open);
-//            }
-            boolean inversion = open.getFlags().contains("inversion");
-            boolean margenTakeProfit = open.getRoiRaw() > open.getTpPercent()/2 || (inversion && open.getRoiRaw() > 0);
-            if (open.isUpDireccion()){
-                boolean b = StrategyUtils.isHigh(visibleCandles, inversion ? 15 : 60);
-                if (!isPeekClose) isPeekClose = b;
-                if (isPeekClose && !b && margenTakeProfit) {
-                    isPeekClose = false;
-                    open.getFlags().add("inversion");
-                    operations.close(TradingManager.ExitReason.STRATEGY, open);
-                }
-            }else {
-                boolean b = StrategyUtils.isLow(visibleCandles, inversion ? 15 : 60);
-                if (!isPeekClose) isPeekClose = b;
-                if (isPeekClose && !b && margenTakeProfit) {
-                    isPeekClose = false;
-                    open.getFlags().add("inversion");
-                    operations.close(TradingManager.ExitReason.STRATEGY, open);
-                }
+        double prevHighest = highestHigh(visibleCandles, prevIndex, LOOKBACK);
+        double prevLowest = lowestLow(visibleCandles, prevIndex, LOOKBACK);
+        if (!Double.isFinite(prevHighest) || !Double.isFinite(prevLowest)) {
+            return;
+        }
+
+        boolean bullishBOS = current.close() > prevHighest;
+        boolean bearishBOS = current.close() < prevLowest;
+
+        syncTrailingState(operations);
+        applyTrailingStop(operations, current);
+
+        if (bullishBOS) {
+            closeDirection(operations, DireccionOperation.SHORT);
+            if (!hasOpenDirection(operations, DireccionOperation.LONG)) {
+                openPosition(operations, DireccionOperation.LONG, current.close());
             }
         }
+        if (bearishBOS) {
+            closeDirection(operations, DireccionOperation.LONG);
+            if (!hasOpenDirection(operations, DireccionOperation.SHORT)) {
+                openPosition(operations, DireccionOperation.SHORT, current.close());
+            }
+        }
+    }
 
-        boolean crossUp = (prev.macdVal() <= prev.macdSignal() && curr.macdVal() > curr.macdSignal());
-        boolean crossDown = prev.macdVal() >= prev.macdSignal() && curr.macdVal() < curr.macdSignal();
-        boolean validMACD = crossUp || crossDown;
+    @Override
+    public void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations) {
+        trailingStates.remove(closeOperation.getUuid());
+    }
 
-        if (operations.hasOpenOperation() || !signal.valid()) {
-            System.out.println("A "  + operations.hasOpenOperation());
+    private void openPosition(TradingManager operations,
+                              DireccionOperation direction,
+                              double entryPrice) {
+        if (!Double.isFinite(entryPrice) || entryPrice <= 0.0) {
             return;
         }
 
-        if (!validMACD) {
+        double slPercent = priceDistanceToPercent(entryPrice, SL_PIPS * PIP_SIZE);
+        double tpPercent = priceDistanceToPercent(entryPrice, TP_PIPS * PIP_SIZE);
+        if (!Double.isFinite(slPercent) || !Double.isFinite(tpPercent)) {
             return;
         }
 
-//        Trading.DireccionOperation dirMACD;
-//        if (candlesValid != 0){
-//            candlesValid--;
-//        }else {
-//            direccionOperationWindow = Trading.DireccionOperation.NEUTRAL;
-//        }
-//
-//        if (!validMACD) {
-//            if (direccionOperationWindow ==  Trading.DireccionOperation.NEUTRAL) {
-//                operations.log("MACD no cumple con la condición para operar");
-//                return;
-//            }else {
-//                dirMACD = direccionOperationWindow;
-//            }
-//        }else {
-//            candlesValid = 4;
-//            dirMACD = crossDown ? Trading.DireccionOperation.LONG : Trading.DireccionOperation.SHORT;
-//        }
-
-
-
-
-        DireccionOperation direction = signal.direction() > 0
-                ? DireccionOperation.LONG
-                : DireccionOperation.SHORT;
-
-        if (direction == DireccionOperation.LONG && prev.macdHist() > -0.0012) {
-            return;
-        }
-        if (direction == DireccionOperation.SHORT && prev.macdHist() < 0.0012) {
+        double available = operations.getAvailableBalance();
+        if (!Double.isFinite(available) || available <= 0.0) {
             return;
         }
 
-        if (isDirectionInCooldown(direction)) {
+        double minMargin = MIN_ORDER_NOTIONAL / Math.max(1, LEVERAGE);
+        double amountUsdt = Math.max(available * ORDER_BALANCE_FRACTION, minMargin);
+        amountUsdt = Math.min(amountUsdt, available);
+        if (amountUsdt * LEVERAGE < MIN_ORDER_NOTIONAL) {
+            operations.log("Balance insuficiente para abrir EpsilonStrategy");
             return;
         }
-        if (signal.pivotIndex() < 0 || signal.pivotIndex() >= visibleCandles.size()) {
-            return;
-        }
-        long pivotTime = visibleCandles.get(signal.pivotIndex()).openTime();
-        if (pivotTime == lastTriggeredPivotTime) {
-            return;
-        }
-
-        Candle current = visibleCandles.getLast();
-//        if (!passesFilters(current, direction)) {
-//            return;
-//        }
-
-        double slPercent = calculateSlPercent(current);
-        double tpPercent = calculateTpPercent(slPercent, signal);
 
         TradingManager.OpenOperation open = operations.open(
                 tpPercent,
                 slPercent,
                 direction,
-                operations.getAvailableBalance() / 2.0,
-                4
+                amountUsdt,
+                LEVERAGE
         );
         if (open != null) {
-            lastTriggeredPivotTime = pivotTime;
-            open.getFlags().add(signal.choch() ? "choch" : "bos");
+            trailingStates.put(open.getUuid(), new TrailingState(open.getEntryPrice()));
         }
-
     }
 
-    @Override
-    public void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations) {
-        isPeekClose = false;
-        TradingManager.OpenOperation open = closeOperation.getOpenOperation();
-        TradingManager.ExitReason reason = closeOperation.getReason();
+    private void applyTrailingStop(TradingManager operations, Candle current) {
+        double trailDistance = TRAIL_PIPS * PIP_SIZE;
+        double trailOffset = TRAIL_PIPS * PIP_SIZE;
+        if (!Double.isFinite(trailDistance) || !Double.isFinite(trailOffset)
+                || trailDistance <= 0.0 || trailOffset <= 0.0) {
+            return;
+        }
 
-        if (reason == TradingManager.ExitReason.LONG_STOP_LOSS) {
-            longCooldown = STOP_LOSS_COOLDOWN_CANDLES;
-        } else if (reason == TradingManager.ExitReason.SHORT_STOP_LOSS) {
-            shortCooldown = STOP_LOSS_COOLDOWN_CANDLES;
-        } else if (reason == TradingManager.ExitReason.STRATEGY_INVERSION) {
+        for (TradingManager.OpenOperation open : operations.getOpens()) {
+            TrailingState state = trailingStates.computeIfAbsent(open.getUuid(), id -> new TrailingState(open.getEntryPrice()));
             if (open.isUpDireccion()) {
-                longCooldown = Math.max(longCooldown, INVERSION_COOLDOWN_CANDLES);
+                state.highestPrice = Math.max(state.highestPrice, current.high());
+                if (!state.activated && state.highestPrice >= (open.getEntryPrice() + trailOffset)) {
+                    state.activated = true;
+                }
+                if (!state.activated) {
+                    continue;
+                }
+
+                double trailStopPrice = state.highestPrice - trailDistance;
+                if (!Double.isFinite(trailStopPrice)) {
+                    continue;
+                }
+                if (trailStopPrice > open.getSlPrice()) {
+                    double newSlPercent = ((open.getEntryPrice() - trailStopPrice) / open.getEntryPrice()) * 100.0;
+                    if (Double.isFinite(newSlPercent)) {
+                        open.setSlPercent(newSlPercent);
+                    }
+                }
             } else {
-                shortCooldown = Math.max(shortCooldown, INVERSION_COOLDOWN_CANDLES);
-            }
-        }
-        if (closeOperation.getOpenOperation().getFlags().contains("inversion") && (reason == TradingManager.ExitReason.STRATEGY)) {
-            TradingManager.OpenOperation op = operations.open(
-                    0.3,
-                    0.05,
-                    closeOperation.getOpenOperation().isUpDireccion()
-                            ? DireccionOperation.SHORT : DireccionOperation.LONG,
-                    operations.getAvailableBalance() / 2, 4
-            );
-            if (op != null){
-                op.getFlags().add("inversion");
+                state.lowestPrice = Math.min(state.lowestPrice, current.low());
+                if (!state.activated && state.lowestPrice <= (open.getEntryPrice() - trailOffset)) {
+                    state.activated = true;
+                }
+                if (!state.activated) {
+                    continue;
+                }
+
+                double trailStopPrice = state.lowestPrice + trailDistance;
+                if (!Double.isFinite(trailStopPrice)) {
+                    continue;
+                }
+                if (trailStopPrice < open.getSlPrice()) {
+                    double newSlPercent = ((trailStopPrice - open.getEntryPrice()) / open.getEntryPrice()) * 100.0;
+                    if (Double.isFinite(newSlPercent)) {
+                        open.setSlPercent(newSlPercent);
+                    }
+                }
             }
         }
     }
 
-    private static boolean shouldCloseByInversion(TradingManager.OpenOperation open, StrategyUtils.BosChochSignal signal) {
-        if (!signal.valid() || !signal.choch()) {
-            return false;
+    private static void closeDirection(TradingManager operations, DireccionOperation direction) {
+        for (TradingManager.OpenOperation open : operations.getOpens()) {
+            if (open.getDireccion() == direction) {
+                operations.close(TradingManager.ExitReason.STRATEGY_INVERSION, open);
+            }
         }
-
-        if (open.isUpDireccion()) {
-            return signal.direction() < 0;
-        }
-        return signal.direction() > 0;
     }
 
-    private static boolean passesFilters(Candle candle, DireccionOperation direction) {
-        double rsi = candle.rsi16();
-        if (!Double.isFinite(rsi)) return false;
-
-        float stMedium = candle.superTrendMedium();
-        float stSlow = candle.superTrendSlow();
-        boolean stLongBias = stMedium < 0 || stSlow < 0;
-        boolean stShortBias = stMedium > 0 || stSlow > 0;
-
-        if (direction == DireccionOperation.LONG) {
-            if (!stLongBias) return false;
-            return rsi >= 50.0;
-        }
-        if (direction == DireccionOperation.SHORT) {
-            if (!stShortBias) return false;
-            return rsi <= 50.0;
+    private static boolean hasOpenDirection(TradingManager operations, DireccionOperation direction) {
+        for (TradingManager.OpenOperation open : operations.getOpens()) {
+            if (open.getDireccion() == direction) {
+                return true;
+            }
         }
         return false;
     }
 
-    private static double calculateSlPercent(Candle candle) {
-        double close = candle.close();
-        double atr = candle.atr14();
-        if (!Double.isFinite(close) || close <= 0 || !Double.isFinite(atr) || atr <= 0) {
-            return 0.45;
+    private void syncTrailingState(TradingManager operations) {
+        Set<UUID> active = ConcurrentHashMap.newKeySet();
+        for (TradingManager.OpenOperation open : operations.getOpens()) {
+            active.add(open.getUuid());
+            trailingStates.computeIfAbsent(open.getUuid(), id -> new TrailingState(open.getEntryPrice()));
         }
-        double sl = (atr / close) * 100.0 * ATR_MULTIPLIER;
-        return clamp(sl, MIN_SL_PERCENT, MAX_SL_PERCENT);
+        trailingStates.keySet().removeIf(uuid -> !active.contains(uuid));
     }
 
-    private static double calculateTpPercent(double slPercent, StrategyUtils.BosChochSignal signal) {
-        double rr = signal.choch() ? RISK_REWARD * 0.95 : RISK_REWARD;
-        double tp = slPercent * rr;
-        return clamp(tp, MIN_TP_PERCENT, MAX_TP_PERCENT);
-    }
+    private static final class TrailingState {
+        private double highestPrice;
+        private double lowestPrice;
+        private boolean activated;
 
-    private boolean isDirectionInCooldown(DireccionOperation direction) {
-        if (direction == DireccionOperation.LONG) {
-            return longCooldown > 0;
+        private TrailingState(double entryPrice) {
+            this.highestPrice = entryPrice;
+            this.lowestPrice = entryPrice;
+            this.activated = false;
         }
-        if (direction == DireccionOperation.SHORT) {
-            return shortCooldown > 0;
-        }
-        return true;
     }
-
-    private void tickCooldowns() {
-        if (longCooldown > 0) longCooldown--;
-        if (shortCooldown > 0) shortCooldown--;
-    }
-
-    private static double clamp(double value, double min, double max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
 }

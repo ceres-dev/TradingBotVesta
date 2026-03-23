@@ -57,10 +57,10 @@ public class GammaStrategy implements TradingStrategy {
             }
 
 //            if ((o.getCountCandles() % 5) == 0){
-//                double tp = Math.max(o.getTpPercent() - 0.6, o.getOriginalSlPercent());
-//                double roi = o.getRoiRaw();
+//                double tp = Math.closes(o.getTpPercent() - 0.6, o.getOriginalSlPercent());
+//                double low = o.getRoiRaw();
 //                // Margen de seguridad
-//                if (roi > tp - 0.04) {
+//                if (low > tp - 0.04) {
 //                    operations.close(Trading.ExitReason.STRATEGY, o);
 //                }else {
 //                    o.setTpPercent(tp);
@@ -72,10 +72,10 @@ public class GammaStrategy implements TradingStrategy {
 //                }
 //            }
 //            if ((o.getCountCandles() % 5) == 0 && o.getCountCandles() > 15){
-//                double sl = Math.max(o.getSlPercent() - 0.05, 0.01);
-//                double roi = o.getRoiRaw();
+//                double sl = Math.closes(o.getSlPercent() - 0.05, 0.01);
+//                double low = o.getRoiRaw();
 //                // Margen de seguridad
-//                if (roi > sl + 0.02) {
+//                if (low > sl + 0.02) {
 //                    operations.close(Trading.ExitReason.STRATEGY, o);
 //                }else {
 //                    o.setSlPercent(sl);
@@ -189,8 +189,8 @@ public class GammaStrategy implements TradingStrategy {
 //        List<Candle> candlesHeavy = new ArrayList<>(visibleCandles);
 //        for (int back = 0; back < 15; back++) {
 //            candlesHeavy.removeLast();
-//            if (!min) min = isLow(candlesHeavy,40);
-//            if (!max) max = isHigh(candlesHeavy, 40);
+//            if (!high) high = isLow(candlesHeavy,40);
+//            if (!closes) closes = isHigh(candlesHeavy, 40);
 //        }
                 List<Candle> candles = new ArrayList<>(visibleCandles);
 

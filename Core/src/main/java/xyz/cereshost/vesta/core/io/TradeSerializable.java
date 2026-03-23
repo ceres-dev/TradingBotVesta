@@ -3,10 +3,7 @@ package xyz.cereshost.vesta.core.io;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.common.market.Trade;
 
-import java.io.DataInputStream;
-import java.io.EOFException;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -15,35 +12,20 @@ import java.util.concurrent.FutureTask;
 
 import static xyz.cereshost.vesta.core.io.IOMarket.*;
 
-public class TradeSerializable implements SerializableBin<Trade>, SerializableCSV<Trade> {
+public class TradeSerializable implements ParseSerializable<Trade> {
 
     @Override
-    public void submitBatch(Deque<FutureTask<List<Trade>>> tasks, List<String> batch) {
-        List<String> batchCopy = new ArrayList<>(batch);
-        FutureTask<List<Trade>> task = new FutureTask<>(() -> parseTradeBatch(batchCopy));
-        tasks.addLast(task);
-        VestaEngine.EXECUTOR_AUXILIAR_BUILD.execute(task);
-    }
-
-    @Override
-    public void writeBin(File zipFile, Deque<Trade> trades) throws IOException {
-        String entryName = binEntryName(zipFile);
-        rewriteZipWithBinEntry(zipFile, entryName, out -> {
-            out.writeInt(TRADE_BIN_MAGIC);
-            out.writeInt(BIN_VERSION);
-            for (Trade trade : trades) {
-                out.writeLong(trade.time());
-                out.writeDouble(trade.price());
-                out.writeDouble(trade.qty());
-                out.writeBoolean(trade.isBuyerMaker());
-            }
-        });
+    public void writeBin(DataOutput out, Trade trade) throws IOException {
+        out.writeLong(trade.time());
+        out.writeDouble(trade.price());
+        out.writeDouble(trade.qty());
+        out.writeBoolean(trade.isBuyerMaker());
     }
 
     @Override
     public Deque<Trade> readBin(DataInputStream in) throws IOException {
         int magic = in.readInt();
-        if (magic != TRADE_BIN_MAGIC) {
+        if (magic != getMagic()) {
             return null;
         }
         int version = in.readInt();
@@ -65,18 +47,13 @@ public class TradeSerializable implements SerializableBin<Trade>, SerializableCS
         return list;
     }
 
-    private static List<Trade> parseTradeBatch(List<String> lines) {
-        List<Trade> trades = new ArrayList<>(lines.size());
-        for (String line : lines) {
-            Trade trade = parseTradeLine(line);
-            if (trade != null) {
-                trades.add(trade);
-            }
-        }
-        return trades;
+    @Override
+    public int getMagic() {
+        return 0x54524431;
     }
 
-    public static Trade parseTradeLine(String line) {
+    @Override
+    public Trade parseLine(String line) {
         int p0 = line.indexOf(',');
         int p1 = line.indexOf(',', p0 + 1);
         int p2 = line.indexOf(',', p1 + 1);

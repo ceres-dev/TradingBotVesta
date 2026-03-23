@@ -253,6 +253,7 @@ public class TrainingData {
     private ArrayDeque<CompletableFuture<Pair<float[][][], float[][]>>> pairsLoaded = new ArrayDeque<>();
     private ArrayDeque<Pair<float[][][], float[][]>> splitQueue = new ArrayDeque<>();
     private int splitParts = 1;
+    private int fileCursor = 0;
     @Nullable
     private Random random = null;
     private AutoStopListener autoStopListener = null;
@@ -263,17 +264,19 @@ public class TrainingData {
         maxLoaded = amount;
         this.splitParts = Math.max(1, splitParts);
         splitQueue.clear();
+        fileCursor = 0;
         if (Objects.requireNonNull(mode) == ModeData.RAMDOM) {
             this.random = new Random();
         }
         if (!loadInRam){
             List<Path> trainingList = files.subList(2, files.size());
             for (int i = 0; i < amount; i++){
-                int j = i;
+                int j = (fileCursor + i) % trainingList.size();
                 pairsLoaded.add(CompletableFuture.supplyAsync(() ->
                     getPairNormalizeFromDisk(trainingList.get(j % trainingList.size()))
                 ));
             }
+            fileCursor = (fileCursor + amount) % trainingList.size();
         }
     }
 
@@ -310,11 +313,19 @@ public class TrainingData {
             result = EngineUtils.getSingleSplitWithLabels(trainNormalize.getKey(), trainNormalize.getValue(), splitParts, indexTrading % splitParts);
         }else {
             try {
+                if (pairsLoaded.isEmpty()) {
+                    List<Path> trainingList = files.subList(2, files.size());
+                    int idx = nextTrainingFileIndex(trainingList);
+                    pairsLoaded.add(CompletableFuture.supplyAsync(() ->
+                            getPairNormalizeFromDisk(trainingList.get(idx)), VestaEngine.EXECUTOR_TRAINING)
+                    );
+                }
                 result = pairsLoaded.pollFirst().get();
                 List<Path> trainingList = files.subList(2, files.size());
                 while (pairsLoaded.size() < maxLoaded) {
+                    int idx = nextTrainingFileIndex(trainingList);
                     pairsLoaded.add(CompletableFuture.supplyAsync(() ->
-                            getPairNormalizeFromDisk(trainingList.get(indexTrading % trainingList.size())), VestaEngine.EXECUTOR_TRAINING)
+                            getPairNormalizeFromDisk(trainingList.get(idx)), VestaEngine.EXECUTOR_TRAINING)
                     );
                 }
             } catch (InterruptedException | ExecutionException e) {
@@ -337,6 +348,28 @@ public class TrainingData {
             }
             splitQueue.addAll(splits);
             return splitQueue.pollFirst();
+        }
+    }
+
+    private int nextTrainingFileIndex(List<Path> trainingList) {
+        if (trainingList.isEmpty()) {
+            return 0;
+        }
+        switch (modeData) {
+            case RAMDOM -> {
+                if (random == null) {
+                    random = new Random();
+                }
+                return Math.abs(random.nextInt()) % trainingList.size();
+            }
+            case SECUENCIAL -> {
+                int idx = fileCursor % trainingList.size();
+                fileCursor = (fileCursor + 1) % trainingList.size();
+                return idx;
+            }
+            default -> {
+                return 0;
+            }
         }
     }
 

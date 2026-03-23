@@ -179,6 +179,24 @@ public class ChartUtils {
         chart.setBackgroundPaint(Color.BLACK);
     };
 
+    public static void applyBinanceCandleStyle(@NotNull XYPlot plot) {
+        XYItemRenderer renderer = plot.getRenderer();
+        if (renderer instanceof CandlestickRenderer candleRenderer) {
+            applyBinanceCandleStyle(candleRenderer);
+        }
+    }
+
+    private static final Color BINANCE_UP = new Color(0x2E, 0xBC, 0x84, 0xFF);
+    private static final Color BINANCE_DOWN = new Color(0xF4, 0x45, 0x5C, 0xFF);
+    private static final Color BINANCE_OUTLINE = new Color(255, 255, 255, 0xFF);
+
+    public static void applyBinanceCandleStyle(@NotNull CandlestickRenderer renderer) {
+        renderer.setUpPaint(BINANCE_UP);
+        renderer.setDownPaint(BINANCE_DOWN);
+        renderer.setUseOutlinePaint(true);
+        renderer.setDefaultOutlinePaint(BINANCE_OUTLINE);
+    }
+
 
 
     public static void showCandleChart(String title, List<Candle> candles, String symbol) {
@@ -235,6 +253,7 @@ public class ChartUtils {
             XYPlot plot = (XYPlot) chart.getPlot();
             DateAxis axis = (DateAxis) plot.getDomainAxis();
             axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
+            applyBinanceCandleStyle(plot);
 
             // Overlay: linea de SuperTrend
             if (!superTrendSeries.isEmpty()) {
@@ -285,6 +304,134 @@ public class ChartUtils {
     }
 
     public record PredictionPoint(long time, double tpPrice, double slPrice) {}
+    public record ClosePredictionPoint(long time, double close) {}
+
+    public static void showCandlePredictionSnapshot(
+            String title,
+            List<CandleSimple> lookbackCandles,
+            List<ClosePredictionPoint> predictedFuture,
+            List<ClosePredictionPoint> actualFuture,
+            long predictionTime
+    ) {
+        if (lookbackCandles == null || lookbackCandles.isEmpty()) {
+            Vesta.error("No hay velas para mostrar");
+            return;
+        }
+        if (!chartsEnabled()) {
+            return;
+        }
+
+        List<CandleSimple> sortedLookback = new ArrayList<>(lookbackCandles);
+        sortedLookback.sort(Comparator.comparingLong(CandleSimple::openTime));
+
+        List<ClosePredictionPoint> pred = new ArrayList<>();
+        if (predictedFuture != null) {
+            pred.addAll(predictedFuture);
+            pred.sort(Comparator.comparingLong(ClosePredictionPoint::time));
+        }
+
+        List<ClosePredictionPoint> real = new ArrayList<>();
+        if (actualFuture != null) {
+            real.addAll(actualFuture);
+            real.sort(Comparator.comparingLong(ClosePredictionPoint::time));
+        }
+
+        DefaultHighLowDataset candleDataset = buildHighLowDataset(sortedLookback, 0, sortedLookback.size() - 1, title);
+        JFreeChart chart = ChartFactory.createCandlestickChart(
+                title,
+                "Fecha",
+                "Precio",
+                candleDataset,
+                true
+        );
+
+        XYPlot plot = (XYPlot) chart.getPlot();
+        DateAxis axis = (DateAxis) plot.getDomainAxis();
+        axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
+        applyBinanceCandleStyle(plot);
+
+        XYSeries actualSeries = new XYSeries("Actual", true, false);
+        if (!sortedLookback.isEmpty()) {
+            double anchorClose = sortedLookback.getLast().close();
+            actualSeries.add(predictionTime, anchorClose);
+        }
+        for (ClosePredictionPoint p : real) {
+            actualSeries.add(p.time(), p.close());
+        }
+
+        XYSeries predictedSeries = new XYSeries("Predicted", true, false);
+        if (!sortedLookback.isEmpty()) {
+            double anchorClose = sortedLookback.getLast().close();
+            predictedSeries.add(predictionTime, anchorClose);
+        }
+        for (ClosePredictionPoint p : pred) {
+            predictedSeries.add(p.time(), p.close());
+        }
+
+        XYSeriesCollection lineDataset = new XYSeriesCollection();
+        lineDataset.addSeries(actualSeries);
+        lineDataset.addSeries(predictedSeries);
+
+        XYLineAndShapeRenderer lineRenderer = new XYLineAndShapeRenderer(true, false);
+        lineRenderer.setSeriesPaint(0, new Color(0, 120, 255, 220));
+        lineRenderer.setSeriesPaint(1, new Color(255, 140, 0, 220));
+        lineRenderer.setSeriesStroke(0, new BasicStroke(1.2f));
+        lineRenderer.setSeriesStroke(1, new BasicStroke(1.2f));
+
+        plot.setDataset(1, lineDataset);
+        plot.setRenderer(1, lineRenderer);
+
+        ValueMarker marker = new ValueMarker(predictionTime);
+        marker.setPaint(new Color(255, 215, 0, 180));
+        marker.setStroke(new BasicStroke(1.2f));
+        plot.addDomainMarker(marker);
+
+        long startTime = sortedLookback.getFirst().openTime();
+        long endTime = startTime;
+        if (!real.isEmpty()) {
+            endTime = Math.max(endTime, real.getLast().time());
+        }
+        if (!pred.isEmpty()) {
+            endTime = Math.max(endTime, pred.getLast().time());
+        }
+        if (endTime <= startTime) {
+            endTime = startTime + 60_000L;
+        }
+        axis.setRange(new Date(startTime), new Date(endTime));
+
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+        for (CandleSimple c : sortedLookback) {
+            min = Math.min(min, c.low());
+            max = Math.max(max, c.high());
+        }
+        for (ClosePredictionPoint p : real) {
+            min = Math.min(min, p.close());
+            max = Math.max(max, p.close());
+        }
+        for (ClosePredictionPoint p : pred) {
+            min = Math.min(min, p.close());
+            max = Math.max(max, p.close());
+        }
+        if (Double.isFinite(min) && Double.isFinite(max)) {
+            double range = max - min;
+            double padding = range > 0 ? range * 0.05 : Math.max(Math.abs(max) * 0.01, 0.0001);
+            NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
+            rangeAxis.setRange(min - padding, max + padding);
+        }
+
+        darkMode(chart);
+
+        ChartPanel chartPanel = new ChartPanel(chart);
+        chartPanel.setPreferredSize(new Dimension(1200, 600));
+
+        JFrame frame = new JFrame(title);
+        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.getContentPane().add(chartPanel);
+        frame.pack();
+        frame.setLocationRelativeTo(null);
+        frame.setVisible(true);
+    }
 
     public static void animateCandlePredictions(
             String title,
@@ -339,6 +486,7 @@ public class ChartUtils {
         XYPlot plot = (XYPlot) chart.getPlot();
         DateAxis axis = (DateAxis) plot.getDomainAxis();
         axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
+        applyBinanceCandleStyle(plot);
 
         XYSeries maxSeries = new XYSeries("Max");
         XYSeries minSeries = new XYSeries("Min");
@@ -439,263 +587,6 @@ public class ChartUtils {
         });
         animator.setDaemon(true);
         animator.start();
-    }
-
-    /**
-     * Muestra la distribución de datos con dos salidas (TP y SL)
-     */
-    public static void showTPSLDistribution(String title, float[][] y, String symbol) {
-        if (!chartsEnabled()) {
-            return;
-        }
-        try {
-            // Extraer TP y SL de los datos de salida
-            List<Float> maxValues = new ArrayList<>();
-            List<Float> minValues = new ArrayList<>();
-            int j = 0;
-            for (float[] floats : y) {
-                if (floats.length >= 2) {
-                    float max = floats[0];
-                    float min = floats[1];
-                    maxValues.add(max);
-                    minValues.add(-min);
-                }
-            }
-
-            // Crear dataset para TP y SL
-            XYSeries tpSeries = new XYSeries("Distancia");
-            XYSeries slSeries = new XYSeries("Relativo");
-
-            for (int i = 0; i < maxValues.size(); i++) {
-                tpSeries.add(i, maxValues.get(i));
-                slSeries.add(i, minValues.get(i));
-            }
-
-            XYSeriesCollection dataset = new XYSeriesCollection();
-            dataset.addSeries(tpSeries);
-            dataset.addSeries(slSeries);
-
-            // Crear gráfico
-            JFreeChart chart = ChartFactory.createScatterPlot(
-                    title + " - " + symbol + " (Distribución de Distancia y Relativo)",
-                    "Índice de Muestra",
-                    "Valor (Log Return)",
-                    dataset
-            );
-
-            // Configurar colores
-            XYPlot plot = (XYPlot) chart.getPlot();
-            plot.getRenderer().setSeriesPaint(0, Color.green);  // TP en verde
-            plot.getRenderer().setSeriesPaint(1, Color.red);    // SL en rojo
-
-            // Mostrar en ventana
-            ChartPanel chartPanel = new ChartPanel(chart);
-            chartPanel.setPreferredSize(new Dimension(1200, 600));
-
-            darkMode(chart);
-            JFrame frame = new JFrame("Distribución de Datos - " + symbol);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(chartPanel);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-//                Vesta.info("Mostrando distribución de " + longValues.size() + " muestras para " + symbol);
-//                Vesta.info("TP promedio: " + longValues.stream().mapToDouble(f -> f).average().orElse(0));
-//                Vesta.info("SL promedio: " + neutralValues.stream().mapToDouble(f -> f).average().orElse(0));
-//                Vesta.info("Ratio TP/SL promedio: " + shortValues.stream().mapToDouble(f -> f).average().orElse(0));
-
-        } catch (Exception e) {
-            Vesta.error("Error mostrando distribución: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Muestra la comparación de predicciones vs reales para TP y SL
-     */
-    public static void showPredictionComparison(
-            String title,
-            List<EngineUtils.ResultEvaluate> results
-    ) {
-        if (results == null || results.isEmpty()) {
-            Vesta.error("No hay resultados para mostrar");
-            return;
-        }
-        if (!chartsEnabled()) {
-            return;
-        }
-
-        try {
-            // Separar datos para TP y SL
-            List<Float> actualTP = new ArrayList<>();
-            List<Float> predictedTP = new ArrayList<>();
-            List<Float> actualSL = new ArrayList<>();
-            List<Float> predictedSL = new ArrayList<>();
-            List<Float> tpError = new ArrayList<>();
-            List<Float> slError = new ArrayList<>();
-
-            JTabbedPane tabbedPane = new JTabbedPane();
-            results.sort(Comparator.comparingDouble(EngineUtils.ResultEvaluate::tpDiff));
-            for (EngineUtils.ResultEvaluate r : results) {
-                actualTP.add(r.getRealTP());
-                predictedTP.add((float) r.getTpPrice());
-                tpError.add(Math.abs(r.getRealTP() - (float) r.getTpPrice()));
-            }
-            results.sort(Comparator.comparingDouble(EngineUtils.ResultEvaluate::lsDiff));
-            for (EngineUtils.ResultEvaluate r : results) {
-                actualSL.add(r.getRealSL());
-                predictedSL.add((float) r.getSlPrice());
-                slError.add(Math.abs(r.getRealSL() - (float) r.getSlPrice()));
-            }
-
-            // Gráfico 1: TP predicho vs real
-            XYSeriesCollection datasetTP = new XYSeriesCollection();
-            XYSeries actualTPSeries = new XYSeries("TP Real");
-            XYSeries predictedTPSeries = new XYSeries("TP Predicho");
-            for (int i = 0; i < actualTP.size(); i++) {
-                actualTPSeries.add(i, actualTP.get(i));
-                predictedTPSeries.add(i, predictedTP.get(i));
-            }
-            datasetTP.addSeries(actualTPSeries);
-            datasetTP.addSeries(predictedTPSeries);
-
-            JFreeChart chartTP = ChartFactory.createXYLineChart(
-                    "Take Profit (TP)",
-                    "Muestra",
-                    "Log Return",
-                    datasetTP
-            );
-            ((XYPlot) chartTP.getPlot()).getRenderer().setSeriesPaint(0, Color.GREEN);
-            ((XYPlot) chartTP.getPlot()).getRenderer().setSeriesPaint(1, Color.BLUE);
-
-            tabbedPane.addTab("TP Predicho/Real", new ChartPanel(chartTP));
-
-
-            // Gráfico 2: SL predicho vs real
-            XYSeriesCollection datasetSL = new XYSeriesCollection();
-            XYSeries actualSLSeries = new XYSeries("SL Real");
-            XYSeries predictedSLSeries = new XYSeries("SL Predicho");
-            for (int i = 0; i < actualSL.size(); i++) {
-                actualSLSeries.add(i, actualSL.get(i));
-                predictedSLSeries.add(i, predictedSL.get(i));
-            }
-            datasetSL.addSeries(actualSLSeries);
-            datasetSL.addSeries(predictedSLSeries);
-
-            JFreeChart chartSL = ChartFactory.createXYLineChart(
-                    "Stop Loss (SL)",
-                    "Muestra",
-                    "Log Return",
-                    datasetSL
-            );
-            ((XYPlot) chartSL.getPlot()).getRenderer().setSeriesPaint(0, Color.RED);
-            ((XYPlot) chartSL.getPlot()).getRenderer().setSeriesPaint(1, Color.ORANGE);
-            tabbedPane.addTab("SL Predicho/Real", new ChartPanel(chartSL));
-
-            // Gráfico 3: Error de predicción
-            XYSeriesCollection datasetError = new XYSeriesCollection();
-            XYSeries tpErrorSeries = new XYSeries("Error TP");
-            XYSeries slErrorSeries = new XYSeries("Error SL");
-            for (int i = 0; i < tpError.size(); i++) {
-                tpErrorSeries.add(i, tpError.get(i));
-                slErrorSeries.add(i, slError.get(i));
-            }
-            datasetError.addSeries(tpErrorSeries);
-            datasetError.addSeries(slErrorSeries);
-
-            JFreeChart chartError = ChartFactory.createXYLineChart(
-                    "Error de Predicción",
-                    "Muestra",
-                    "Error Absoluto",
-                    datasetError
-            );
-            ((XYPlot) chartError.getPlot()).getRenderer().setSeriesPaint(0, Color.magenta);
-            ((XYPlot) chartError.getPlot()).getRenderer().setSeriesPaint(1, Color.CYAN);
-            tabbedPane.addTab("Error TP/SL", new ChartPanel(chartError));
-
-            // Mostrar ventana
-            JFrame frame = new JFrame(title);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(tabbedPane);
-            frame.setSize(1600, 1200);
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-            Vesta.info("Mostrando comparación de " + results.size() + " predicciones");
-
-        } catch (Exception e) {
-            Vesta.error("Error mostrando comparación: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Muestra la distribución de ratios TP/SL
-     */
-    public static void plotRatioDistribution(String title, List<EngineUtils.ResultEvaluate> results) {
-        if (results == null || results.isEmpty()) return;
-        if (!chartsEnabled()) {
-            return;
-        }
-
-        // Calcular ratios
-        List<Float> realRatios = new ArrayList<>();
-        List<Float> predRatios = new ArrayList<>();
-
-        for (EngineUtils.ResultEvaluate r : results) {
-            if (r.getRealSL() != 0) {
-                realRatios.add(r.getRealTP() / r.getRealSL());
-            }else {
-                realRatios.add(0f);
-            }
-            if (r.getSlPrice() != 0) {
-                predRatios.add((float) (r.getTpPrice() / r.getSlPrice()));
-            }else {
-                predRatios.add(0f);
-            }
-        }
-
-        // Crear dataset
-        XYSeriesCollection dataset = new XYSeriesCollection();
-
-        XYSeries realSeries = new XYSeries("Ratio Real TP/SL");
-        XYSeries predSeries = new XYSeries("Ratio Predicho TP/SL");
-
-        for (int i = 0; i < realRatios.size(); i++) {
-            realSeries.add(i, realRatios.get(i));
-        }
-        for (int i = 0; i < predRatios.size(); i++) {
-            predSeries.add(i, predRatios.get(i));
-        }
-
-        dataset.addSeries(realSeries);
-        dataset.addSeries(predSeries);
-
-        // Crear gráfico
-        JFreeChart chart = ChartFactory.createScatterPlot(
-                title,
-                "Muestra",
-                "Ratio TP/SL",
-                dataset
-        );
-
-        XYPlot plot = chart.getXYPlot();
-        plot.getRenderer().setSeriesPaint(0, Color.GREEN);
-        plot.getRenderer().setSeriesPaint(1, Color.BLUE);
-
-        // Línea horizontal en ratio 2:1 (umbral de rentabilidad común)
-        plot.addRangeMarker(new ValueMarker(2.0, Color.RED, new BasicStroke(2.0f)));
-
-        ChartPanel chartPanel = new ChartPanel(chart);
-        chartPanel.setPreferredSize(new Dimension(1200, 600));
-
-        JFrame frame = new JFrame("Distribución de Ratios");
-        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        frame.getContentPane().add(chartPanel);
-        frame.pack();
-        frame.setLocationRelativeTo(null);
-        frame.setVisible(true);
     }
 
     public static void plotRatioVsROI(String title, List<BackTestEngine.CompleteTrade> extraStats) {
@@ -984,142 +875,6 @@ public class ChartUtils {
             );
         }
     }
-    /**
-     * Gráfico de dispersión predicción vs realidad
-     */
-    public static void plotPredictionVsRealScatter(List<EngineUtils.ResultEvaluate> predictions, String title) {
-        if (!chartsEnabled()) {
-            return;
-        }
-        try {
-            XYSeries longSeries = new XYSeries("LONG");
-            XYSeries neutralSeries = new XYSeries("NEUTRAL");
-            XYSeries shortSeries = new XYSeries("SHORT");
-
-              for (EngineUtils.ResultEvaluate pred : predictions) {
-                  float real = pred.getRealDir();
-                  float predVal = pred.getPredDir();
-                  switch (pred.getPredDirection()){
-                      case LONG -> longSeries.add(real, predVal);
-                      case SHORT -> shortSeries.add(real, predVal);
-                      case NEUTRAL -> neutralSeries.add(real, predVal);
-                  }
-              }
-
-            XYSeriesCollection dataset = new XYSeriesCollection();
-            dataset.addSeries(longSeries);
-            dataset.addSeries(neutralSeries);
-            dataset.addSeries(shortSeries);
-
-            JFreeChart chart = ChartFactory.createScatterPlot(
-                    title + " - Predicción vs Realidad",
-                    "Dirección Real",
-                    "Dirección Predicha",
-                    dataset
-            );
-
-            XYPlot plot = chart.getXYPlot();
-            plot.getRenderer().setSeriesPaint(0, Color.GREEN);   // Long
-            plot.getRenderer().setSeriesPaint(1, Color.DARK_GRAY);  // Neutral
-            plot.getRenderer().setSeriesPaint(2, Color.RED);     // Short
-
-            // Agregar línea de referencia (ideal)
-            XYSeries idealSeries = new XYSeries("Ideal");
-            idealSeries.add(-1, -1);
-            idealSeries.add(1, 1);
-            XYSeriesCollection idealDataset = new XYSeriesCollection(idealSeries);
-            plot.setDataset(1, idealDataset);
-
-            XYLineAndShapeRenderer idealRenderer =
-                    new XYLineAndShapeRenderer();
-            idealRenderer.setSeriesLinesVisible(0, true);
-            idealRenderer.setSeriesShapesVisible(0, false);
-            idealRenderer.setSeriesPaint(0, Color.BLUE);
-            plot.setRenderer(1, idealRenderer);
-
-            ChartPanel chartPanel = new ChartPanel(chart);
-            chartPanel.setPreferredSize(new Dimension(800, 600));
-
-            darkMode(chart);
-            JFrame frame = new JFrame("Dispersión - " + title);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(chartPanel);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-        } catch (Exception e) {
-            Vesta.error("Error en gráfico de dispersión: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Distribución de errores por dirección
-     */
-    public static void plotErrorDistributionByDirection(List<EngineUtils.ResultEvaluate> predictions, String title) {
-        if (!chartsEnabled()) {
-            return;
-        }
-        try {
-            List<Float> longErrors = new ArrayList<>();
-            List<Float> neutralErrors = new ArrayList<>();
-            List<Float> shortErrors = new ArrayList<>();
-
-            for (EngineUtils.ResultEvaluate pred : predictions) {
-                float error = pred.dirDiff();
-
-                if (pred.getRealDir() > THRESHOLD_RELATIVE) {
-                    longErrors.add(error);
-                } else if (pred.getRealDir() < -THRESHOLD_RELATIVE) {
-                    shortErrors.add(error);
-                } else {
-                    neutralErrors.add(error);
-                }
-            }
-
-            DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-
-            // Agregar estadísticas de error
-            dataset.addValue(calculateMean(longErrors), "Error Promedio", "LONG");
-            dataset.addValue(calculateMean(neutralErrors), "Error Promedio", "NEUTRAL");
-            dataset.addValue(calculateMean(shortErrors), "Error Promedio", "SHORT");
-
-            dataset.addValue(calculateStdDev(longErrors), "Desviación", "LONG");
-            dataset.addValue(calculateStdDev(neutralErrors), "Desviación", "NEUTRAL");
-            dataset.addValue(calculateStdDev(shortErrors), "Desviación", "SHORT");
-
-            dataset.addValue(longErrors.size(), "Muestras", "LONG");
-            dataset.addValue(neutralErrors.size(), "Muestras", "NEUTRAL");
-            dataset.addValue(shortErrors.size(), "Muestras", "SHORT");
-
-            JFreeChart chart = ChartFactory.createBarChart(
-                    title + " - Distribución de Errores",
-                    "Categoría",
-                    "Valor",
-                    dataset,
-                    PlotOrientation.VERTICAL,
-                    true, true, false
-            );
-
-            CategoryPlot plot = chart.getCategoryPlot();
-            plot.getRenderer().setSeriesPaint(0, new Color(65, 105, 225));  // Azul real
-            plot.getRenderer().setSeriesPaint(1, new Color(255, 140, 0));   // Naranja
-            plot.getRenderer().setSeriesPaint(2, new Color(50, 205, 50));   // Verde lima
-
-            ChartPanel chartPanel = new ChartPanel(chart);
-            chartPanel.setPreferredSize(new Dimension(700, 500));
-            darkMode(chart);
-            JFrame frame = new JFrame("Distribución de Errores - " + title);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(chartPanel);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-        } catch (Exception e) {
-            Vesta.error("Error en distribución de errores: " + e.getMessage());
-        }
-    }
 
     /**
      * Calcular media de una lista
@@ -1131,20 +886,6 @@ public class ChartUtils {
             sum += val;
         }
         return sum / values.size();
-    }
-
-    /**
-     * Calcular desviación estándar
-     */
-    private static double calculateStdDev(List<Float> values) {
-        if (values.size() <= 1) return 0;
-        double mean = calculateMean(values);
-        double sumSq = 0;
-        for (float val : values) {
-            double diff = val - mean;
-            sumSq += diff * diff;
-        }
-        return Math.sqrt(sumSq / (values.size() - 1));
     }
 
     public static void showCandleChartWithTrades(String title, List<CandleSimple> candles, String symbol, List<BackTestEngine.CompleteTrade> trades) {
@@ -1209,6 +950,7 @@ public class ChartUtils {
 
             // Preparar renderer para agregar anotaciones
             CandlestickRenderer renderer = new CandlestickRenderer();
+            applyBinanceCandleStyle(renderer);
 
             XYSeriesCollection balanceDataset = buildBalanceDataset(candles, trades);
             int candleDatasetIndex = 0;

@@ -1,17 +1,11 @@
 package xyz.cereshost.vesta.core.ia.utils;
 
 /**
- * Normalizador para Y en tu esquema:
- * - Y shape esperado: [samples][5] con columnas:
- *   0: TP (regresion)
- *   1: SL (regresion)
- *   2: Long (one-hot)
- *   3: Neutral (one-hot)
- *   4: Short (one-hot)
- *
- * - fit(y): calcula media/desviacion en log1p(TP/SL)
- * - transform(y): aplica log1p y z-score a columnas 0 y 1, deja columnas 2..4 intactas
- * - inverseTransform(yNorm): revierte z-score y log1p
+ * Normalizador para Y:
+ * - Y shape esperado: [samples][N]
+ * - fit(y): calcula media/desviacion por columna
+ * - transform(y): aplica z-score por columna
+ * - inverseTransform(yNorm): revierte z-score
  */
 public class YNormalizer implements Normalizer<float[][]> {
 
@@ -43,19 +37,17 @@ public class YNormalizer implements Normalizer<float[][]> {
         }
         for (float[] row : y) {
             for (int col = 0; col < numOutputs; col++) {
-                if (/*col >= 2 || */col >= row.length) {
+                if (col >= row.length) {
                     continue;
                 }
                 float v = row[col];
                 if (!Float.isFinite(v)) {
                     continue;
                 }
-                if (v < 0f) v = 0f;
-                double lv = Math.log1p(v);
                 long c = ++countAcc[col];
-                double delta = lv - meanAcc[col];
+                double delta = v - meanAcc[col];
                 meanAcc[col] += delta / c;
-                double delta2 = lv - meanAcc[col];
+                double delta2 = v - meanAcc[col];
                 m2Acc[col] += delta * delta2;
             }
         }
@@ -65,22 +57,17 @@ public class YNormalizer implements Normalizer<float[][]> {
         means = new float[numOutputs];
         stds = new float[numOutputs];
         for (int col = 0; col < numOutputs; col++) {
-            if (col < 2) {
-                long c = countAcc[col];
-                if (c == 0) {
-                    means[col] = 0f;
-                    stds[col] = 1f;
-                    continue;
-                }
-                double mean = meanAcc[col];
-                double variance = (m2Acc[col] / c);
-                double std = Math.sqrt(Math.max(variance, EPSILON));
-                means[col] = (float) mean;
-                stds[col] = (float) std;
-            } else {
-                means[col] = 0.0f;
-                stds[col] = 1.0f;
+            long c = countAcc[col];
+            if (c == 0) {
+                means[col] = 0f;
+                stds[col] = 1f;
+                continue;
             }
+            double mean = meanAcc[col];
+            double variance = (m2Acc[col] / c);
+            double std = Math.sqrt(Math.max(variance, EPSILON));
+            means[col] = (float) mean;
+            stds[col] = (float) std;
         }
     }
 
@@ -98,9 +85,8 @@ public class YNormalizer implements Normalizer<float[][]> {
         for (int i = 0; i < y.length; i++) {
             for (int col = 0; col < numOutputs; col++) {
                 float raw = y[i][col];
-                if (!Float.isFinite(raw) || raw < 0f) raw = 0f;
-                double lv = Math.log1p(raw);
-                float z = (float) ((lv - means[col]) / stds[col]);
+                if (!Float.isFinite(raw)) raw = 0f;
+                float z = (float) ((raw - means[col]) / stds[col]);
                 normalized[i][col] = Float.isFinite(z) ? z : 0f;
             }
         }
@@ -112,9 +98,8 @@ public class YNormalizer implements Normalizer<float[][]> {
         float[][] original = new float[yNorm.length][yNorm[0].length];
         for (int i = 0; i < yNorm.length; i++) {
             for (int col = 0; col < yNorm[i].length; col++) {
-                double lv = (yNorm[i][col] * stds[col]) + means[col];
-                double v = Math.expm1(lv);
-                original[i][col] = Double.isFinite(v) && v > 0.0 ? (float) v : 0f;
+                double v = (yNorm[i][col] * stds[col]) + means[col];
+                original[i][col] = Double.isFinite(v) ? (float) v : 0f;
             }
         }
         return original;

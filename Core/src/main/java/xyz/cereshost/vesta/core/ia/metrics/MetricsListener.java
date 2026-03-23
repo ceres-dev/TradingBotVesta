@@ -38,9 +38,10 @@ public class MetricsListener extends TrainingListenerAdapter {
         float maeTrain = result.getTrainEvaluation("mae");
         float maeValidation = result.getValidateEvaluation("mae");
 //        float minValidation = result.getValidateEvaluation("min_diff");
-        float maxValidation = result.getValidateEvaluation("max_diff");
+        float closeValidation = result.getValidateEvaluation("max_diff");
         // Calucar porgreso
-        double progress = (double) trainer.getTrainingResult().getEpoch() / (VestaEngine.EPOCH * (Main.MAX_MONTH_TRAINING) * VestaEngine.AUXILIAR_EPOCH);
+        int totalEpoch = (VestaEngine.EPOCH * (Main.MAX_MONTH_TRAINING-2) * VestaEngine.AUXILIAR_EPOCH);
+        double progress = (double) trainer.getTrainingResult().getEpoch() / totalEpoch;
         long time = System.currentTimeMillis();
         long delta = Math.abs(lastTime - time);
         // Mostrar mensaje
@@ -49,7 +50,7 @@ public class MetricsListener extends TrainingListenerAdapter {
                         (progress) * 100,
                         ((float) countBachOnEpoch) / (delta / 1000f),
                         (double) delta / 1000d,
-                        (int) ((((VestaEngine.EPOCH * Main.MAX_MONTH_TRAINING * VestaEngine.AUXILIAR_EPOCH) - trainer.getTrainingResult().getEpoch()) * delta) / 1000) / 60,
+                        (int) (((totalEpoch - trainer.getTrainingResult().getEpoch()) * delta) / 1000) / 60,
                         (int) (((System.currentTimeMillis() - startTime) / 1000) / 60),
                         "#".repeat((int) (progress * 100)) + " ".repeat((int) (Math.abs(progress - 1) * 100)),
                         countBach
@@ -70,10 +71,10 @@ public class MetricsListener extends TrainingListenerAdapter {
                         )
                 );
                 datasetLoss = ChartUtils.plot("Training Losses Max/Min " + String.join(", ", symbols), "epochs",
-                        List.of(new ChartUtils.DataPlot("Loss max", List.of(l.max()), new Color(0, 64, 0), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
-                                new ChartUtils.DataPlot("Loss min", List.of(l.min()), new Color(64, 0, 0), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
-                                new ChartUtils.DataPlot("max", List.of(maxValidation), Color.GREEN, ChartUtils.DataPlot.StyleLine.NORMAL)//,
-//                                new ChartUtils.DataPlot("min", List.of(minValidation), Color.RED, ChartUtils.DataPlot.StyleLine.NORMAL)
+                        List.of(new ChartUtils.DataPlot("Loss closes", List.of(l.closes()), new Color(0, 64, 0), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
+                                new ChartUtils.DataPlot("Loss high", List.of(l.high()), new Color(64, 0, 0), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
+                                new ChartUtils.DataPlot("total", List.of(l.total()), Color.GREEN, ChartUtils.DataPlot.StyleLine.NORMAL)//,
+//                                new ChartUtils.DataPlot("high", List.of(minValidation), Color.RED, ChartUtils.DataPlot.StyleLine.NORMAL)
                         )
                 );
                 datasetRoi = ChartUtils.plot("diff " + String.join(", ", symbols), "epochs",
@@ -87,10 +88,10 @@ public class MetricsListener extends TrainingListenerAdapter {
             datasetNormal.getSeries("MAE T").add(count, maeTrain);
             datasetNormal.getSeries("Loss V").add(count, lossValidation);
             datasetNormal.getSeries("MAE V").add(count, maeValidation);
-            datasetLoss.getSeries("max").add(count, maxValidation);
-//            datasetLoss.getSeries("min").add(count, minValidation);
-            datasetLoss.getSeries("Loss max").add(count, l.max());
-            datasetLoss.getSeries("Loss min").add(count, l.min());
+            datasetLoss.getSeries("total").add(count, l.total());
+//            datasetLoss.getSeries("high").add(count, minValidation);
+            datasetLoss.getSeries("Loss closes").add(count, l.closes());
+            datasetLoss.getSeries("Loss high").add(count, l.high());
             datasetRoi.getSeries("diff").add(count, l.meanReal() - l.meanPred());
             datasetRoi.getSeries("diff Abs").add(count, Math.abs(l.meanReal() - l.meanPred()));
             datasetRoi.getSeries("real").add(count, l.meanReal());

@@ -36,7 +36,7 @@ public class Main {
             if (last.isPresent()) {
                 String json = Files.readString(last.get());
                 Market market = Utils.GSON.fromJson(json, Market.class);
-                market.sortd();
+                market.sortdInChunks();
                 Vesta.MARKETS.put(name, market);
                 Vesta.info("Loaded " + name);
             }
@@ -95,7 +95,7 @@ public class Main {
             }
         });
         latch.await();
-        market.sortd();
+        market.sortdInChunks();
         executor.shutdown();
     }
 }

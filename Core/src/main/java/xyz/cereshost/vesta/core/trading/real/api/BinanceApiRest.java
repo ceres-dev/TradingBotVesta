@@ -39,7 +39,7 @@ public final class BinanceApiRest implements BinanceApi {
     private final String secretKey;
     private final String baseUrl;
     // Errores "idempotentes" que no deben detener el loop (ej: cancelar una orden ya cerrada).
-    private static final List<Integer> WEAK_ERROS_CODE = List.of(-2021, -2011);
+    private static final List<Integer> WEAK_ERROS_CODE = List.of(-2021, -2011, -5022);
     private final HttpClient client = HttpClient.newHttpClient();
 
     @NotNull private MediaNotification mediaNotification = MediaNotification.empty();
@@ -64,6 +64,7 @@ public final class BinanceApiRest implements BinanceApi {
                            TypeOrder type,
                            TimeInForce timeInForce,
                            String quantity,
+                           Double price,
                            Double stopPrice,
                            boolean reduceOnly,
                            boolean closePosition
@@ -74,6 +75,7 @@ public final class BinanceApiRest implements BinanceApi {
         params.put("side", side.getSide());
         params.put("type", type.name());
         if (type.isLimit()) params.put("timeInForce", timeInForce.name());
+        if (price != null) params.put("price", formatPrice(symbol, price));
         if (closePosition) {
             params.put("closePosition", "true");
         } else if (quantity != null) {
@@ -84,6 +86,7 @@ public final class BinanceApiRest implements BinanceApi {
 
         Vesta.info("Enviando orden REST: " + type + " " + side +
                 " Qty:" + (quantity != null ? quantity : "null") +
+                " Price:" + (price != null ? price : "null") +
                 " Stop:" + stopPrice +
                 " reduceOnly:" + reduceOnly +
                 " closePosition:" + closePosition);
@@ -268,7 +271,7 @@ public final class BinanceApiRest implements BinanceApi {
     @Override
     public JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
         params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-        params.put("recvWindow", "5000");
+        params.put("recvWindow", "20000");
         try {
             String queryString = buildQueryString(params);
             String signature = hmacSha256(queryString, secretKey);
@@ -300,7 +303,7 @@ public final class BinanceApiRest implements BinanceApi {
     public JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiRequestException {
         try {
             params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-            params.put("recvWindow", "5000");
+            params.put("recvWindow", "20000");
             String queryString = buildQueryString(params);
             String finalUrl = baseUrl + endpoint + "?" + queryString;
 

@@ -4,10 +4,7 @@ import xyz.cereshost.vesta.common.market.Volumen;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.common.market.CandleSimple;
 
-import java.io.DataInputStream;
-import java.io.EOFException;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -16,43 +13,28 @@ import java.util.concurrent.FutureTask;
 
 import static xyz.cereshost.vesta.core.io.IOMarket.*;
 
-public class KlinesSerializable implements SerializableBin<CandleSimple>, SerializableCSV<CandleSimple> {
+public class KlinesSerializable implements ParseSerializable<CandleSimple> {
 
     @Override
-    public void submitBatch(Deque<FutureTask<List<CandleSimple>>> tasks, List<String> batch) {
-        List<String> batchCopy = new ArrayList<>(batch);
-        FutureTask<List<CandleSimple>> task = new FutureTask<>(() -> parseKlineBatch(batchCopy));
-        tasks.addLast(task);
-        VestaEngine.EXECUTOR_AUXILIAR_BUILD.execute(task);
-    }
-
-    @Override
-    public void writeBin(File zipFile, Deque<CandleSimple> candles) throws IOException {
-        String entryName = binEntryName(zipFile);
-        rewriteZipWithBinEntry(zipFile, entryName, out -> {
-            out.writeInt(KLINE_BIN_MAGIC);
-            out.writeInt(BIN_VERSION);
-            for (CandleSimple candle : candles) {
-                Volumen vol = candle.volumen();
-                out.writeLong(candle.openTime());
-                out.writeDouble(candle.open());
-                out.writeDouble(candle.high());
-                out.writeDouble(candle.low());
-                out.writeDouble(candle.close());
-                out.writeDouble(vol.quoteVolume());
-                out.writeDouble(vol.baseVolume());
-                out.writeDouble(vol.takerBuyQuoteVolume());
-                out.writeDouble(vol.sellQuoteVolume());
-                out.writeDouble(vol.deltaUSDT());
-                out.writeDouble(vol.buyRatio());
-            }
-        });
+    public void writeBin(DataOutput out, CandleSimple candle) throws IOException {
+        Volumen vol = candle.volumen();
+        out.writeLong(candle.openTime());
+        out.writeDouble(candle.open());
+        out.writeDouble(candle.high());
+        out.writeDouble(candle.low());
+        out.writeDouble(candle.close());
+        out.writeDouble(vol.quoteVolume());
+        out.writeDouble(vol.baseVolume());
+        out.writeDouble(vol.takerBuyQuoteVolume());
+        out.writeDouble(vol.sellQuoteVolume());
+        out.writeDouble(vol.deltaUSDT());
+        out.writeDouble(vol.buyRatio());
     }
 
     @Override
     public Deque<CandleSimple> readBin(DataInputStream in) throws IOException {
         int magic = in.readInt();
-        if (magic != KLINE_BIN_MAGIC) {
+        if (magic != getMagic()) {
             return null;
         }
         int version = in.readInt();
@@ -88,16 +70,13 @@ public class KlinesSerializable implements SerializableBin<CandleSimple>, Serial
         return list;
     }
 
-    private static List<CandleSimple> parseKlineBatch(List<String> lines) {
-        List<CandleSimple> candles = new ArrayList<>(lines.size());
-        for (String line : lines) {
-            CandleSimple candle = parseKlineLine(line);
-            candles.add(candle);
-        }
-        return candles;
+    @Override
+    public int getMagic() {
+        return 0x4B4C4E31;
     }
 
-    public static CandleSimple parseKlineLine(String line) {
+    @Override
+    public CandleSimple parseLine(String line) {
         String[] p = line.split(",");
         double quoteVolume = Double.parseDouble(p[7]);
         double takerBuyQuoteVolume = Double.parseDouble(p[10]);
