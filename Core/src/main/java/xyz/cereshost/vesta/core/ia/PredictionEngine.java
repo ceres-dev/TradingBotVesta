@@ -6,24 +6,17 @@ import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.Shape;
-import ai.djl.util.Pair;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.Getter;
-import org.jetbrains.annotations.Contract;
-import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
-import xyz.cereshost.vesta.core.ia.utils.PredictionUtils;
 import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
 import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
-import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.utils.BuilderData;
+import xyz.cereshost.vesta.core.util.BuilderData;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -34,6 +27,8 @@ public class PredictionEngine {
 
     public static final double THRESHOLD_PRICE = 0.002; // No se usa
     public static final double THRESHOLD_RELATIVE = 0.5;
+    private static final int MODEL_OUTPUTS = 5;
+    private static final int REQUIRED_AUTOREGRESSIVE_FEATURES = 5;
 
     private final Model model;
     private final XNormalizer xNormalizer;
@@ -53,14 +48,23 @@ public class PredictionEngine {
 
     /**
      * Hace la inferencia en el modelo.
-     * Devuelve los valores desnormalizados para los outputs 0 (upMove) y 1 (downMove).
-     * Formato: [upMove, downMove, 0, 0, 0]
+     * Devuelve los valores desnormalizados para un unico ejemplo (batch=1).
+     * Formato: [close, high, low, volumen, ema]
      */
     public float[] predictRaw(float[][][] inputSequence) {
+        if (inputSequence == null || inputSequence.length == 0) {
+            throw new IllegalArgumentException("inputSequence no puede ser null o vacio");
+        }
+        if (inputSequence[0] == null || inputSequence[0].length == 0 || inputSequence[0][0] == null) {
+            throw new IllegalArgumentException("inputSequence tiene dimensiones invalidas");
+        }
         NDManager manager = model.getNDManager();
         int batchSize = inputSequence.length;
         int sequenceLength = inputSequence[0].length;
         int actualFeatures = inputSequence[0][0].length;
+        if (batchSize != 1) {
+            throw new IllegalArgumentException("predictRaw solo soporta batch=1. Batch recibido: " + batchSize);
+        }
         //debugInputData(inputSequence);
         // Validación de dimensiones
         if (actualFeatures != features) {
@@ -85,11 +89,11 @@ public class PredictionEngine {
 
         // Verificar la forma de la salida
         long[] shape = prediction.getShape().getShape();
-        if (shape[shape.length - 1] != 5) {
-            throw new RuntimeException("El modelo debe tener 5 salidas. Forma actual: " + prediction.getShape());
+        if (shape[shape.length - 1] != MODEL_OUTPUTS) {
+            throw new RuntimeException("El modelo debe tener " + MODEL_OUTPUTS + " salidas. Forma actual: " + prediction.getShape());
         }
 
-        float[][] output2D = new float[1][5];
+        float[][] output2D = new float[1][MODEL_OUTPUTS];
         output2D[0][0] = normalizedOutput[0];
         output2D[0][1] = normalizedOutput[1];
         output2D[0][2] = normalizedOutput[2];
@@ -106,13 +110,14 @@ public class PredictionEngine {
         if (futureCandles <= 0) {
             return new PredictionResult(List.of());
         }
-        candles.sort(Comparator.comparingLong(Candle::openTime));
+        List<Candle> sortedCandles = new ArrayList<>(candles);
+        sortedCandles.sort(Comparator.comparingLong(Candle::openTime));
 
-        if (candles.size() < lookBack + 1) {
+        if (sortedCandles.size() < lookBack + 1) {
             throw new RuntimeException("Historial insuficiente. Se necesitan " + (lookBack + 1) + " velas.");
         }
 
-        List<Candle> subList = candles.subList((candles.size() - (lookBack + 1)), candles.size());
+        List<Candle> subList = sortedCandles.subList((sortedCandles.size() - (lookBack + 1)), sortedCandles.size());
 
         // Construir entrada inicial
         float[][][] X = new float[1][Math.toIntExact(lookBack)][Math.toIntExact(features - 2)];
@@ -120,8 +125,10 @@ public class PredictionEngine {
             X[0][j] = BuilderData.extractFeatures(subList.get(j + 1), subList.get(j));
         }
 
-        if (X[0][0].length < 4) {
-            throw new IllegalStateException("Se requieren al menos 4 features para inyectar la prediccion.");
+        if (X[0][0].length < REQUIRED_AUTOREGRESSIVE_FEATURES) {
+            throw new IllegalStateException(
+                    "Se requieren al menos " + REQUIRED_AUTOREGRESSIVE_FEATURES + " features para inyectar la prediccion."
+            );
         }
 
         List<PredictionCandleResult> results = new ArrayList<>(futureCandles);
@@ -133,7 +140,8 @@ public class PredictionEngine {
                     rawPredictions[0],
                     rawPredictions[1],
                     rawPredictions[2],
-                    rawPredictions[3]
+                    rawPredictions[3],
+                    rawPredictions[4]
             );
             results.add(predicted);
 
@@ -147,6 +155,7 @@ public class PredictionEngine {
             nextFeatures[1] = (float) predicted.high();
             nextFeatures[2] = (float) predicted.low();
             nextFeatures[3] = predicted.volumen();
+            nextFeatures[4] = (float) predicted.ema();
             X[0][lookBack - 1] = nextFeatures;
         }
 
@@ -158,40 +167,51 @@ public class PredictionEngine {
         List<PredictionCandleResult> candles;
 
         public double maxClose() {
-            if (candles == null || candles.isEmpty()) return Double.NaN;
-            double max = Double.NEGATIVE_INFINITY;
-            for (PredictionCandleResult c : candles) {
-                max = Math.max(max, c.close());
-            }
-            return max;
+            GraphRange graphRange = closeGraphRange();
+            return graphRange.max();
         }
 
         public double minClose() {
-            if (candles == null || candles.isEmpty()) return Double.NaN;
-            double min = Double.POSITIVE_INFINITY;
-            for (PredictionCandleResult c : candles) {
-                min = Math.min(min, c.close());
-            }
-            return min;
+            GraphRange graphRange = closeGraphRange();
+            return graphRange.min();
         }
 
         public double maxHigh() {
-            if (candles == null || candles.isEmpty()) return Double.NaN;
-            double max = Double.NEGATIVE_INFINITY;
-            for (PredictionCandleResult c : candles) {
-                max = Math.max(max, c.high());
-            }
-            return max;
+            return maxClose();
         }
 
         public double minLow() {
-            if (candles == null || candles.isEmpty()) return Double.NaN;
-            double min = Double.POSITIVE_INFINITY;
-            for (PredictionCandleResult c : candles) {
-                min = Math.min(min, c.low());
-            }
-            return min;
+            return minClose();
         }
+
+        // Extremos de la curva predicha de close acumulado (no mechas individuales).
+        private GraphRange closeGraphRange() {
+            if (candles == null || candles.isEmpty()) {
+                return new GraphRange(Double.NaN, Double.NaN);
+            }
+            double cumulative = 1.0;
+            double max = Double.NEGATIVE_INFINITY;
+            double min = Double.POSITIVE_INFINITY;
+            for (PredictionCandleResult candle : candles) {
+                double step = candle.close();
+                if (!Double.isFinite(step)) {
+                    continue;
+                }
+                cumulative *= (1.0 + step);
+                if (!Double.isFinite(cumulative)) {
+                    continue;
+                }
+                double point = cumulative - 1.0;
+                max = Math.max(max, point);
+                min = Math.min(min, point);
+            }
+            if (!Double.isFinite(min) || !Double.isFinite(max)) {
+                return new GraphRange(Double.NaN, Double.NaN);
+            }
+            return new GraphRange(min, max);
+        }
+
+        private record GraphRange(double min, double max) {}
 
         public double ratioClose() {
             double min = minClose();
@@ -214,8 +234,8 @@ public class PredictionEngine {
         }
 
         public double tpPercent(){
-            double min = minClose();
             double max = maxClose();
+            double min = minClose();
             if (getDireccion().equals(DireccionOperation.LONG)) {
                 return max *100;
             }else {
@@ -224,15 +244,17 @@ public class PredictionEngine {
         }
 
         public double slPercent(){
-            double min = minClose();
-            double max = maxClose();
-            if (getDireccion().equals(DireccionOperation.SHORT)) {
-                return max * 100;
-            }else {
+            double min = minLow();
+            double max = maxHigh();
+            if (getDireccion().equals(DireccionOperation.LONG)) {
                 return Math.abs(min) * 100;
+            }else {
+                return max * 100;
             }
         }
     }
 
-    public record PredictionCandleResult(double close, double high, double low, float volumen) {}
+    public record PredictionCandleResult(double close, double high, double low, float volumen, double ema) {
+
+    }
 }

@@ -7,4 +7,5 @@ public record CandleSimple(long openTime, double open, double high, double low, 
     public int hashCode() {
         return Objects.hash(openTime);
     }
+
 }

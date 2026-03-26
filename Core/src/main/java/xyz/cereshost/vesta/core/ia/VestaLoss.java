@@ -48,8 +48,9 @@ public class VestaLoss extends Loss {
         NDArray lossHigh = computeDistance(trueParts.get(1), predParts.get(1));
         NDArray lossLow = computeDistance(trueParts.get(2), predParts.get(2));
         NDArray lossVolumen = computeDistance(trueParts.get(3), predParts.get(3));
+        NDArray lossMAE = computeDistance(trueParts.get(4), predParts.get(4));
 
-        NDArray totalLoss = lossCloses.add(lossHigh).add(lossLow).add(lossVolumen);
+        NDArray totalLoss = lossCloses.add(lossHigh).add(lossLow).add(lossVolumen).add(lossMAE);
         CompletableFuture<LossReport> request = dataRequest;
         if (request != null && !request.isDone()) {
             // Solo aquí pagamos el costo de sincronización GPU -> CPU
@@ -67,7 +68,7 @@ public class VestaLoss extends Loss {
     }
 
     public NDArray computeDistance(NDArray trueND, NDArray predND){
-        NDArray diff = trueND.sub(predND).square();
+        NDArray diff = trueND.sub(predND).abs();
         return diff.mean();
     }
     public NDArray computeRelative(NDArray trueND, NDArray predND){

@@ -6,6 +6,8 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
+import static xyz.cereshost.vesta.common.market.TimeUnitMarket.*;
+
 public class Market {
 
     public Market(@NotNull String symbol) {
@@ -15,6 +17,8 @@ public class Market {
         this.candleSimples = new LinkedHashSet<>(1_000);
     }
 
+    @Getter
+    private final TimeUnitMarket TimeUnitMarket = ONE_MINUTE;
     @NotNull
     @Getter
     private final String symbol;
@@ -63,11 +67,11 @@ public class Market {
         this.candleSimples = candleSimple;
     }
 
-    public synchronized void sortdInChunks(){
+    public synchronized void sortd(){
         int chunkSize = 10_000;
-        trades = sortInChunks(trades, chunkSize, Trade::time);
-        depths = sortInChunks(depths, chunkSize, Depth::getDate);
-        candleSimples = sortInChunks(candleSimples, chunkSize, CandleSimple::openTime);
+        trades = sortd(trades, chunkSize, Trade::time);
+        depths = sortd(depths, chunkSize, Depth::getDate);
+        candleSimples = sortd(candleSimples, chunkSize, CandleSimple::openTime);
     }
 
     public interface TimeAccessor<T> {
@@ -75,7 +79,7 @@ public class Market {
     }
 
     @Contract(pure = true)
-    public static <T> LinkedHashSet<T> sortInChunks(Collection<T> source, int chunkSize, TimeAccessor<T> accessor) {
+    public static <T> LinkedHashSet<T> sortd(Collection<T> source, int chunkSize, TimeAccessor<T> accessor) {
         if (source == null || source.isEmpty()) {
             return new LinkedHashSet<>();
         }

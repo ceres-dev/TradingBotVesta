@@ -17,11 +17,11 @@ import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.message.Notifiable;
-import xyz.cereshost.vesta.core.strategys.TradingStrategy;
+import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
-import xyz.cereshost.vesta.core.utils.BuilderData;
-import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.util.BuilderData;
+import xyz.cereshost.vesta.core.util.ChartUtils;
 
 import java.io.BufferedReader;
 import java.io.IOException;

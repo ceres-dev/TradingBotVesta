@@ -19,7 +19,7 @@ public class MAEEvaluator extends Evaluator {
     private final ConcurrentHashMap<String, AtomicLong> countAccumulator = new ConcurrentHashMap<>();
 
     public MAEEvaluator() {
-        this("mae");
+        this("ema");
     }
 
     public MAEEvaluator(String name) {

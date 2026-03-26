@@ -259,13 +259,13 @@ public class TrainingData {
     private AutoStopListener autoStopListener = null;
     private ModeData modeData = null;
 
-    public void preLoad(int amount, ModeData mode, int splitParts){
+    public void preLoad(int amount, @NotNull ModeData mode, int splitParts){
         this.modeData = mode;
         maxLoaded = amount;
         this.splitParts = Math.max(1, splitParts);
         splitQueue.clear();
         fileCursor = 0;
-        if (Objects.requireNonNull(mode) == ModeData.RAMDOM) {
+        if (mode == ModeData.RAMDOM) {
             this.random = new Random();
         }
         if (!loadInRam){

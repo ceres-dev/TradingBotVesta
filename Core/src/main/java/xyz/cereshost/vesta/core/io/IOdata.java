@@ -10,7 +10,7 @@ import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.packet.Utils;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
-import xyz.cereshost.vesta.core.utils.BuilderData;
+import xyz.cereshost.vesta.core.util.BuilderData;
 import xyz.cereshost.vesta.core.ia.utils.TrainingData;
 import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
 import xyz.cereshost.vesta.core.ia.utils.YNormalizer;

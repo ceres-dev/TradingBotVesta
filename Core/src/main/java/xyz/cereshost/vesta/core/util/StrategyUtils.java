@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.utils;
+package xyz.cereshost.vesta.core.util;
 
 import lombok.experimental.UtilityClass;
 import xyz.cereshost.vesta.common.market.Candle;

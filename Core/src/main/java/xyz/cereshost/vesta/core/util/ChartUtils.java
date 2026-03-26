@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.utils;
+package xyz.cereshost.vesta.core.util;
 
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
@@ -15,7 +15,6 @@ import org.jfree.chart.renderer.xy.CandlestickRenderer;
 import org.jfree.chart.renderer.xy.XYAreaRenderer;
 import org.jfree.chart.renderer.xy.XYItemRenderer;
 import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
-import org.jfree.data.category.DefaultCategoryDataset;
 import org.jfree.data.xy.DefaultHighLowDataset;
 import org.jfree.data.xy.OHLCDataset;
 import org.jfree.data.xy.XYSeries;
@@ -23,7 +22,6 @@ import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.CandleSimple;
-import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 
@@ -40,7 +38,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.LockSupport;
 
 import static org.jfree.chart.axis.NumberAxis.createIntegerTickUnits;
-import static xyz.cereshost.vesta.core.ia.PredictionEngine.THRESHOLD_RELATIVE;
 
 public class ChartUtils {
 

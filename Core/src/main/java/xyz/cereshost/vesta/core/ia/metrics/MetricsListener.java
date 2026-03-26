@@ -4,7 +4,7 @@ import ai.djl.training.Trainer;
 import ai.djl.training.listener.TrainingListenerAdapter;
 import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.util.ChartUtils;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.VestaLoss;
@@ -35,8 +35,8 @@ public class MetricsListener extends TrainingListenerAdapter {
         // Obtener los resultados
         float lossTrain = result.getTrainLoss();
         float lossValidation = result.getValidateLoss();
-        float maeTrain = result.getTrainEvaluation("mae");
-        float maeValidation = result.getValidateEvaluation("mae");
+        float maeTrain = result.getTrainEvaluation("ema");
+        float maeValidation = result.getValidateEvaluation("ema");
 //        float minValidation = result.getValidateEvaluation("min_diff");
         float closeValidation = result.getValidateEvaluation("max_diff");
         // Calucar porgreso

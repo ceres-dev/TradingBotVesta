@@ -1,17 +1,18 @@
-package xyz.cereshost.vesta.core.strategys;
+package xyz.cereshost.vesta.core.strategy.strategys;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
+import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.isHigh;
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.isLow;
+import static xyz.cereshost.vesta.core.util.StrategyUtils.isHigh;
+import static xyz.cereshost.vesta.core.util.StrategyUtils.isLow;
 
 public class GammaStrategy implements TradingStrategy {
 

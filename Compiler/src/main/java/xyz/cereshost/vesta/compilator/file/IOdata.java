@@ -41,7 +41,7 @@ public class IOdata {
 
     public static synchronized void saveData() throws Exception {
         for (Market market : Vesta.MARKETS.values()){
-            market.sortdInChunks();
+            market.sortd();
             String symbol = market.getSymbol();
             saveFile(symbol, Utils.GSON.toJson(market));
         }

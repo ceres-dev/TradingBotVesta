@@ -17,16 +17,14 @@ import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
-import xyz.cereshost.vesta.core.strategys.AlfaStrategy;
-import xyz.cereshost.vesta.core.strategys.BetaStrategy;
-import xyz.cereshost.vesta.core.strategys.EtaStrategy;
-import xyz.cereshost.vesta.core.strategys.ZetaStrategy;
+import xyz.cereshost.vesta.core.strategy.strategys.AlfaStrategy;
+import xyz.cereshost.vesta.core.strategy.strategys.ZetaStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
-import xyz.cereshost.vesta.core.utils.BuilderData;
-import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.util.BuilderData;
+import xyz.cereshost.vesta.core.util.ChartUtils;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -44,7 +42,7 @@ public class Main {
     @NotNull public static final String SYMBOL = "SOLUSDC";
     @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZST;
     @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZST;
-    public static final int MAX_MONTH_TRAINING = 12*2;
+    public static final int MAX_MONTH_TRAINING = 6;
     public static final Gson GSON = new Gson();
 
 
@@ -57,10 +55,8 @@ public class Main {
 //        new PacketHandler();
         switch (args[0]) {
             case "training" -> {
-                List<String> symbols = SYMBOLS_TRAINING;
                 //checkEngines();
-
-                VestaEngine.TrainingTestsResults result = VestaEngine.trainingModel(symbols);
+                VestaEngine.TrainingTestsResults result = VestaEngine.trainingModel(SYMBOLS_TRAINING);
                 EngineUtils.ResultsEvaluate evaluateResult = result.evaluate();
                 BackTestEngine.BackTestResult backtestResult = result.backtest();
 
@@ -71,7 +67,7 @@ public class Main {
             case "backtest" -> {
                 Market market = getMarket();
                 Vesta.info("🔙 Ejecutando backtest...");
-                market.sortdInChunks();
+                market.sortd();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
                 showDataBackTest(new BackTestEngine(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(), VestaEngine.LOOK_BACK, BuilderData.FEATURES), new AlfaStrategy()).run());
             }
@@ -80,7 +76,9 @@ public class Main {
             case "diagnose" -> {
                 Market market = getMarket();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
+
                 List<Integer> indexes = List.of(120, 180, 240, 300, 360, 420, 480);
+                //for (int i = 300; i < 400; i+=5) indexes.add(i);
                 for (int i : indexes) {
                     showPredictionSnapshot(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(), VestaEngine.LOOK_BACK, BuilderData.FEATURES), i, 30);
                 }
@@ -91,7 +89,7 @@ public class Main {
     private static @NotNull Market getMarket() throws InterruptedException, ExecutionException {
         Market market = new Market(SYMBOL);
         List<CompletableFuture<Market>> task = new ArrayList<>();
-        for (int day = 2; day >= 0; day--) {
+        for (int day = 7; day >= 4; day--) {
             int finalDay = day;
             task.add(CompletableFuture.supplyAsync(() -> {
                 try {
@@ -210,17 +208,16 @@ public class Main {
 
         List<Candle> window = candles.subList(0, idx + 1);
         PredictionEngine.PredictionResult result = engine.predictNextPriceDetail(window, safeHorizon);
-        System.out.println(result.getCandles());
         if (result == null || result.getCandles() == null || result.getCandles().isEmpty()) {
-            Vesta.error("No se pudo generar prediccion");
+            Vesta.error("No se pudo generar predicción");
             return;
         }
 
         List<ChartUtils.ClosePredictionPoint> predicted = new ArrayList<>();
-        double lastClose = candles.get(idx).close();
+        double lastClose = candles.get(idx).emaFast();
         long baseTime = candles.get(idx).openTime();
         for (int k = 0; k < result.getCandles().size(); k++) {
-            double diff = result.getCandles().get(k).close();
+            double diff = result.getCandles().get(k).ema();
             double predictedClose = lastClose * (1.0 + diff);
             lastClose = predictedClose;
 
@@ -241,7 +238,7 @@ public class Main {
                 break;
             }
             Candle c = candles.get(tIdx);
-            actual.add(new ChartUtils.ClosePredictionPoint(c.openTime(), c.close()));
+            actual.add(new ChartUtils.ClosePredictionPoint(c.openTime(), c.emaFast()));
         }
 
         ChartUtils.showCandlePredictionSnapshot(

@@ -1,5 +1,6 @@
 package xyz.cereshost.vesta.common.market;
 
+@Deprecated
 public record Candle(
         long openTime,       // inicio del minuto
         double open,

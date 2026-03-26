@@ -1,8 +1,9 @@
-package xyz.cereshost.vesta.core.strategys;
+package xyz.cereshost.vesta.core.strategy.strategys;
 
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
+import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
@@ -12,9 +13,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.highestHigh;
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.lowestLow;
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.priceDistanceToPercent;
+import static xyz.cereshost.vesta.core.util.StrategyUtils.highestHigh;
+import static xyz.cereshost.vesta.core.util.StrategyUtils.lowestLow;
+import static xyz.cereshost.vesta.core.util.StrategyUtils.priceDistanceToPercent;
 
 public class EpsilonStrategy implements TradingStrategy {
 

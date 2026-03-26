@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.utils;
+package xyz.cereshost.vesta.core.util;
 
 import ai.djl.util.Pair;
 import lombok.Getter;
@@ -18,7 +18,7 @@ import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
 import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.common.market.Trade;
-import xyz.cereshost.vesta.core.FinancialCalculation;
+import xyz.cereshost.vesta.core.FinancialCalcul;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
@@ -49,7 +49,6 @@ public class BuilderData {
         List<PairCache> cacheEntries = new ArrayList<>();
         long time = System.currentTimeMillis();
         List<CompletableFuture<Object>> waitingCacheSave = new ArrayList<>();
-        int futureWindow = DEFAULT_FUTURE_WINDOW;
         for (String symbol : symbols) {
             try {
                 List<Candle> allCandlesForChart = new ArrayList<>();
@@ -107,7 +106,6 @@ public class BuilderData {
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
 
-
                             int samples = Xraw.get().length;
                             int seqLen = Xraw.get()[0].length;
                             int features = Xraw.get()[0][0].length;
@@ -156,6 +154,8 @@ public class BuilderData {
                                 // Añadir objeto que indica que se guardó caché del pair
                                 cacheEntries.add(result);
                                 Vesta.info("(%d/%d) ✅ procesado: %d muestras (%s)", month, maxMonth, result.samples, symbol);
+                            }else {
+                                Vesta.warning("(%d/%d) ⚠️ No hay datos (%s)", month, maxMonth, symbol);
                             }
                         }
                     } catch (InterruptedException | ExecutionException e) {
@@ -195,43 +195,7 @@ public class BuilderData {
         long delta = (System.currentTimeMillis() - time);
         Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", symbols), totalSamples, delta/60_000,((delta/1000)%60));
 
-
-
-        List<Path> paths = new ArrayList<>();
-
-
         System.gc();
-        // Cargar la cache guardada
-
-
-//        if (maxMonth > 5){
-//        }else {
-//            int currentIdx = 0;
-//            float[][][] X_final = new float[totalSamples][seqLen][features];
-//            float[][] y_final = new float[totalSamples][yCols];
-//            for (PairCache entry : cacheEntries) {
-//                try {
-//                    Pair<float[][][], float[][]> pair = IOdata.loadTrainingCache(entry.cacheFile);
-//                    float[][][] xPart = pair.getKey();
-//                    float[][] yPart = pair.getValue();
-//                    pair = null;
-//                    int len = xPart.length;
-//
-//                    System.arraycopy(xPart, 0, X_final, currentIdx, len);
-//                    System.arraycopy(yPart, 0, y_final, currentIdx, len);
-//                    xPart = null;
-//                    yPart = null;
-//                    currentIdx += len;
-//                    Vesta.info("💿 Datos recuperados de " + entry.cacheFile);
-//                } catch (Exception e) {
-//                    throw new RuntimeException("Error cargando cache temporal: " + entry.cacheFile, e);
-//                } finally {
-//                    IOdata.deleteTrainingCache(entry.cacheFile);
-//                }
-//            }
-//
-//            return new TrainingData(new Pair<>(X_final, y_final));
-//        }
         return new TrainingData(cacheEntries.stream().map(PairCache::getCacheFile).toList(), totalSamples, seqLen, features, yCols);
 
     }
@@ -281,62 +245,89 @@ public class BuilderData {
         float[][] y = new float[samples][5];
 
         for (int i = 1; i < samples; i++) {
-            // 1. Extraer Features (X)
-//            if (candles.get(i).atr14() > .15) continue;
+            // X
             for (int j = 0; j < lookBack; j++) {
                 X[i][j] = extractFeatures(candles.get(i + j + 1), candles.get(i + j));
             }
-//
-//            // 2. Definir punto de entrada (Cierre de la ultima vela del lookback)
-//            double entryPrice = candles.get(i + lookBack).close();
-//
-//            // --- ESCANEO DEL FUTURO (Max/Min por mecha) ---
-//            double maxWick = -Double.MAX_VALUE;
-//            double minWick = Double.MAX_VALUE;
-//            int maxIndex = -1;
-//            int minIndex = -1;
-//
-//            for (int f = 1; f <= futureWindow; f++) {
-//                Candle future = candles.get(i + lookBack + f);
-//
-//                if (future.high() > maxWick) {
-//                    maxWick = future.high();
-//                    maxIndex = f;
-//                }
-//                if (future.low() < minWick) {
-//                    minWick = future.low();
-//                    minIndex = f;
-//                }
-//            }
-//
-//            double upMove = Math.abs(maxWick - entryPrice);
-//            double downMove = Math.abs(entryPrice - minWick);
-//            float firstHitFlag = (maxIndex <= minIndex) ? 1f : 0f;
-//
-//            // 3. ASIGNACION DE ETIQUETAS (Y):
-//            // output 0: upMove (mecha) en porcentaje sobre entryPrice
-//            y[i][0] = (float) ((entryPrice > 0) ? Math.closes(0.0, (upMove / entryPrice)) : 0.0);
-//            // output 1: downMove (mecha) en porcentaje sobre entryPrice
-//            y[i][1] = (float) ((entryPrice > 0) ? Math.closes(0.0, (downMove / entryPrice)) : 0.0);
-//
-//            // output 2: 0 si mínimo primero, 1 si máximo primero
-//            y[i][2] = firstHitFlag;
-//            y[i][3] = 0f;
-//            y[i][4] = 0f;
+            // Y
             Candle cOld = candles.get(i);
             Candle cNew = candles.get(i + futureWindow);
-            y[i][0] = (float) ((cNew.close() - cOld.close())/cOld.close());
-            y[i][1] = (float) ((cNew.high() - cOld.high())/cOld.high());
-            y[i][2] = (float) ((cNew.low() - cOld.low())/cOld.low());
-            y[i][3] = (float) (cNew.volZscore());
-            y[i][4] = 0f;
-
+            y[i] = extractFeatures(cNew, cOld);
         }
-
         return new Pair<>(X, y);
     }
 
+    public static float @NotNull [] extractFeatures(@NotNull Candle curr, @NotNull Candle prev) {
 
+        List<Float> fList = new ArrayList<>();
+
+        // 1-4: Precios relativos (Log Returns)
+        fList.add(safeDiffPercent(curr.close(), prev.close()));
+        fList.add(safeDiffPercent(curr.high(), prev.high()));
+//        fList.add(safeLogRatio(curr.open(), prev.open()));
+        fList.add(safeDiffPercent(curr.low(), prev.low()));
+
+//        fList.add(safeFloat(curr.direccion()));
+//        fList.add(safeLog1p(curr.amountTrades()));
+
+        // Volúmenes relativos
+//        fList.add(safeFloat(curr.volRatioToMean()));
+        fList.add(safeFloat(curr.volZscore()));
+//        fList.add(safeFloat(curr.volPerAtr()));
+//        fList.add((float) Math.log(curr.quoteVolume() / prevClose));
+//        fList.add((float) Math.log((curr.buyQuoteVolume() - prev.buyQuoteVolume()) / curr.buyQuoteVolume()));// Dan 0
+//        fList.add((float) Math.log((curr.sellQuoteVolume() - prev.sellQuoteVolume()) / curr.sellQuoteVolume()));
+
+        // Delta y Buy Ratio
+//        double totalVol = curr.buyQuoteVolume() + curr.sellQuoteVolume();
+//        fList.add(safeDiv(curr.deltaUSDT(), totalVol));
+//        fList.add(safeFloat(curr.buyRatio()));
+
+//        fList.add((float) Math.log(curr.bidLiquidity() / prevClose));
+//        fList.add((float) Math.log(curr.askLiquidity() / prevClose));
+
+        // 12-14: Métricas de Orderbook relativas
+//        fList.add((float) curr.depthImbalance());
+//        fList.add((float) ((curr.midPrice() - curr.close()) / curr.close()));
+//        fList.add((float) (curr.spread() / curr.close()));
+
+        // RSI
+//        fList.add(safeDiv(curr.rsi4(), 100.0));
+//        fList.add(safeDiv(curr.rsi8(), 100.0));
+//        fList.add(safeDiv(curr.rsi16(), 100.0));
+
+        // MACD
+//        fList.add(safeDiv(curr.macdVal(), curr.close()));
+//        fList.add(safeDiv(curr.macdSignal(), curr.close()));
+//        fList.add(safeDiv(curr.macdHist(), curr.close()));
+
+        // NVI
+//        fList.add(safeDiv(curr.nvi(), curr.close()));
+
+        // Bollinger
+//        double bbUpper = curr.upperBand();
+//        double bbLower = curr.lowerBand();
+//        double bbMiddle = curr.middleBand();
+//
+//        double bbRange = bbUpper - bbLower;
+//        float bbBandwidth = safeDiv(bbRange, bbMiddle);
+//        float bbPos = safeDiv(curr.close() - bbMiddle, bbRange);
+
+//        fList.add(bbBandwidth);
+//        fList.add(bbPos);
+        // ATR
+//        fList.add(safeDiffPercent(curr.atr14(), prev.atr14()));
+        fList.add(safeDiffPercent(curr.emaFast(), prev.emaFast()));
+
+        float[] f = new float[fList.size()];
+        for (int i = 0; i < fList.size(); i++) {
+            float v = fList.get(i);
+            f[i] = Float.isFinite(v) ? v : 0f;
+        }
+        return f;
+    }
+
+    @Deprecated
     public static @NotNull List<Candle> to1mCandles(@NotNull Market market) {
 
         //market.sortd();
@@ -410,7 +401,7 @@ public class BuilderData {
 
         // MACD
         //MACDIndicator macd = new MACDIndicator(indicator, 12, 26);
-        FinancialCalculation.MACDResult macdRes = FinancialCalculation.computeMACD(closes, 6, 16, 9);
+        FinancialCalcul.MACDResult macdRes = FinancialCalcul.computeMACD(closes, 6, 16, 9);
         double[] macdArr = macdRes.macd();
         double[] signalArr = macdRes.signal();
         double[] histArr = macdRes.histogram();
@@ -419,7 +410,6 @@ public class BuilderData {
 
         // NVI
         NVIIndicator nvi = new NVIIndicator(series);
-
         // Bollinger
         BollingerBandFacade facadeBand = new BollingerBandFacade(indicator, 20, 2);
 
@@ -427,11 +417,11 @@ public class BuilderData {
         ATRIndicator atr14 = new ATRIndicator(series, 14);
 
         // MAE
-        EMAIndicator emaFast = new EMAIndicator(indicator, 10);
+        EMAIndicator emaFast = new EMAIndicator(indicator, 12);
         EMAIndicator emaSlow = new EMAIndicator(indicator, 80);
 
         // Volumen Normalizado
-        Map<String, double[]> vn = FinancialCalculation.computeVolumeNormalizations(simpleByMinute.values().stream().toList(), 14, atr14.stream().map(Num::doubleValue).toList());
+        Map<String, double[]> vn = FinancialCalcul.computeVolumeNormalizations(simpleByMinute.values().stream().toList(), 14, atr14.stream().map(Num::doubleValue).toList());
 
         for (long minute = startMinute; minute <= endMinute; minute += 60_000L) {
             // OHLC + VOLUMEN
@@ -599,6 +589,11 @@ public class BuilderData {
         return Double.isFinite(v) ? (float) v : 0f;
     }
 
+    public static float safeDiffPercent(double nw, double old) {
+        float v = (float) ((nw - old)/old);
+        return Double.isFinite(v) ? v : 0f;
+    }
+
     private static float safeLog1p(double value) {
         if (!Double.isFinite(value)) return 0f;
         if (value <= -1.0) return 0f;
@@ -615,75 +610,6 @@ public class BuilderData {
 
     private static float safeFloat(double value) {
         return Double.isFinite(value) ? (float) value : 0f;
-    }
-
-    public static float @NotNull [] extractFeatures(@NotNull Candle curr, @NotNull Candle prev) {
-
-        List<Float> fList = new ArrayList<>();
-
-        // 1-4: Precios relativos (Log Returns)
-        fList.add(safeLogRatio(curr.high(), prev.high()));
-//        fList.add(safeLogRatio(curr.open(), prev.open()));
-        fList.add(safeFloat(curr.getDiffPercent()/100));
-        fList.add(safeLogRatio(curr.low(), prev.low()));
-
-//        fList.add(safeFloat(curr.direccion()));
-//        fList.add(safeLog1p(curr.amountTrades()));
-
-        // Volúmenes relativos
-//        fList.add(safeFloat(curr.volRatioToMean()));
-        fList.add(safeFloat(curr.volZscore()));
-//        fList.add(safeFloat(curr.volPerAtr()));
-//        fList.add((float) Math.log(curr.quoteVolume() / prevClose));
-//        fList.add((float) Math.log((curr.buyQuoteVolume() - prev.buyQuoteVolume()) / curr.buyQuoteVolume()));// Dan 0
-//        fList.add((float) Math.log((curr.sellQuoteVolume() - prev.sellQuoteVolume()) / curr.sellQuoteVolume()));
-
-        // Delta y Buy Ratio
-//        double totalVol = curr.buyQuoteVolume() + curr.sellQuoteVolume();
-//        fList.add(safeDiv(curr.deltaUSDT(), totalVol));
-//        fList.add(safeFloat(curr.buyRatio()));
-
-//        fList.add((float) Math.log(curr.bidLiquidity() / prevClose));
-//        fList.add((float) Math.log(curr.askLiquidity() / prevClose));
-
-        // 12-14: Métricas de Orderbook relativas
-//        fList.add((float) curr.depthImbalance());
-//        fList.add((float) ((curr.midPrice() - curr.close()) / curr.close()));
-//        fList.add((float) (curr.spread() / curr.close()));
-
-        // RSI
-//        fList.add(safeDiv(curr.rsi4(), 100.0));
-//        fList.add(safeDiv(curr.rsi8(), 100.0));
-//        fList.add(safeDiv(curr.rsi16(), 100.0));
-
-        // MACD
-//        fList.add(safeDiv(curr.macdVal(), curr.close()));
-//        fList.add(safeDiv(curr.macdSignal(), curr.close()));
-//        fList.add(safeDiv(curr.macdHist(), curr.close()));
-
-        // NVI
-//        fList.add(safeDiv(curr.nvi(), curr.close()));
-
-        // Bollinger
-        double bbUpper = curr.upperBand();
-        double bbLower = curr.lowerBand();
-        double bbMiddle = curr.middleBand();
-
-        double bbRange = bbUpper - bbLower;
-        float bbBandwidth = safeDiv(bbRange, bbMiddle);
-        float bbPos = safeDiv(curr.close() - bbMiddle, bbRange);
-
-//        fList.add(bbBandwidth);
-//        fList.add(bbPos);
-        // ATR
-//        fList.add(safeDiv(curr.atr14(), curr.close()));
-
-        float[] f = new float[fList.size()];
-        for (int i = 0; i < fList.size(); i++) {
-            float v = fList.get(i);
-            f[i] = Float.isFinite(v) ? v : 0f;
-        }
-        return f;
     }
 
     /**

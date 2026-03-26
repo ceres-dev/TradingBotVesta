@@ -76,7 +76,7 @@ public class IOMarket {
         }
 
         if (!merged.getCandleSimples().isEmpty() || !merged.getTrades().isEmpty()) {
-            merged.sortdInChunks();
+            merged.sortd();
         }
         return merged;
     }
@@ -201,8 +201,8 @@ public class IOMarket {
                 int sizeCandles = candles.size();
                 int sizeTrades = trades.size();
                 Vesta.info("%d/%02d/%02d (idx=%d) 🔒 Asegurando orden de los datos", targetYear, targetMonth, targetDay, normalizedDayIndex);
-                LinkedHashSet<CandleSimple> candlesSorted = Market.sortInChunks(candles, 10_000, CandleSimple::openTime);
-                LinkedHashSet<Trade> tradeSorted = Market.sortInChunks(trades, 10_000, Trade::time);
+                LinkedHashSet<CandleSimple> candlesSorted = Market.sortd(candles, 10_000, CandleSimple::openTime);
+                LinkedHashSet<Trade> tradeSorted = Market.sortd(trades, 10_000, Trade::time);
 
                 if (loadTrades){
                     // 3. Lógica de CORTE (Sincronización de tiempos)

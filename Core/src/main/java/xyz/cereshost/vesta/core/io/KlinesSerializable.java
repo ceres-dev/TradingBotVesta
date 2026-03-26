@@ -1,15 +1,11 @@
 package xyz.cereshost.vesta.core.io;
 
 import xyz.cereshost.vesta.common.market.Volumen;
-import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.common.market.CandleSimple;
 
 import java.io.*;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.List;
-import java.util.concurrent.FutureTask;
 
 import static xyz.cereshost.vesta.core.io.IOMarket.*;
 

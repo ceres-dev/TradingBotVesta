@@ -1,8 +1,9 @@
-package xyz.cereshost.vesta.core.strategys;
+package xyz.cereshost.vesta.core.strategy.strategys;
 
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
@@ -10,7 +11,7 @@ import java.util.List;
 
 import static java.lang.Double.isFinite;
 import static java.lang.Math.clamp;
-import static xyz.cereshost.vesta.core.utils.StrategyUtils.*;
+import static xyz.cereshost.vesta.core.util.StrategyUtils.*;
 
 public class DeltaStrategy implements TradingStrategy {
 

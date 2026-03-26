@@ -47,7 +47,9 @@ public class TemporalTransformerBlock extends AbstractBlock {
      * Constructor para crear un bloque Temporal Transformer configurable.
      */
     private TemporalTransformerBlock(int modelDim, int numHeads, int ffDim,
-                                    float dropoutRate, int maxSequenceLength, int oftenClearCache) {
+                                    float dropoutRate, float attentionProbsDropoutProb,
+                                     int maxSequenceLength, int oftenClearCache
+    ) {
         super(VERSION);
         this.modelDim = modelDim;
         this.maxSequenceLength = maxSequenceLength;
@@ -70,7 +72,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
         this.attentionBlock = ScaledDotProductAttentionOptimizableBlock.builder()
                 .setHeadCount(numHeads)
                 .setEmbeddingSize(modelDim)
-                .optAttentionProbsDropoutProb(dropoutRate)
+                .optAttentionProbsDropoutProb(attentionProbsDropoutProb)
                 .build();
 
         // 2. Capa densa para proyección después de la atención
@@ -128,9 +130,6 @@ public class TemporalTransformerBlock extends AbstractBlock {
     protected NDList forwardInternal(ParameterStore parameterStore, NDList inputs, boolean training, PairList<String, Object> params) {
         if (manager != null) manager.close();
         manager = inputs.getManager().newSubManager();
-//        System.out.println("SubManager Inicio: " + manager);
-//        System.out.println("Manager: " + inputs.getManager());
-//        System.out.println("Manager Root: " + inputs.getManager().getParentManager().getParentManager().getParentManager().getParentManager());
         inputs.attach(manager);
         // Input shape: (batch_size, sequence_length, input_dim)
         NDArray hiddenStates = inputs.singletonOrThrow();
@@ -325,6 +324,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
         private int numHeads = 4;
         private int ffDim = 256;
         private float dropoutRate = 0.1f;
+        private float attentionProbsDropoutProb = 0.2f;
         private int maxSequenceLength = 45;
         private int oftenClearCache = 50;
 
@@ -335,6 +335,11 @@ public class TemporalTransformerBlock extends AbstractBlock {
 
         public Builder setNumHeads(int numHeads) {
             this.numHeads = numHeads;
+            return this;
+        }
+
+        public Builder setAttentionProbsDropoutProb(float dropoutRate) {
+            this.attentionProbsDropoutProb = dropoutRate;
             return this;
         }
 
@@ -359,7 +364,7 @@ public class TemporalTransformerBlock extends AbstractBlock {
         }
 
         public TemporalTransformerBlock build() {
-            return new TemporalTransformerBlock(modelDim, numHeads, ffDim, dropoutRate, maxSequenceLength, oftenClearCache);
+            return new TemporalTransformerBlock(modelDim, numHeads, ffDim, dropoutRate, attentionProbsDropoutProb, maxSequenceLength, oftenClearCache);
         }
     }
 

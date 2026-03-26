@@ -10,12 +10,15 @@ import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
-import xyz.cereshost.vesta.core.strategys.DefaultStrategy;
-import xyz.cereshost.vesta.core.strategys.TradingStrategy;
+import xyz.cereshost.vesta.core.strategy.StrategyConfig;
+import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
+import xyz.cereshost.vesta.core.strategy.strategys.DefaultStrategy;
+import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-import xyz.cereshost.vesta.core.utils.BuilderData;
-import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.util.BuilderData;
+import xyz.cereshost.vesta.core.util.ChartUtils;
+import xyz.cereshost.vesta.core.util.ProgressBar;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -49,7 +52,7 @@ public class BackTestEngine {
     }
 
     public BackTestResult run() {
-        market.sortdInChunks();
+        market.sortd();
         List<Candle> allCandles = BuilderData.to1mCandles(market);
         ChartUtils.showCandleChart("Mercado", allCandles, market.getSymbol());
         return run(allCandles);
@@ -68,12 +71,23 @@ public class BackTestEngine {
         // Variables de estado
         double initialBalance = balance;
 
+        @NotNull
+        final StrategyConfig config;
+        if (strategy instanceof TradingStrategyConfigurable configurable) {
+            config = configurable.getStrategyConfig(operations);
+        }else {
+            config = StrategyConfig.builder().build();
+        }
+        ProgressBar progressBar = new ProgressBar(totalSamples - 1);
+
         // Loop principal
         for (int i = startIndex; i < totalSamples - 1; i++) {
+            progressBar.setCurrentValue(i);
+            progressBar.print();
             // Obtener predicción
             List<Candle> window = allCandles.subList(i - lookBack, i + 1);
             PredictionEngine.PredictionResult prediction ;
-            if (engine != null) {
+            if (engine != null && config.getHowUseIA() != null && config.getHowUseIA().useModelIA()) {
                 prediction = engine.predictNextPriceDetail(window);
 //                stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
             }else {

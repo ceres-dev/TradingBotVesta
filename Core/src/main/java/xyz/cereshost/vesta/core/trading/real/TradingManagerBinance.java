@@ -107,13 +107,13 @@ public class TradingManagerBinance implements TradingManager {
             DireccionOperation direccionInverse = direccion.inverse();
 
             tradingTickLoop.getExecutor().execute(() ->{
-                long slOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.STOP_MARKET, op.getTimeInForce(), null, slPrice, true, true);
+                long slOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.STOP_LIMIT, op.getTimeInForce(), null, slPrice, true, true);
                 op.setSlBinanceId(slOrderId);
                 op.setSlIsAlgo(true);
             });
 
             tradingTickLoop.getExecutor().execute(() -> {
-                long tpOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.TAKE_PROFIT_MARKET,  op.getTimeInForce(),null, tpPrice, true, true);
+                long tpOrderId = binanceApi.placeAlgoOrder(symbol, direccionInverse, TypeOrder.TAKE_PROFIT_LIMIT,  op.getTimeInForce(),null, tpPrice, true, true);
                 op.setTpBinanceId(tpOrderId);
                 op.setTpIsAlgo(true);
             });

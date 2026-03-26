@@ -6,7 +6,7 @@ import xyz.cereshost.vesta.common.market.CandleSimple;
 import java.util.*;
 
 @UtilityClass
-public class FinancialCalculation {
+public class FinancialCalcul {
 
     /**
      * Calcula la EMA (Exponential Moving Average) alineada con los precios.
