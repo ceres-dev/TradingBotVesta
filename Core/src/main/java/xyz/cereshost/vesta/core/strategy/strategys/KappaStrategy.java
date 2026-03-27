@@ -1,16 +1,15 @@
 package xyz.cereshost.vesta.core.strategy.strategys;
 
-import xyz.cereshost.vesta.common.market.Candle;
+import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-
-import java.util.List;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 public class KappaStrategy implements TradingStrategy {
 
     @Override
-    public void executeStrategy(PredictionEngine.PredictionResult pred, List<Candle> visibleCandles, TradingManager operations) {
+    public void executeStrategy(PredictionEngine.SequenceCandlesPrediction pred, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager operations) {
 
     }
 

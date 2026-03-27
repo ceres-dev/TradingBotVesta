@@ -14,7 +14,7 @@ public class Market {
         this.symbol = symbol;
         this.trades = new LinkedHashSet<>(100_000);
         this.depths = new LinkedHashSet<>();
-        this.candleSimples = new LinkedHashSet<>(1_000);
+        this.candles = new LinkedHashSet<>(1_000);
     }
 
     @Getter
@@ -25,7 +25,7 @@ public class Market {
     @Getter
     private LinkedHashSet<Trade> trades;
     @Getter
-    private LinkedHashSet<CandleSimple> candleSimples;
+    private LinkedHashSet<Candle> candles;
     @Getter
     private LinkedHashSet<Depth> depths;
 
@@ -36,7 +36,7 @@ public class Market {
         }
         this.trades.addAll(market.trades);
         this.depths.addAll(market.depths);
-        this.candleSimples.addAll(market.candleSimples);
+        this.candles.addAll(market.candles);
     }
 
     public synchronized void addTrade(Collection<Trade> trade) {
@@ -55,23 +55,23 @@ public class Market {
         this.depths.add(tickMarker);
     }
 
-    public synchronized void addCandles(Collection<CandleSimple> candleSimple) {
-        Iterator<CandleSimple> iterator = candleSimple.iterator();
+    public synchronized void addCandles(Collection<Candle> candle) {
+        Iterator<Candle> iterator = candle.iterator();
         while (iterator.hasNext()) {
-            this.candleSimples.add(iterator.next());
+            this.candles.add(iterator.next());
             iterator.remove();
         }
     }
 
-    public synchronized void setCandles(LinkedHashSet<CandleSimple> candleSimple) {
-        this.candleSimples = candleSimple;
+    public synchronized void setCandles(LinkedHashSet<Candle> candle) {
+        this.candles = candle;
     }
 
     public synchronized void sortd(){
         int chunkSize = 10_000;
         trades = sortd(trades, chunkSize, Trade::time);
         depths = sortd(depths, chunkSize, Depth::getDate);
-        candleSimples = sortd(candleSimples, chunkSize, CandleSimple::openTime);
+        candles = sortd(candles, chunkSize, Candle::getOpenTime);
     }
 
     public interface TimeAccessor<T> {
@@ -147,17 +147,17 @@ public class Market {
 
     }
 
-    public List<CandleSimple> candleSimpleList = null;
+    public List<Candle> candleList = null;
 
-    public List<CandleSimple> cacheCandlesToArray() {
-        if (candleSimpleList == null) {
-            candleSimpleList = new ArrayList<>(candleSimples);
+    public List<Candle> cacheCandlesToArray() {
+        if (candleList == null) {
+            candleList = new ArrayList<>(candles);
         }
-        return candleSimpleList;
+        return candleList;
     }
 
     public void resetCandleSimpleList() {
-        candleSimpleList = null;
+        candleList = null;
     }
 
     /**
@@ -166,8 +166,8 @@ public class Market {
      */
     @Contract(pure = true, value = "_, _ -> new")
     public synchronized @NotNull Market subList(int fromMinuteIndex, int toMinuteIndex) {
-        List<CandleSimple> orderedCandles = candleSimples.stream()
-                .sorted(Comparator.comparingLong(CandleSimple::openTime))
+        List<Candle> orderedCandles = candles.stream()
+                .sorted(Comparator.comparingLong(Candle::getOpenTime))
                 .toList();
 
         int size = orderedCandles.size();
@@ -179,11 +179,11 @@ public class Market {
             return copy;
         }
 
-        List<CandleSimple> selectedCandles = orderedCandles.subList(from, to);
-        long startTime = selectedCandles.getFirst().openTime();
-        long endTimeExclusive = selectedCandles.getLast().openTime() + 60_000L;
+        List<Candle> selectedCandles = orderedCandles.subList(from, to);
+        long startTime = selectedCandles.getFirst().getOpenTime();
+        long endTimeExclusive = selectedCandles.getLast().getOpenTime() + 60_000L;
 
-        copy.candleSimples = new LinkedHashSet<>(selectedCandles);
+        copy.candles = new LinkedHashSet<>(selectedCandles);
         copy.trades = new LinkedHashSet<>(
                 trades.stream()
                         .filter(t -> t.time() >= startTime && t.time() < endTimeExclusive)
@@ -203,7 +203,7 @@ public class Market {
     public void clear(){
         trades.clear();
         depths.clear();
-        candleSimples.clear();
+        candles.clear();
         tradesByMinuteCache.clear();
     }
 

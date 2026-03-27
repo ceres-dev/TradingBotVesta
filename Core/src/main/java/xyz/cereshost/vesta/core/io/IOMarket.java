@@ -69,13 +69,13 @@ public class IOMarket {
             if (dayMarket == null) {
                 continue;
             }
-            if (dayMarket.getCandleSimples().isEmpty() || dayMarket.getTrades().isEmpty()) {
+            if (dayMarket.getCandles().isEmpty() || dayMarket.getTrades().isEmpty()) {
                 continue;
             }
             merged.concat(dayMarket);
         }
 
-        if (!merged.getCandleSimples().isEmpty() || !merged.getTrades().isEmpty()) {
+        if (!merged.getCandles().isEmpty() || !merged.getTrades().isEmpty()) {
             merged.sortd();
         }
         return merged;
@@ -103,7 +103,7 @@ public class IOMarket {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
-        ArrayDeque<CandleSimple> deque = new ArrayDeque<>();
+        ArrayDeque<Candle> deque = new ArrayDeque<>();
         Vesta.info("📂 Datos recibidos de binance del mercado: " + s + " (" + rawCandles.getBytes(StandardCharsets.UTF_8).length / 1024 + "mb)");
         for (JsonNode kline : root1) {
             double baseVolume = kline.get(5).asDouble();
@@ -113,7 +113,8 @@ public class IOMarket {
             double sellQuoteVolume = quoteVolume - takerBuyQuoteVolume;
             double deltaUSDT = takerBuyQuoteVolume - sellQuoteVolume;
             double buyRatio = takerBuyQuoteVolume / quoteVolume;
-            deque.add(new CandleSimple(
+            deque.add(new Candle(
+                    TimeUnitMarket.ONE_MINUTE,
                     kline.get(0).asLong(),
                     kline.get(1).asDouble(), // open
                     kline.get(2).asDouble(), // high
@@ -184,7 +185,7 @@ public class IOMarket {
                 long timeTotal = System.currentTimeMillis();
                 Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de klines", targetYear, targetMonth, targetDay, normalizedDayIndex);
                 File klineFile = ensureFileCached(baseDir, s, "klines", targetDate);
-                Deque<CandleSimple> candles = parseKlinesFromFile(klineFile);
+                Deque<Candle> candles = parseKlinesFromFile(klineFile);
                 Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de trades", targetYear, targetMonth, targetDay, normalizedDayIndex);
                 Deque<Trade> trades;
                 if (loadTrades){
@@ -201,13 +202,13 @@ public class IOMarket {
                 int sizeCandles = candles.size();
                 int sizeTrades = trades.size();
                 Vesta.info("%d/%02d/%02d (idx=%d) 🔒 Asegurando orden de los datos", targetYear, targetMonth, targetDay, normalizedDayIndex);
-                LinkedHashSet<CandleSimple> candlesSorted = Market.sortd(candles, 10_000, CandleSimple::openTime);
+                LinkedHashSet<Candle> candlesSorted = Market.sortd(candles, 10_000, Candle::getOpenTime);
                 LinkedHashSet<Trade> tradeSorted = Market.sortd(trades, 10_000, Trade::time);
 
                 if (loadTrades){
                     // 3. Lógica de CORTE (Sincronización de tiempos)
-                    long minTimeCandles = candlesSorted.getFirst().openTime();
-                    long maxTimeCandles = candlesSorted.getLast().openTime();
+                    long minTimeCandles = candlesSorted.getFirst().getOpenTime();
+                    long maxTimeCandles = candlesSorted.getLast().getOpenTime();
 
                     long minTimeTrades = tradeSorted.getFirst().time();
                     long maxTimeTrades = tradeSorted.getLast().time();
@@ -221,7 +222,7 @@ public class IOMarket {
 //                        candlesSorted.removeFirst();
 //                    }
                     // borrar por final
-                    while (!candlesSorted.isEmpty() && candlesSorted.getLast().openTime() > commonEnd) {
+                    while (!candlesSorted.isEmpty() && candlesSorted.getLast().getOpenTime() > commonEnd) {
                         candlesSorted.removeLast();
                     }
 
@@ -372,17 +373,17 @@ public class IOMarket {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    private static Deque<CandleSimple> parseKlinesFromFile(File file) {
-        Deque<CandleSimple> list = new ArrayDeque<>();
+    private static Deque<Candle> parseKlinesFromFile(File file) {
+        Deque<Candle> list = new ArrayDeque<>();
         KlinesSerializable parse = new KlinesSerializable();
 
-        Deque<CandleSimple> cached1 = parseFromBin(binFileForZip(file), parse);
+        Deque<Candle> cached1 = parseFromBin(binFileForZip(file), parse);
         if (cached1 != null) {
             return cached1;
         }
         if (!file.exists()) return list;
         if (file.getName().endsWith(EXT_ZIP)) {
-            Deque<CandleSimple> cached2 = parseFromBinInZip(file, parse);
+            Deque<Candle> cached2 = parseFromBinInZip(file, parse);
             if (cached2 != null) {
                 return cached2;
             }

@@ -1,17 +1,16 @@
 package xyz.cereshost.vesta.core.strategy;
 
+import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
-import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-
-import java.util.List;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 public class TestStrategy implements TradingStrategy {
 
     private boolean isPeekClose = false;
     @Override
-    public void executeStrategy(PredictionEngine.PredictionResult prediction, List<Candle> visibleCandles, TradingManager openOperations) {
+    public void executeStrategy(PredictionEngine.SequenceCandlesPrediction prediction, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager openOperations) {
         if (openOperations.hasOpenOperation()) {
             openOperations.getOpens().getFirst().close();
         }else {

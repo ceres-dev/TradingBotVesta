@@ -6,9 +6,7 @@ import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.common.market.CandleSimple;
 import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Volumen;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
@@ -23,8 +21,10 @@ import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
-import xyz.cereshost.vesta.core.util.BuilderData;
-import xyz.cereshost.vesta.core.util.ChartUtils;
+import xyz.cereshost.vesta.core.utils.BuilderData;
+import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -122,7 +122,7 @@ public class Main {
                 new ChartUtils.DataPlot("ROI%", stats.getTradesComplete().stream().map(BackTestEngine.CompleteTrade::getPnlPercent).toList())
         ));
         //ChartUtils.animateCandlePredictions(stats.getMarket().getSymbol(), stats.getMarket().getCandleSimples().stream().toList(), stats.getAllTrades(), BuilderData.DEFAULT_FUTURE_WINDOW, 200);
-        ChartUtils.showCandleChartWithTrades("Trades", stats.getMarket().getCandleSimples().stream().toList(), stats.getMarket().getSymbol(), stats.getTradesComplete());
+        ChartUtils.showCandleChartWithTrades("Trades", stats.getMarket().getCandles().stream().toList(), stats.getMarket().getSymbol(), stats.getTradesComplete());
         double winRate = stats.getTotalTrades() > 0 ? (double) stats.getWins() / stats.getTotalTrades() * 100 : 0;
         double avgHoldMinutes = stats.getTotalTrades() > 0 ? (stats.getHoldAvg() / 1000.0 / 60.0) : 0;
         double avgHoldMinutesWin = stats.getWins() > 0 ? (stats.getHoldAvgWins() / 1000.0 / 60.0) : 0;
@@ -158,32 +158,18 @@ public class Main {
         showPredictionSnapshot(market, engine, 250, BuilderData.DEFAULT_FUTURE_WINDOW);
     }
 
+    private static final String VALUE_SHOW = "close";
+
     public static void showPredictionSnapshot(Market market, PredictionEngine engine, int predictionIndex, int horizon) {
         if (market == null || engine == null) {
             Vesta.error("Market o PredictionEngine es null");
             return;
         }
 
-        List<Candle> candles = BuilderData.to1mCandles(market);
-        List<CandleSimple> candleSimples = candles.stream()
-                .map(c -> new CandleSimple(
-                        c.openTime(),
-                        c.open(),
-                        c.high(),
-                        c.low(),
-                        c.close(),
-                        new Volumen(
-                                c.quoteVolume(),
-                                c.volumeBase(),
-                                c.buyQuoteVolume(),
-                                c.sellQuoteVolume(),
-                                c.deltaUSDT(),
-                                c.buyRatio()
-                        )
-                ))
-                .toList();
+        SequenceCandles candles = BuilderData.getProfierCandlesBuilder().build(market);
+        List<Candle> candleBases = candles.toCandlesSimple();
 
-        if (candles.isEmpty() || candleSimples.isEmpty()) {
+        if (candles.isEmpty() || candleBases.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
             return;
         }
@@ -204,27 +190,27 @@ public class Main {
         }
 
         int start = idx - lookBack + 1;
-        List<CandleSimple> lookbackCandles = candleSimples.subList(start, idx + 1);
+        List<Candle> lookbackCandles = candleBases.subList(start, idx + 1);
 
-        List<Candle> window = candles.subList(0, idx + 1);
-        PredictionEngine.PredictionResult result = engine.predictNextPriceDetail(window, safeHorizon);
-        if (result == null || result.getCandles() == null || result.getCandles().isEmpty()) {
+        SequenceCandles window = candles.subSequence(0, idx + 1);
+        PredictionEngine.SequenceCandlesPrediction result = engine.predictNextPriceDetail(window, safeHorizon);
+        if (result == null || result.isEmpty()) {
             Vesta.error("No se pudo generar predicción");
             return;
         }
 
         List<ChartUtils.ClosePredictionPoint> predicted = new ArrayList<>();
-        double lastClose = candles.get(idx).emaFast();
-        long baseTime = candles.get(idx).openTime();
-        for (int k = 0; k < result.getCandles().size(); k++) {
-            double diff = result.getCandles().get(k).ema();
+        double lastClose = candles.getCandle(idx).get(VALUE_SHOW);
+        long baseTime = candles.get(idx).getOpenTime();
+        for (int k = 0; k < result.size(); k++) {
+            double diff = result.get(k).getClose();
             double predictedClose = lastClose * (1.0 + diff);
             lastClose = predictedClose;
 
             long time;
             int tIdx = idx + 1 + k;
             if (tIdx < candles.size()) {
-                time = candles.get(tIdx).openTime();
+                time = candles.get(tIdx).getOpenTime();
             } else {
                 time = baseTime + (k + 1L) * 60_000L;
             }
@@ -237,8 +223,8 @@ public class Main {
             if (tIdx >= candles.size()) {
                 break;
             }
-            Candle c = candles.get(tIdx);
-            actual.add(new ChartUtils.ClosePredictionPoint(c.openTime(), c.emaFast()));
+            CandleIndicators c = candles.getCandle(tIdx);
+            actual.add(new ChartUtils.ClosePredictionPoint(c.getOpenTime(), c.get(VALUE_SHOW)));
         }
 
         ChartUtils.showCandlePredictionSnapshot(
@@ -246,7 +232,7 @@ public class Main {
                 lookbackCandles,
                 predicted,
                 actual,
-                candles.get(idx).openTime()
+                candles.get(idx).getOpenTime()
         );
     }
 }

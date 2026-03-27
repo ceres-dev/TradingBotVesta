@@ -4,7 +4,7 @@ import ai.djl.training.Trainer;
 import ai.djl.training.listener.TrainingListenerAdapter;
 import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.util.ChartUtils;
+import xyz.cereshost.vesta.core.utils.ChartUtils;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.VestaLoss;

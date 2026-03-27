@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.util;
+package xyz.cereshost.vesta.core.utils;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;

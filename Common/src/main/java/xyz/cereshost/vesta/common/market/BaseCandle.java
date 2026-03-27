@@ -1,0 +1,30 @@
+package xyz.cereshost.vesta.common.market;
+
+import lombok.Data;
+
+@Data
+public abstract class BaseCandle{
+    private final double open;
+    private final double high;
+    private final double low;
+    private final double close;
+
+    public double getDiffPercent(){
+        return ((close - open)/open)*100;
+    }
+
+    public double getDiffPercentAbs(){
+        return Math.abs(getDiffPercent());
+    }
+
+    public boolean isBullish(){
+        return close > open;
+    }
+
+    public double highBody(){
+        return Math.max(open, close);
+    }
+    public double lowBody(){
+        return Math.min(open, close);
+    }
+}

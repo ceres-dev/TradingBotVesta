@@ -16,9 +16,9 @@ import xyz.cereshost.vesta.core.strategy.strategys.DefaultStrategy;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-import xyz.cereshost.vesta.core.util.BuilderData;
-import xyz.cereshost.vesta.core.util.ChartUtils;
-import xyz.cereshost.vesta.core.util.ProgressBar;
+import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.utils.ProgressBar;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -43,7 +43,7 @@ public class BackTestEngine {
         this.engine = engine;
         this.strategy = strategy;
         this.stats = new BackTestStats(market);
-        currentPrice = market.getCandleSimples().getFirst().open();
+        currentPrice = market.getCandles().getFirst().getOpen();
 
     }
 
@@ -53,12 +53,12 @@ public class BackTestEngine {
 
     public BackTestResult run() {
         market.sortd();
-        List<Candle> allCandles = BuilderData.to1mCandles(market);
+        SequenceCandles allCandles = strategy.getBuilder().build(market);
         ChartUtils.showCandleChart("Mercado", allCandles, market.getSymbol());
         return run(allCandles);
     }
 
-    public BackTestResult run(List<Candle> allCandles){
+    public BackTestResult run(SequenceCandles allCandles){
 
         market.buildTradeCache();
 
@@ -85,8 +85,8 @@ public class BackTestEngine {
             progressBar.setCurrentValue(i);
             progressBar.print();
             // Obtener predicción
-            List<Candle> window = allCandles.subList(i - lookBack, i + 1);
-            PredictionEngine.PredictionResult prediction ;
+            SequenceCandles window = allCandles.subSequence(i - lookBack, i + 1);
+            PredictionEngine.SequenceCandlesPrediction prediction ;
             if (engine != null && config.getHowUseIA() != null && config.getHowUseIA().useModelIA()) {
                 prediction = engine.predictNextPriceDetail(window);
 //                stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
@@ -208,18 +208,18 @@ public class BackTestEngine {
             Candle candle,
             TradingManagerBackTest operations
     ) {
-        long endTime = candle.openTime() + 60_000;
+        long endTime = candle.getOpenTime() + 60_000;
 
         // Obtener trades reales de este minuto
-        List<Trade> trades = market.getTradesInWindow(candle.openTime(), endTime);
+        List<Trade> trades = market.getTradesInWindow(candle.getOpenTime(), endTime);
         if (trades.isEmpty()) {
-            currentPrice = candle.close();
-            currentTime = candle.openTime();
+            currentPrice = candle.getClose();
+            currentTime = candle.getOpenTime();
             return;
         }
 
         if (operations.getOpens().isEmpty()) {
-            currentPrice = candle.close();
+            currentPrice = candle.getClose();
             currentTime = trades.getLast().time();
         }else {
             for (TradingManager.OpenOperation openOperation : operations.getOpens()) {

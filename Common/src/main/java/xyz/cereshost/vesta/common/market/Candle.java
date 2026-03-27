@@ -1,106 +1,47 @@
 package xyz.cereshost.vesta.common.market;
 
-@Deprecated
-public record Candle(
-        long openTime,       // inicio del minuto
-        double open,
-        double high,
-        double low,
-        double close,
+import lombok.AccessLevel;
+import lombok.Data;
+import lombok.Getter;
+import org.jetbrains.annotations.NotNull;
 
-        float direccion,
+import java.util.Objects;
 
-        double amountTrades,
+@Data
+public class Candle extends BaseCandle implements CandleTemporality {
 
-        double volumeBase,
-        double quoteVolume,
-        double buyQuoteVolume,
-        double sellQuoteVolume,
+    private final long openTime;
+    @Getter(AccessLevel.NONE)
+    @NotNull private final TimeUnitMarket timeUnitMarket;
+    @NotNull private final Volumen volumen;
 
-        double volRatioToMean,
-        double volZscore,
-        double volPerAtr,
-
-        double deltaUSDT,
-        double buyRatio,
-
-        double bidLiquidity,
-        double askLiquidity,
-        double depthImbalance,
-        double midPrice,
-        double spread,
-
-
-        double rsi4,
-        double rsi8,
-        double rsi16,
-
-        double macdVal,
-        double macdSignal,
-        double macdHist,
-
-        double nvi,
-
-        double upperBand,
-        double middleBand,
-        double lowerBand,
-        double bandwidth,
-        double percentB,
-
-        double atr14,
-
-        float superTrendSlow,
-        float superTrendMedium,
-        float superTrendFast,
-        float emaSlow,
-        float emaFast
-) {
-    public double getDiffPercent(){
-        return ((close - open)/open)*100;
+    public Candle(@NotNull TimeUnitMarket timeUnitMarket,
+                  long openTime,
+                  double open,
+                  double high,
+                  double low,
+                  double close,
+                  @NotNull Volumen volumen
+    ) {
+        super(open, high, low, close);
+        this.volumen = volumen;
+        this.openTime = openTime;
+        this.timeUnitMarket = timeUnitMarket;
     }
 
-    public double getDiffPercentAbs(){
-        return Math.abs(getDiffPercent());
+    @Override
+    public int hashCode() {
+        int hash = 7;
+        return 89 * hash + Objects.hashCode(this.openTime);
     }
 
-    public boolean isStrongCandle() {
-        double range = high - low;
-        if (range == 0) return false;
-
-        double body = Math.abs(close - open);
-
-        double upperWick = high - Math.max(open, close);
-        double lowerWick = Math.min(open, close) - low;
-
-        double bodyRatio = body / range;
-
-        // cuerpo debe ser grande
-        if (bodyRatio < 0.6) return false;
-
-        // sombras pequeñas
-        if (upperWick / range > 0.25) return false;
-        return !(lowerWick / range > 0.25);
+    @Override
+    public long getOpenTime() {
+        return openTime;
     }
 
-    public boolean isWeakCandle() {
-
-        double range = high - low;
-        if (range == 0) return true;
-
-        double body = Math.abs(close - open);
-        double bodyRatio = body / range;
-
-        return bodyRatio < 0.3;
-    }
-
-    public boolean isBullish(){
-        return close > open;
-    }
-
-    public double highBody(){
-        return Math.max(open, close);
-    }
-    public double lowBody(){
-        return Math.min(open, close);
+    @Override
+    public @NotNull TimeUnitMarket getTimeUnit() {
+        return timeUnitMarket;
     }
 }

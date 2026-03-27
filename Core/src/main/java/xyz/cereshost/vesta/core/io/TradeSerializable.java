@@ -1,5 +1,6 @@
 package xyz.cereshost.vesta.core.io;
 
+import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.market.Trade;
 
 import java.io.*;
@@ -11,7 +12,7 @@ import static xyz.cereshost.vesta.core.io.IOMarket.*;
 public class TradeSerializable implements ParseSerializable<Trade> {
 
     @Override
-    public void writeBin(DataOutput out, Trade trade) throws IOException {
+    public void writeBin(@NotNull DataOutput out, Trade trade) throws IOException {
         out.writeLong(trade.time());
         out.writeDouble(trade.price());
         out.writeDouble(trade.qty());
@@ -19,7 +20,7 @@ public class TradeSerializable implements ParseSerializable<Trade> {
     }
 
     @Override
-    public Deque<Trade> readBin(DataInputStream in) throws IOException {
+    public Deque<Trade> readBin(@NotNull DataInputStream in) throws IOException {
         int magic = in.readInt();
         if (magic != getMagic()) {
             return null;
@@ -28,7 +29,7 @@ public class TradeSerializable implements ParseSerializable<Trade> {
         if (version != BIN_VERSION) {
             return null;
         }
-        Deque<Trade> list = new ArrayDeque<>(250_000);
+        Deque<Trade> list = new ArrayDeque<>(50_000);
         while (true) {
             try {
                 long time = in.readLong();
@@ -49,7 +50,7 @@ public class TradeSerializable implements ParseSerializable<Trade> {
     }
 
     @Override
-    public Trade parseLine(String line) {
+    public Trade parseLine(@NotNull String line) {
         int p0 = line.indexOf(',');
         int p1 = line.indexOf(',', p0 + 1);
         int p2 = line.indexOf(',', p1 + 1);

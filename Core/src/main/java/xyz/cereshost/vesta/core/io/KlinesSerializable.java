@@ -1,7 +1,8 @@
 package xyz.cereshost.vesta.core.io;
 
+import xyz.cereshost.vesta.common.market.TimeUnitMarket;
 import xyz.cereshost.vesta.common.market.Volumen;
-import xyz.cereshost.vesta.common.market.CandleSimple;
+import xyz.cereshost.vesta.common.market.Candle;
 
 import java.io.*;
 import java.util.ArrayDeque;
@@ -9,16 +10,16 @@ import java.util.Deque;
 
 import static xyz.cereshost.vesta.core.io.IOMarket.*;
 
-public class KlinesSerializable implements ParseSerializable<CandleSimple> {
+public class KlinesSerializable implements ParseSerializable<Candle> {
 
     @Override
-    public void writeBin(DataOutput out, CandleSimple candle) throws IOException {
-        Volumen vol = candle.volumen();
-        out.writeLong(candle.openTime());
-        out.writeDouble(candle.open());
-        out.writeDouble(candle.high());
-        out.writeDouble(candle.low());
-        out.writeDouble(candle.close());
+    public void writeBin(DataOutput out, Candle candle) throws IOException {
+        Volumen vol = candle.getVolumen();
+        out.writeLong(candle.getOpenTime());
+        out.writeDouble(candle.getOpen());
+        out.writeDouble(candle.getHigh());
+        out.writeDouble(candle.getLow());
+        out.writeDouble(candle.getClose());
         out.writeDouble(vol.quoteVolume());
         out.writeDouble(vol.baseVolume());
         out.writeDouble(vol.takerBuyQuoteVolume());
@@ -28,7 +29,7 @@ public class KlinesSerializable implements ParseSerializable<CandleSimple> {
     }
 
     @Override
-    public Deque<CandleSimple> readBin(DataInputStream in) throws IOException {
+    public Deque<Candle> readBin(DataInputStream in) throws IOException {
         int magic = in.readInt();
         if (magic != getMagic()) {
             return null;
@@ -37,7 +38,7 @@ public class KlinesSerializable implements ParseSerializable<CandleSimple> {
         if (version != BIN_VERSION) {
             return null;
         }
-        Deque<CandleSimple> list = new ArrayDeque<>(44_000);
+        Deque<Candle> list = new ArrayDeque<>(44_000);
         while (true) {
             try {
                 long openTime = in.readLong();
@@ -51,7 +52,8 @@ public class KlinesSerializable implements ParseSerializable<CandleSimple> {
                 double sellQuoteVolume = in.readDouble();
                 double deltaUSDT = in.readDouble();
                 double buyRatio = in.readDouble();
-                list.add(new CandleSimple(
+                list.add(new Candle(
+                        TimeUnitMarket.ONE_MINUTE, // TODO: Guardar la unidad de tiempo dentro del bin
                         openTime,
                         open,
                         high,
@@ -72,13 +74,16 @@ public class KlinesSerializable implements ParseSerializable<CandleSimple> {
     }
 
     @Override
-    public CandleSimple parseLine(String line) {
+    public Candle parseLine(String line) {
         String[] p = line.split(",");
         double quoteVolume = Double.parseDouble(p[7]);
         double takerBuyQuoteVolume = Double.parseDouble(p[10]);
 
-        return new CandleSimple(
-                Long.parseLong(p[0]), // Open time
+        long openTime = Long.parseLong(p[0]);
+        long closeTime = Long.parseLong(p[5]);
+        return new Candle(
+                TimeUnitMarket.parse(openTime, closeTime),
+                openTime, // Open time
                 Double.parseDouble(p[1]), // Open
                 Double.parseDouble(p[2]), // High
                 Double.parseDouble(p[3]), // Low

@@ -35,7 +35,7 @@ import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.ia.metrics.MAEEvaluator;
 import xyz.cereshost.vesta.core.ia.metrics.MaxDiffEvaluator;
 import xyz.cereshost.vesta.core.ia.metrics.MetricsListener;
-import xyz.cereshost.vesta.core.util.BuilderData;
+import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.TrainingData;
 
@@ -91,7 +91,7 @@ public class VestaEngine {
             if (IOdata.isBuiltData()){
                 data = IOdata.getBuiltData();
             }else {
-                data = BuilderData.buildTrainingData(symbols, Main.MAX_MONTH_TRAINING, 0);
+                data = BuilderData.buildTrainingData(symbols, Main.MAX_MONTH_TRAINING, 0, BuilderData.getProfierCandlesBuilder());
                 IOdata.saveCacheProperties(data.getCacheProperties(symbols));
 
             }
@@ -124,7 +124,7 @@ public class VestaEngine {
                     .optOptimizer(Optimizer.adamW()
                             .optLearningRateTracker(Tracker.cosine()
                                     .setBaseValue(.000_1f)
-                                    .optFinalValue(.000_000_001f)
+                                    .optFinalValue(.000_000_2f)
                                     .setMaxUpdates((int) (maxUpdates*.5f))
                                     .build())
                             .optWeightDecays(0)
@@ -344,7 +344,7 @@ public class VestaEngine {
         return new ChunkDataset(X_train, y_train, new ArrayDataset.Builder()
                 .setData(X_train)
                 .optLabels(y_train)
-                .setSampling((int) (batchSize * Math.pow(2, i)), false)
+                .setSampling(batchSize, false)
                 .build());
     }
 

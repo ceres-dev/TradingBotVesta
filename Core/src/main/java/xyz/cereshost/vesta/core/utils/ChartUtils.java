@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.util;
+package xyz.cereshost.vesta.core.utils;
 
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
@@ -21,9 +21,10 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.common.market.CandleSimple;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
+import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import javax.swing.*;
 import javax.swing.table.DefaultTableCellRenderer;
@@ -196,7 +197,7 @@ public class ChartUtils {
 
 
 
-    public static void showCandleChart(String title, List<Candle> candles, String symbol) {
+    public static void showCandleChart(String title, SequenceCandles candles, String symbol) {
         if (candles == null || candles.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
             return;
@@ -214,21 +215,22 @@ public class ChartUtils {
             double[] opens = new double[itemCount];
             double[] closes = new double[itemCount];
             double[] volumes = new double[itemCount];
-            XYSeries superTrendSeries = new XYSeries("SuperTrend");
+            XYSeries indicatorSeries = new XYSeries("SuperTrend");
 
             for (int i = 0; i < itemCount; i++) {
-                Candle candle = candles.get(i);
-                dates[i] = new Date(candle.openTime());
-                opens[i] = candle.open();
-                highs[i] = candle.high();
-                lows[i] = candle.low();
-                closes[i] = candle.close();
-                volumes[i] = candle.volumeBase();
+                CandleIndicators candle = candles.getCandle(i);
+                dates[i] = new Date(candle.getOpenTime());
+                opens[i] = candle.getOpen();
+                highs[i] = candle.getHigh();
+                lows[i] = candle.getLow();
+                closes[i] = candle.getClose();
+                volumes[i] = candle.getVolumen().baseVolume();
 
                 // Candle.superTrendSlow() almacena (lineaSuperTrend - close), por eso sumamos close para obtener el precio real de la linea.
-                double superTrendPrice = candle.emaSlow();// candle.close() + candle.superTrendSlow();
+                double superTrendPrice = candle.get("output5");// candle.close() + candle.superTrendSlow();
+
                 if (Double.isFinite(superTrendPrice) && superTrendPrice > 0) {
-                    superTrendSeries.add(dates[i].getTime(), superTrendPrice);
+                    indicatorSeries.add(dates[i].getTime(), superTrendPrice);
                 }
             }
 
@@ -248,14 +250,15 @@ public class ChartUtils {
 
             // Configurar eje de fechas
             XYPlot plot = (XYPlot) chart.getPlot();
+            darkMode(chart);
             DateAxis axis = (DateAxis) plot.getDomainAxis();
             axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
             applyBinanceCandleStyle(plot);
 
             // Overlay: linea de SuperTrend
-            if (!superTrendSeries.isEmpty()) {
+            if (!indicatorSeries.isEmpty()) {
                 XYSeriesCollection superTrendDataset = new XYSeriesCollection();
-                superTrendDataset.addSeries(superTrendSeries);
+                superTrendDataset.addSeries(indicatorSeries);
 
                 XYLineAndShapeRenderer superTrendRenderer = new XYLineAndShapeRenderer(true, false);
                 superTrendRenderer.setSeriesPaint(0, new Color(255, 215, 0));
@@ -268,9 +271,9 @@ public class ChartUtils {
             // Ajusta el zoon
             double minPrice = Arrays.stream(lows).min().orElse(0);
             double maxPrice = Arrays.stream(highs).max().orElse(0);
-            if (!superTrendSeries.isEmpty()) {
-                minPrice = Math.min(minPrice, superTrendSeries.getMinY());
-                maxPrice = Math.max(maxPrice, superTrendSeries.getMaxY());
+            if (!indicatorSeries.isEmpty()) {
+                minPrice = Math.min(minPrice, indicatorSeries.getMinY());
+                maxPrice = Math.max(maxPrice, indicatorSeries.getMaxY());
             }
 
             double padding = (maxPrice - minPrice) * 0.02; // pading
@@ -305,7 +308,7 @@ public class ChartUtils {
 
     public static void showCandlePredictionSnapshot(
             String title,
-            List<CandleSimple> lookbackCandles,
+            List<Candle> lookbackCandles,
             List<ClosePredictionPoint> predictedFuture,
             List<ClosePredictionPoint> actualFuture,
             long predictionTime
@@ -318,8 +321,8 @@ public class ChartUtils {
             return;
         }
 
-        List<CandleSimple> sortedLookback = new ArrayList<>(lookbackCandles);
-        sortedLookback.sort(Comparator.comparingLong(CandleSimple::openTime));
+        List<Candle> sortedLookback = new ArrayList<>(lookbackCandles);
+        sortedLookback.sort(Comparator.comparingLong(Candle::getOpenTime));
 
         List<ClosePredictionPoint> pred = new ArrayList<>();
         if (predictedFuture != null) {
@@ -349,7 +352,7 @@ public class ChartUtils {
 
         XYSeries actualSeries = new XYSeries("Actual", true, false);
         if (!sortedLookback.isEmpty()) {
-            double anchorClose = sortedLookback.getLast().close();
+            double anchorClose = sortedLookback.getLast().getClose();
             actualSeries.add(predictionTime, anchorClose);
         }
         for (ClosePredictionPoint p : real) {
@@ -358,7 +361,7 @@ public class ChartUtils {
 
         XYSeries predictedSeries = new XYSeries("Predicted", true, false);
         if (!sortedLookback.isEmpty()) {
-            double anchorClose = sortedLookback.getLast().close();
+            double anchorClose = sortedLookback.getLast().getClose();
             predictedSeries.add(predictionTime, anchorClose);
         }
         for (ClosePredictionPoint p : pred) {
@@ -383,7 +386,7 @@ public class ChartUtils {
         marker.setStroke(new BasicStroke(1.2f));
         plot.addDomainMarker(marker);
 
-        long startTime = sortedLookback.getFirst().openTime();
+        long startTime = sortedLookback.getFirst().getOpenTime();
         long endTime = startTime;
         if (!real.isEmpty()) {
             endTime = Math.max(endTime, real.getLast().time());
@@ -398,9 +401,9 @@ public class ChartUtils {
 
         double min = Double.POSITIVE_INFINITY;
         double max = Double.NEGATIVE_INFINITY;
-        for (CandleSimple c : sortedLookback) {
-            min = Math.min(min, c.low());
-            max = Math.max(max, c.high());
+        for (Candle c : sortedLookback) {
+            min = Math.min(min, c.getLow());
+            max = Math.max(max, c.getHigh());
         }
         for (ClosePredictionPoint p : real) {
             min = Math.min(min, p.close());
@@ -432,7 +435,7 @@ public class ChartUtils {
 
     public static void animateCandlePredictions(
             String title,
-            List<CandleSimple> candles,
+            List<Candle> candles,
             List<BackTestEngine.InCompleteTrade> trades,
             int windowSize,
             int delayMs
@@ -442,7 +445,7 @@ public class ChartUtils {
 
     public static void animateCandlePredictions(
             String title,
-            List<CandleSimple> candles,
+            List<Candle> candles,
             List<BackTestEngine.InCompleteTrade> trades,
             int windowSize,
             int delayMs,
@@ -462,8 +465,8 @@ public class ChartUtils {
             preds.add(new PredictionPoint(trade.getEntryTime(), trade.getTpPrice(), trade.getSlPrice()));
         }
 
-        List<CandleSimple> sorted = new ArrayList<>(candles);
-        sorted.sort(Comparator.comparingLong(CandleSimple::openTime));
+        List<Candle> sorted = new ArrayList<>(candles);
+        sorted.sort(Comparator.comparingLong(Candle::getOpenTime));
 
         preds.sort(Comparator.comparingLong(PredictionPoint::time));
 
@@ -518,8 +521,8 @@ public class ChartUtils {
                 int horizonExtra = (int) Math.round(windowSize * safeHorizonZoomOut);
                 int startIndex = Math.max(0, endIndex - windowSize + 1 - horizonExtra);
                 int endIndexWindow = Math.min(sorted.size() - 1, endIndex + horizonExtra);
-                long currentTime = sorted.get(endIndex).openTime();
-                double currentPrice = sorted.get(endIndex).close();
+                long currentTime = sorted.get(endIndex).getOpenTime();
+                double currentPrice = sorted.get(endIndex).getClose();
 
                 while (predIndex < preds.size() && preds.get(predIndex).time() <= currentTime) {
                     activePrediction = preds.get(predIndex);
@@ -530,7 +533,7 @@ public class ChartUtils {
                 int startFinal = startIndex;
                 int endFinal = endIndexWindow;
                 long currentTimeFinal = currentTime;
-                long windowEndTimeFinal = sorted.get(Math.min(sorted.size() - 1, i + windowSize)).openTime();
+                long windowEndTimeFinal = sorted.get(Math.min(sorted.size() - 1, i + windowSize)).getOpenTime();
                 double currentPriceFinal = currentPrice;
 
                 SwingUtilities.invokeLater(() -> {
@@ -542,7 +545,7 @@ public class ChartUtils {
                     minSeries.clear();
                     priceSeries.clear();
                     if (predictionFinal != null) {
-                        long startTime = sorted.get(startFinal).openTime();
+                        long startTime = sorted.get(startFinal).getOpenTime();
                         long lineStart = Math.max(startTime, predictionFinal.time());
                         long lineEnd = Math.max(currentTimeFinal, windowEndTimeFinal);
                         double low = Math.min(predictionFinal.tpPrice(), predictionFinal.slPrice());
@@ -572,7 +575,7 @@ public class ChartUtils {
                         shadeHolder[0] = null;
                     }
 
-                    long priceStart = sorted.get(startFinal).openTime();
+                    long priceStart = sorted.get(startFinal).getOpenTime();
                     long priceLineStart = Math.max(priceStart, currentTimeFinal);
                     long priceLineEnd = Math.max(currentTimeFinal, windowEndTimeFinal);
                     priceSeries.add(priceLineStart, currentPriceFinal);
@@ -885,7 +888,7 @@ public class ChartUtils {
         return sum / values.size();
     }
 
-    public static void showCandleChartWithTrades(String title, List<CandleSimple> candles, String symbol, List<BackTestEngine.CompleteTrade> trades) {
+    public static void showCandleChartWithTrades(String title, List<Candle> candles, String symbol, List<BackTestEngine.CompleteTrade> trades) {
         if (candles == null || candles.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
             return;
@@ -908,14 +911,14 @@ public class ChartUtils {
             Map<Long, Integer> timeToIndex = new HashMap<>();
 
             for (int i = 0; i < itemCount; i++) {
-                CandleSimple candle = candles.get(i);
-                dates[i] = new Date(candle.openTime());
-                opens[i] = candle.open();
-                highs[i] = candle.high();
-                lows[i] = candle.low();
-                closes[i] = candle.close();
-                volumes[i] = candle.volumen().baseVolume();
-                timeToIndex.put(candle.openTime(), i);
+                Candle candle = candles.get(i);
+                dates[i] = new Date(candle.getOpenTime());
+                opens[i] = candle.getOpen();
+                highs[i] = candle.getHigh();
+                lows[i] = candle.getLow();
+                closes[i] = candle.getClose();
+                volumes[i] = candle.getVolumen().baseVolume();
+                timeToIndex.put(candle.getOpenTime(), i);
             }
 
             // Crear dataset de velas
@@ -1014,7 +1017,7 @@ public class ChartUtils {
         }
     }
 
-    private static XYSeriesCollection buildBalanceDataset(List<CandleSimple> candles, List<BackTestEngine.CompleteTrade> trades) {
+    private static XYSeriesCollection buildBalanceDataset(List<Candle> candles, List<BackTestEngine.CompleteTrade> trades) {
         if (candles == null || candles.isEmpty() || trades == null || trades.isEmpty()) {
             return null;
         }
@@ -1029,7 +1032,7 @@ public class ChartUtils {
         }
 
         XYSeries balanceSeries = new XYSeries("Balance", true, true);
-        long startTime = candles.getFirst().openTime();
+        long startTime = candles.getFirst().getOpenTime();
         balanceSeries.add(startTime, initialBalance);
 
         long lastTime = startTime;
@@ -1045,7 +1048,7 @@ public class ChartUtils {
             lastBalance = balance;
         }
 
-        long endTime = candles.getLast().openTime();
+        long endTime = candles.getLast().getOpenTime();
         if (endTime > lastTime && Double.isFinite(lastBalance)) {
             balanceSeries.add(endTime, lastBalance);
         }
@@ -1056,7 +1059,7 @@ public class ChartUtils {
     }
 
     private static DefaultHighLowDataset buildHighLowDataset(
-            List<CandleSimple> candles,
+            List<Candle> candles,
             int startIndex,
             int endIndex,
             String seriesKey
@@ -1070,20 +1073,20 @@ public class ChartUtils {
         double[] volumes = new double[itemCount];
 
         for (int i = 0; i < itemCount; i++) {
-            CandleSimple candle = candles.get(startIndex + i);
-            dates[i] = new Date(candle.openTime());
-            opens[i] = candle.open();
-            highs[i] = candle.high();
-            lows[i] = candle.low();
-            closes[i] = candle.close();
-            volumes[i] = candle.volumen().baseVolume();
+            Candle candle = candles.get(startIndex + i);
+            dates[i] = new Date(candle.getOpenTime());
+            opens[i] = candle.getOpen();
+            highs[i] = candle.getHigh();
+            lows[i] = candle.getLow();
+            closes[i] = candle.getClose();
+            volumes[i] = candle.getVolumen().baseVolume();
         }
         return new DefaultHighLowDataset(seriesKey, dates, highs, lows, opens, closes, volumes);
     }
 
     private static void updateAxisRange(
             XYPlot plot,
-            List<CandleSimple> candles,
+            List<Candle> candles,
             int startIndex,
             int endIndex,
             PredictionPoint prediction,
@@ -1092,9 +1095,9 @@ public class ChartUtils {
         double min = Double.MAX_VALUE;
         double max = -Double.MAX_VALUE;
         for (int i = startIndex; i <= endIndex; i++) {
-            CandleSimple candle = candles.get(i);
-            min = Math.min(min, candle.low());
-            max = Math.max(max, candle.high());
+            Candle candle = candles.get(i);
+            min = Math.min(min, candle.getLow());
+            max = Math.max(max, candle.getHigh());
         }
         if (prediction != null) {
             min = Math.min(min, Math.min(prediction.tpPrice(), prediction.slPrice()));
@@ -1110,13 +1113,13 @@ public class ChartUtils {
         rangeAxis.setRange(min - padding, max + padding);
 
         DateAxis domainAxis = (DateAxis) plot.getDomainAxis();
-        long startTime = candles.get(startIndex).openTime();
-        long endTime = candles.get(endIndex).openTime();
+        long startTime = candles.get(startIndex).getOpenTime();
+        long endTime = candles.get(endIndex).getOpenTime();
         domainAxis.setRange(new Date(startTime), new Date(endTime));
     }
 
     private static void addTradeAnnotations(XYPlot plot, List<BackTestEngine.CompleteTrade> trades,
-                                            Map<Long, Integer> timeToIndex, List<CandleSimple> candles,
+                                            Map<Long, Integer> timeToIndex, List<Candle> candles,
                                             int datasetIndex) {
 
         // Crear un dataset para markers
@@ -1139,8 +1142,8 @@ public class ChartUtils {
             int exitIndex = findClosestCandleIndex(candles, trade.getExitTime());
 
             if (entryIndex >= 0) {
-                CandleSimple entryCandle = candles.get(entryIndex);
-                double entryX = entryCandle.openTime();
+                Candle entryCandle = candles.get(entryIndex);
+                double entryX = entryCandle.getOpenTime();
 
                 // Agregar marker de entrada
                 if (trade.getDirection() == DireccionOperation.LONG) {
@@ -1151,16 +1154,16 @@ public class ChartUtils {
 
                 // Agregar líneas de TP y SL
                 tpLinesSeries.add(entryX, trade.getTpPrice());
-                tpLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).openTime() : entryX + 3600000, trade.getTpPrice());
+                tpLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).getOpenTime() : entryX + 3600000, trade.getTpPrice());
 
                 slLinesSeries.add(entryX, trade.getSlPrice());
-                slLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).openTime() : entryX + 3600000, trade.getSlPrice());
+                slLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).getOpenTime() : entryX + 3600000, trade.getSlPrice());
             }
 
             // Agregar marker de salida
             if (exitIndex >= 0) {
-                CandleSimple exitCandle = candles.get(exitIndex);
-                double exitX = exitCandle.openTime();
+                Candle exitCandle = candles.get(exitIndex);
+                double exitX = exitCandle.getOpenTime();
 
                 switch (trade.getExitReason()) {
                     case LONG_TAKE_PROFIT:
@@ -1260,13 +1263,13 @@ public class ChartUtils {
         plot.setRenderer(datasetIndex, markerRenderer);
     }
 
-    private static int findClosestCandleIndex(List<CandleSimple> candles, long time) {
+    private static int findClosestCandleIndex(List<Candle> candles, long time) {
         int left = 0;
         int right = candles.size() - 1;
 
         while (left <= right) {
             int mid = left + (right - left) / 2;
-            long midTime = candles.get(mid).openTime();
+            long midTime = candles.get(mid).getOpenTime();
 
             if (midTime == time) {
                 return mid;
@@ -1281,8 +1284,8 @@ public class ChartUtils {
         if (right < 0) return 0;
         if (left >= candles.size()) return candles.size() - 1;
 
-        long leftTime = candles.get(left).openTime();
-        long rightTime = candles.get(right).openTime();
+        long leftTime = candles.get(left).getOpenTime();
+        long rightTime = candles.get(right).getOpenTime();
 
         return Math.abs(leftTime - time) < Math.abs(rightTime - time) ? left : right;
     }

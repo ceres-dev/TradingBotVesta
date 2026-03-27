@@ -8,14 +8,18 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.Shape;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
+import lombok.experimental.Delegate;
+import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.common.market.BaseCandle;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
 import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.util.BuilderData;
+import xyz.cereshost.vesta.core.utils.BuilderData;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -102,27 +106,27 @@ public class PredictionEngine {
         return yNormalizer.inverseTransform(output2D)[0];
     }
 
-    public PredictionResult predictNextPriceDetail(List<Candle> candles) {
+    public SequenceCandlesPrediction predictNextPriceDetail(SequenceCandles candles) {
         return predictNextPriceDetail(candles, 20);
     }
 
-    public PredictionResult predictNextPriceDetail(List<Candle> candles, int futureCandles) {
+    public SequenceCandlesPrediction predictNextPriceDetail(SequenceCandles candles, int futureCandles) {
         if (futureCandles <= 0) {
-            return new PredictionResult(List.of());
+            return new SequenceCandlesPrediction(List.of());
         }
-        List<Candle> sortedCandles = new ArrayList<>(candles);
-        sortedCandles.sort(Comparator.comparingLong(Candle::openTime));
+        SequenceCandles sortedCandles = candles.copy();
+        sortedCandles.sort(Comparator.comparingLong(SequenceCandles.CandleContainer::getOpenTime));
 
         if (sortedCandles.size() < lookBack + 1) {
             throw new RuntimeException("Historial insuficiente. Se necesitan " + (lookBack + 1) + " velas.");
         }
 
-        List<Candle> subList = sortedCandles.subList((sortedCandles.size() - (lookBack + 1)), sortedCandles.size());
+        SequenceCandles subList = sortedCandles.subSequence((sortedCandles.size() - (lookBack + 1)), sortedCandles.size());
 
         // Construir entrada inicial
         float[][][] X = new float[1][Math.toIntExact(lookBack)][Math.toIntExact(features - 2)];
         for (int j = 0; j < lookBack; j++) {
-            X[0][j] = BuilderData.extractFeatures(subList.get(j + 1), subList.get(j));
+            X[0][j] = BuilderData.extractFeatures(subList.getCandle(j + 1), subList.getCandle(j));
         }
 
         if (X[0][0].length < REQUIRED_AUTOREGRESSIVE_FEATURES) {
@@ -131,17 +135,19 @@ public class PredictionEngine {
             );
         }
 
-        List<PredictionCandleResult> results = new ArrayList<>(futureCandles);
+        List<PredictedCandle> results = new ArrayList<>(futureCandles);
+
 
         for (int step = 0; step < futureCandles; step++) {
             // Inferencia
             float[] rawPredictions = predictRaw(X); // Output del modelo
-            PredictionCandleResult predicted = new PredictionCandleResult(
-                    rawPredictions[0],
-                    rawPredictions[1],
-                    rawPredictions[2],
-                    rawPredictions[3],
-                    rawPredictions[4]
+            PredictedCandle predicted = new PredictedCandle(
+                    0,
+                    rawPredictions[1], // High
+                    rawPredictions[2], // Low
+                    rawPredictions[0], // Close
+                    rawPredictions[3], // Volumen
+                    rawPredictions[4]  // other (indicador técnico)
             );
             results.add(predicted);
 
@@ -151,20 +157,21 @@ public class PredictionEngine {
             }
 
             float[] nextFeatures = new float[X[0][0].length];
-            nextFeatures[0] = (float) predicted.close();
-            nextFeatures[1] = (float) predicted.high();
-            nextFeatures[2] = (float) predicted.low();
-            nextFeatures[3] = predicted.volumen();
-            nextFeatures[4] = (float) predicted.ema();
+            nextFeatures[0] = (float) predicted.getClose();
+            nextFeatures[1] = (float) predicted.getHigh();
+            nextFeatures[2] = (float) predicted.getLow();
+            nextFeatures[3] = predicted.getVolumenRelative();
+            nextFeatures[4] = (float) predicted.getOtherIndicator()[0];
             X[0][lookBack - 1] = nextFeatures;
         }
 
-        return new PredictionResult(results);
+        return new SequenceCandlesPrediction(results);
     }
     @Data
     @AllArgsConstructor
-    public static class PredictionResult {
-        List<PredictionCandleResult> candles;
+    public static class SequenceCandlesPrediction implements List<PredictedCandle> {
+        @Delegate @NotNull
+        List<PredictedCandle> candles;
 
         public double maxClose() {
             GraphRange graphRange = closeGraphRange();
@@ -186,14 +193,14 @@ public class PredictionEngine {
 
         // Extremos de la curva predicha de close acumulado (no mechas individuales).
         private GraphRange closeGraphRange() {
-            if (candles == null || candles.isEmpty()) {
+            if (candles.isEmpty()) {
                 return new GraphRange(Double.NaN, Double.NaN);
             }
             double cumulative = 1.0;
             double max = Double.NEGATIVE_INFINITY;
             double min = Double.POSITIVE_INFINITY;
-            for (PredictionCandleResult candle : candles) {
-                double step = candle.close();
+            for (PredictedCandle candle : candles) {
+                double step = candle.getClose();
                 if (!Double.isFinite(step)) {
                     continue;
                 }
@@ -254,7 +261,20 @@ public class PredictionEngine {
         }
     }
 
-    public record PredictionCandleResult(double close, double high, double low, float volumen, double ema) {
+    @Data
+    @EqualsAndHashCode(callSuper = true)
+    public static final class PredictedCandle extends BaseCandle {
+
+        private final float volumenRelative;
+        private final double[] otherIndicator;
+
+        // EL open,
+        public PredictedCandle(double open, double high, double low, double close, float volumen, double... other) {
+            super(open, high, low, close);
+            volumenRelative = volumen;
+            otherIndicator = other;
+        }
+
 
     }
 }

@@ -6,11 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import lombok.Getter;
 import lombok.experimental.UtilityClass;
+import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.common.packet.Utils;
-import xyz.cereshost.vesta.common.market.CandleSimple;
-import xyz.cereshost.vesta.common.market.Depth;
-import xyz.cereshost.vesta.common.market.Trade;
-import xyz.cereshost.vesta.common.market.Volumen;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -40,7 +37,7 @@ public class BinanceAPI {
         private List<List<String>> asks;
     }
 
-    public synchronized List<CandleSimple> getCandleAndVolumen(String symbol) {
+    public synchronized List<Candle> getCandleAndVolumen(String symbol) {
         String raw = Utils.getRequest(Utils.BASE_URL_API + "klines" + "?symbol=" + symbol + "&interval=1m&limit=" + 300);
         ObjectMapper mapper = new ObjectMapper();
         JsonNode root;
@@ -49,7 +46,7 @@ public class BinanceAPI {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
-        ArrayDeque<CandleSimple> deque = new ArrayDeque<>();
+        ArrayDeque<Candle> deque = new ArrayDeque<>();
 
         for (int i = 0; i < 300; i++) {
             JsonNode kline = root.get(i);
@@ -61,7 +58,8 @@ public class BinanceAPI {
             double sellQuoteVolume = quoteVolume - takerBuyQuoteVolume;
             double deltaUSDT = takerBuyQuoteVolume - sellQuoteVolume;
             double buyRatio = takerBuyQuoteVolume / quoteVolume;
-            deque.add(new CandleSimple(
+            deque.add(new Candle(
+                    TimeUnitMarket.ONE_MINUTE,
                     kline.get(0).asLong(),
                     kline.get(1).asDouble(), // open
                     kline.get(2).asDouble(), // high
@@ -69,7 +67,7 @@ public class BinanceAPI {
                     kline.get(4).asDouble(), // close
                     new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)));
         }
-        return List.of(deque.toArray(new CandleSimple[0]));
+        return List.of(deque.toArray(new Candle[0]));
     }
 
     public synchronized Deque<Trade> getTrades(String symbol) {

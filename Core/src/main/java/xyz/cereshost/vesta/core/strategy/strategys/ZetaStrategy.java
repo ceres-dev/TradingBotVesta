@@ -2,13 +2,13 @@ package xyz.cereshost.vesta.core.strategy.strategys;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-
-import java.util.List;
+import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
+import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
+import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 public class ZetaStrategy implements TradingStrategy {
     private static final double GRID_POINT_PERCENT = 0.2;
@@ -27,15 +27,9 @@ public class ZetaStrategy implements TradingStrategy {
     private double pendingDistancePercent;
 
     @Override
-    public void executeStrategy(PredictionEngine.@Nullable PredictionResult pred, List<Candle> visibleCandles, TradingManager operations) {
-        if (visibleCandles == null || visibleCandles.isEmpty()) {
-            return;
-        }
-
-        lastVisibleCandles = visibleCandles;
-
-        Candle current = visibleCandles.getLast();
-        double close = current.close();
+    public void executeStrategy(PredictionEngine.@Nullable SequenceCandlesPrediction pred, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager operations) {
+        CandleIndicators current = visibleCandles.getCandleLast();
+        double close = current.getClose();
         if (!Double.isFinite(close) || close <= 0) {
             operations.log("EL cierre de la vela dio infinito");
             return;
@@ -70,16 +64,11 @@ public class ZetaStrategy implements TradingStrategy {
             return;
         }
 
-        if (current.atr14() < .7){
+        if (current.get("atr") < .7){
             return;
         }
-
-        double rsi = current.rsi8();
-        double strong = Math.abs(rsi -50)/100;
-        double atrPercent = (lastVisibleCandles.getLast().atr14() / close) * 100.0;
-        if (atrPercent < 0.15) return;
         double distancePercent = GRID_POINT_PERCENT;//* ((atrPercent - 0.01) * 0.1);// baselineMovePercent;
-        if (!Double.isFinite(distancePercent) || distancePercent <= 0) {
+        if (!Double.isFinite(distancePercent)) {
             operations.log("EL distancePercent dio infinito");
             return;
         }
@@ -111,7 +100,6 @@ public class ZetaStrategy implements TradingStrategy {
         );
     }
 
-    private List<Candle> lastVisibleCandles;
 
     @Override
     public void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations) {
@@ -152,6 +140,11 @@ public class ZetaStrategy implements TradingStrategy {
                 amountUsdt,
                 LEVERAGE
         );
+    }
+
+    @Override
+    public CandlesBuilder getBuilder(){
+        return new CandlesBuilder().addATRIndicator("atr", 14).addRSIIndicator("rsi", 8);
     }
 
     @NotNull

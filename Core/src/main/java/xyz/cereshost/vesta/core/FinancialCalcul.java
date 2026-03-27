@@ -1,7 +1,7 @@
 package xyz.cereshost.vesta.core;
 
 import lombok.experimental.UtilityClass;
-import xyz.cereshost.vesta.common.market.CandleSimple;
+import xyz.cereshost.vesta.common.market.Candle;
 
 import java.util.*;
 
@@ -17,7 +17,7 @@ public class FinancialCalcul {
         int n = prices.size();
         double[] ema = new double[n];
         Arrays.fill(ema, Double.NaN);
-        if (n == 0 || period <= 0 || n < period) return ema;
+        if (period <= 0 || n < period) return ema;
 
         // alpha = 2 / (period + 1)
         double alpha = 2.0 / (period + 1.0);
@@ -110,7 +110,7 @@ public class FinancialCalcul {
      * Returns double[][] where [0] = means, [1] = stds (same length as candles).
      * For the first <window elements we fill with the first computed mean/std or 0.
      */
-    public static double[][] computeRollingMeanStd(List<CandleSimple> candles, int window) {
+    public static double[][] computeRollingMeanStd(List<Candle> candles, int window) {
         int n = candles.size();
         double[] means = new double[n];
         double[] stds = new double[n];
@@ -121,7 +121,7 @@ public class FinancialCalcul {
         double sumSq = 0;
 
         for (int i = 0; i < n; i++) {
-            double v = candles.get(i).volumen().baseVolume();
+            double v = candles.get(i).getVolumen().baseVolume();
             windowVals.addLast(v);
             sum += v;
             sumSq += v * v;
@@ -140,7 +140,7 @@ public class FinancialCalcul {
         return new double[][]{means, stds};
     }
 
-    public static Map<String, double[]> computeVolumeNormalizations(List<CandleSimple> candles, int window, List<Double> atrList) {
+    public static Map<String, double[]> computeVolumeNormalizations(List<Candle> candles, int window, List<Double> atrList) {
         int n = candles.size();
         double[][] meanStd = computeRollingMeanStd(candles, window);
         double[] means = meanStd[0];
@@ -151,7 +151,7 @@ public class FinancialCalcul {
         double[] perAtr = new double[n];
 
         for (int i = 0; i < n; i++) {
-            double v = candles.get(i).volumen().baseVolume();
+            double v = candles.get(i).getVolumen().baseVolume();
             double mean = means[i];
             double std = stds[i];
             // ratio to mean (avoid divide by zero)
