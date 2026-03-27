@@ -2,6 +2,7 @@ package xyz.cereshost.vesta.core.utils.candle;
 
 import lombok.Getter;
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
 import org.ta4j.core.BaseBar;
 import org.ta4j.core.BaseBarSeries;
 import org.ta4j.core.BaseBarSeriesBuilder;
@@ -25,6 +26,7 @@ import xyz.cereshost.vesta.core.utils.ProgressBar;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 
 @Getter
@@ -34,60 +36,71 @@ public class CandlesBuilder {
     private final HashMap<String, BiFunction<IndicatorData, Collection<AbstractIndicator<Num>>, Indicator<Num>>> indicators = new HashMap<>();
 
     @Contract(value = "_, _ -> this")
-    public CandlesBuilder addIndicator(String key, BiFunction<IndicatorData, Collection<AbstractIndicator<Num>>, Indicator<Num>> indicator) {
+    public synchronized CandlesBuilder addIndicator(String key, BiFunction<IndicatorData, Collection<AbstractIndicator<Num>>, Indicator<Num>> indicator) {
         indicators.put(key, indicator);
         return this;
     }
 
     @Contract(value = "_, _ -> this")
-    public CandlesBuilder addSMAIndicator(String key, int barCount) {
+    public synchronized CandlesBuilder addSMAIndicator(String key, int barCount) {
         indicators.put(key, (data, indicators) -> new SMAIndicator(data.closes(), barCount));
         return this;
     }
 
     @Contract(value = "_, _, _ -> this")
-    public CandlesBuilder addEMAIndicator(String key, int barCount, int displacement) {
+    public synchronized CandlesBuilder addEMAIndicator(String key, int barCount, int displacement) {
         indicators.put(key, (data, indicators) -> new EDMAIndicator(data.closes(), barCount, displacement));
         return this;
     }
 
     @Contract(value = "_, _ -> this")
-    public CandlesBuilder addATRIndicator(String key, int barCount) {
+    public synchronized CandlesBuilder addATRIndicator(String key, int barCount) {
         indicators.put(key, (data, indicators) -> new ATRIndicator(data.series(), barCount));
         return this;
     }
 
     @Contract(value = "_, _ -> this")
-    public CandlesBuilder addRSIIndicator(String key, int barCount) {
+    public synchronized CandlesBuilder addRSIIndicator(String key, int barCount) {
         indicators.put(key, (data, indicators) -> new RSIIndicator(data.closes(), barCount));
         return this;
     }
 
     @Contract(value = "_, _, _ -> this")
-    public CandlesBuilder addSuperTrendIndicator(String key, int barCount, float multiplier) {
+    public synchronized CandlesBuilder addSuperTrendIndicator(String key, int barCount, float multiplier) {
         indicators.put(key, (data, indicators) -> new SuperTrendIndicator(data.series(), barCount, multiplier));
         return this;
     }
 
     @Contract(value = "_, _, _ -> this")
-    public CandlesBuilder addMACDIndicator(String key, int shortBarCount, int longBarCount) {
+    public synchronized CandlesBuilder addMACDIndicator(String key, int shortBarCount, int longBarCount) {
         indicators.put(key, (data, indicators) -> new MACDIndicator(data.closes(), shortBarCount, longBarCount));
         return this;
     }
 
     @Contract(value = "_, _ -> this")
-    public CandlesBuilder addMACDHistogramIndicator(String key, int barCount) {
+    public synchronized CandlesBuilder addMACDHistogramIndicator(String key, int barCount) {
         indicators.put(key, (data, indicators) -> searchIndicador(indicators, MACDIndicator.class).getHistogram(barCount));
         return this;
     }
 
     @Contract(value = "_, _ -> this")
-    public CandlesBuilder addMACDSignalIndicator(String key, int barCount) {
+    public synchronized CandlesBuilder addMACDSignalIndicator(String key, int barCount) {
         indicators.put(key, (data, indicators) -> searchIndicador(indicators, MACDIndicator.class).getSignalLine(barCount));
         return this;
     }
 
-    public SequenceCandles build(Market market) {
+    /**
+     * Crea una instancia de {@link SequenceCandles} a partir de {@link Market}
+     * (se debe asegurar el orden temporal antes de llamar el tiempo)
+     * {@link SequenceCandles} se le incluye los indicadores técnicos agregados fueron previamente
+     * safe-thread
+     * @param market Mercado que se va a usar para calcular los indicadores técnicos
+     * @return una instancia nueva mutable con los indicadores técnicos agregados
+     */
+
+    @NotNull
+    @Contract(pure = true, value = "_, -> new")
+    public SequenceCandles build(@NotNull Market market) {
         BaseBarSeries series = new BaseBarSeriesBuilder().withName(market.getSymbol()).build();
         NavigableMap<Long, Candle> candleByUnitTime = new TreeMap<>();
         long ms = market.getTimeUnitMarket().getMilliseconds();
@@ -122,11 +135,14 @@ public class CandlesBuilder {
 
         // Crea un diccionario para optimizar espacio en memoria asignada un String a un byte
         byte byteKey = 0;
-        HashMap<String, Byte> dictionary = new HashMap<>();
-        for (String key : indicators.keySet()) {
-            dictionary.put(key, byteKey);
-            byteKey++;
+        ConcurrentHashMap<String, Byte> dictionary = new ConcurrentHashMap<>();
+        synchronized (indicators){
+            for (String key : indicators.keySet()) {
+                dictionary.put(key, byteKey);
+                byteKey++;
+            }
         }
+
 
         long startMinute = candleByUnitTime.firstKey();
         long endMinute = candleByUnitTime.lastKey();
@@ -138,16 +154,18 @@ public class CandlesBuilder {
 
         // Crear una vez la instancia de los indicadores técnicos
         Map<String, Indicator<Num>> indicatorsInstanced = new HashMap<>();
-        for (Map.Entry<String, BiFunction<IndicatorData, Collection<AbstractIndicator<Num>>, Indicator<Num>>> entry : this.indicators.entrySet()) {
-            indicatorsInstanced.put(entry.getKey(), entry.getValue().apply(
-                    new IndicatorData(series, closes),
-                    // Colección de indicadores
-                    indicatorsInstanced.values().stream().filter(indicators ->
-                            // Primero filtra las instancias
-                            indicators instanceof AbstractIndicator<Num>).map(indicators ->
-                            // Realiza el Cast
-                            (AbstractIndicator<Num>) indicators).toList()
-            ));
+        synchronized (indicators){
+            for (Map.Entry<String, BiFunction<IndicatorData, Collection<AbstractIndicator<Num>>, Indicator<Num>>> entry : this.indicators.entrySet()) {
+                indicatorsInstanced.put(entry.getKey(), entry.getValue().apply(
+                        new IndicatorData(series, closes),
+                        // Colección de indicadores
+                        indicatorsInstanced.values().stream().filter(indicators ->
+                                // Primero filtra las instancias
+                                indicators instanceof AbstractIndicator<Num>).map(indicators ->
+                                // Realiza el Cast
+                                (AbstractIndicator<Num>) indicators).toList()
+                ));
+            }
         }
 
         for (long minute = startMinute; minute <= endMinute; minute += step) {
@@ -177,11 +195,12 @@ public class CandlesBuilder {
         return BuilderData.checkDouble(d);
     }
 
-    public static SequenceCandles empty(){
-        return new SequenceCandles(new HashMap<>(), new ArrayList<>(5_000));
+    @Contract(" -> new")
+    public static @NotNull SequenceCandles empty(){
+        return new SequenceCandles(new ConcurrentHashMap<>(), new ArrayList<>(5_000));
     }
 
-    private static <T extends Indicator<Num>> T searchIndicador(Collection<AbstractIndicator<Num>> collection, Class<T> clazz){
+    private static <T extends Indicator<Num>> T searchIndicador(@NotNull Collection<AbstractIndicator<Num>> collection, @NotNull Class<T> clazz){
         for (AbstractIndicator<Num> indicator : collection) {
             if (clazz.isInstance(indicator)){
                 return clazz.cast(indicator);

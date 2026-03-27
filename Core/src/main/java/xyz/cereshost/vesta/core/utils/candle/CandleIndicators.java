@@ -8,6 +8,22 @@ import xyz.cereshost.vesta.common.market.Candle;
 
 import java.util.HashMap;
 
+/**
+ * Contiene el OHLCV y los indicadores técnicos previamente asígnados de {@link CandlesBuilder}.
+ *
+ * <p>
+ * Esta clase está pensada para el acceso a indicadores técnicos en {@link xyz.cereshost.vesta.core.strategy.TradingStrategy TradingStrategy},
+ * no está pensado usar para guardar en grandes cantidades ya qué cada clase contiene un {@link HashMap} como key es un
+ * {@link String} previamente asignado en {@link CandlesBuilder} a diferencia de {@link xyz.cereshost.vesta.core.utils.candle.SequenceCandles.CandleContainer CandleContainer}
+ * </p>
+ *
+ * @see CandlesBuilder
+ * @see xyz.cereshost.vesta.core.utils.candle.SequenceCandles.CandleContainer
+ * @see SequenceCandles
+ *
+ * @author Ceres
+ */
+
 @Data
 @EqualsAndHashCode(callSuper = true)
 public final class CandleIndicators extends Candle {

@@ -9,17 +9,34 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.market.Candle;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Una lista de {@link CandleContainer} con indicadores técnicos ya computados.
+ * <p>
+ * Ya que los indicadores técnicos se guardan en un {@code double[]} para no acceder de un índice crea un diccionario que
+ * guarda un {@link String} como key y un {@link Byte} como valor y hay otro diccionario inverso donde el {@link String}
+ * es el valor y él {@link Byte}, esto permite que se pueda acceder a un indicador técnico a través del {@link String} que
+ * se asignó previamente en {@link CandlesBuilder}.
+ * </p>
+ * La implementación de {@link List} depende de {@link CandlesBuilder} al crear la instancia.
+ *
+ * @see CandlesBuilder
+ * @see CandleIndicators
+ * @see CandleContainer
+ *
+ * @author Ceres
+ */
 public class SequenceCandles implements List<SequenceCandles.CandleContainer> {
 
-    private final HashMap<Byte, String> dictionaryByte;
-    private final HashMap<String, Byte> dictionaryString;
+    private final ConcurrentHashMap<Byte, String> dictionaryByte;
+    private final ConcurrentHashMap<String, Byte> dictionaryString;
     @Delegate
     private final List<CandleContainer> candlesContainer;
 
-    public SequenceCandles(HashMap<String, Byte> dictionaryString, List<CandleContainer> candlesContainer) {
+    public SequenceCandles(ConcurrentHashMap<String, Byte> dictionaryString, List<CandleContainer> candlesContainer) {
         this.dictionaryString = dictionaryString;
-        HashMap<Byte, String> dictionaryByte = new HashMap<>();
+        ConcurrentHashMap<Byte, String> dictionaryByte = new ConcurrentHashMap<>();
         for (Map.Entry<String, Byte> entry : dictionaryString.entrySet()) dictionaryByte.put(entry.getValue(), entry.getKey());
         this.dictionaryByte = dictionaryByte;
         this.candlesContainer = candlesContainer;
@@ -60,8 +77,19 @@ public class SequenceCandles implements List<SequenceCandles.CandleContainer> {
     }
 
     public static SequenceCandles empty(){
-        return new SequenceCandles(new HashMap<>(), new ArrayList<>(5_000));
+        return new SequenceCandles(new ConcurrentHashMap<>(), new ArrayList<>(5_000));
     }
+
+    /**
+     * Está clase está diseñada contener {@link Candle} y {@code double[]} pensado en la optimización de la ram
+     * <p>
+     * No está pensado para un uso en {@link xyz.cereshost.vesta.core.strategy.TradingStrategy TradingStrategy} ni en
+     * gráficas, solo para guardar el OHLCV y los indicadores técnicos, en caso de utilización de indicadores usa {@link CandleIndicators}.
+     * </p>
+     *
+     * @see SequenceCandles
+     * @see CandleIndicators
+     */
 
     @Data
     @EqualsAndHashCode(callSuper = true)
