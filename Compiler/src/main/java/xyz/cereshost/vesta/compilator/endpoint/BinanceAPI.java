@@ -65,7 +65,9 @@ public class BinanceAPI {
                     kline.get(2).asDouble(), // high
                     kline.get(3).asDouble(), // low
                     kline.get(4).asDouble(), // close
-                    new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)));
+                    new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)
+                    )
+            );
         }
         return List.of(deque.toArray(new Candle[0]));
     }

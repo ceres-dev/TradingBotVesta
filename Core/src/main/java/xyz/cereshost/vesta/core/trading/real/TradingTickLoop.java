@@ -12,14 +12,14 @@ import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.core.exception.BinanceCodeWeakException;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
-import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.message.Notifiable;
+import xyz.cereshost.vesta.core.strategy.StrategyConfig;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
+import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
-import xyz.cereshost.vesta.core.utils.ChartUtils;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import java.io.BufferedReader;
@@ -46,7 +46,7 @@ public final class TradingTickLoop implements Notifiable {
     @Getter
     private final Executor executor = Executors.newFixedThreadPool(6);
     @NotNull
-    private final TradingManagerBinance trading;
+    private final TradingManagerBinance manager;
     @Nullable
     private final PredictionEngine engine;
     @Getter
@@ -91,8 +91,8 @@ public final class TradingTickLoop implements Notifiable {
             Market recent = IOMarket.loadMarketsBinance(symbol, 1440, 1000, 100);
             this.recentMarket = recent.getCandles().isEmpty() ? null : recent;
             Market bootMarket = loadMarket();
-            trading = new TradingManagerBinance(binanceApi, mediaNotification, bootMarket);
-            trading.setTradingTickLoop(this);
+            manager = new TradingManagerBinance(binanceApi, mediaNotification, bootMarket);
+            manager.setTradingTickLoop(this);
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
         }
@@ -101,7 +101,6 @@ public final class TradingTickLoop implements Notifiable {
     public boolean isClose = false;
 
     public void startCandleLoop() {
-        trading.updateOrdensSimple();
         if (localWarmupMarket != null) {
             WORKERS.scheduleAtFixedRate(() -> {
                 try {
@@ -170,7 +169,7 @@ public final class TradingTickLoop implements Notifiable {
         });
 
         executor.execute(() -> {
-            trading.updateOrdens(symbol);
+            manager.sync();
             latch.countDown();
         });
 
@@ -180,6 +179,14 @@ public final class TradingTickLoop implements Notifiable {
             Vesta.warning("No se pudo cargar mercado para este tick.");
             return;
         }
+
+        StrategyConfig config;
+        if (strategy instanceof TradingStrategyConfigurable configurable) {
+            config = configurable.getStrategyConfig(manager);
+        } else {
+            config = StrategyConfig.builder().build();
+        }
+
         if (hasLargeGap(tickMarket, MAX_ALLOWED_GAP_MS)) {
             if ((counter % 10) == 0 && localWarmupMarket != null) {
                 synchronized (localWarmupMarket) {
@@ -189,25 +196,25 @@ public final class TradingTickLoop implements Notifiable {
             }
             return;
         }
+        int lookBack = engine != null ? engine.getLookBack() : config.getLookBack();
         SequenceCandles allCandles = strategy.getBuilder().build(tickMarket);
-        if (allCandles.size() <= VestaEngine.LOOK_BACK + 1) {
+        if (allCandles.size() <= lookBack + 1) {
             Vesta.warning("Histórico insuficiente para tick: %d velas", allCandles.size());
             return;
         }
-        ChartUtils.showCandleChart("temporal", allCandles, "?");
+//        ChartUtils.showCandleChart("temporal", allCandles, "?");
 
         Vesta.info("💰 Precio del %s: %.2f", symbol, allCandles.getCandleLast().getClose());
+
         PredictionEngine.SequenceCandlesPrediction result;
-        if (engine != null) {
-            int endExclusive = allCandles.size() - 1;
-            int startInclusive = VestaEngine.LOOK_BACK;
-            SequenceCandles visible = allCandles.subSequence(startInclusive, endExclusive);
-            result = engine.predictNextPriceDetail(visible);
-        }else {
-            result = null;
-        }
-        trading.getOpens().forEach(TradingManager.OpenOperation::nextMinute);
-        strategy.executeStrategy(result, allCandles, trading);
+        int endExclusive = allCandles.size() - 1;
+        SequenceCandles visible = allCandles.subSequence(lookBack, endExclusive);
+
+        if (engine != null) result = engine.predictNextPriceDetail(visible);
+        else result = null;
+
+        manager.computeHasOpenOperation(TradingManager.OpenOperation::nextMinute);
+        strategy.executeStrategy(result, allCandles, manager);
     }
 
     private static boolean hasLargeGap(@NotNull Market market, long maxGapMs) {
@@ -225,11 +232,11 @@ public final class TradingTickLoop implements Notifiable {
             }
             prev = current;
         }
-        if (maxGap >= maxGapMs) {
-            Vesta.warning("Hueco temporal detectado: %.2f minutos (umbral %.2f). Se omite estrategia.",
-                    maxGap / 60_000.0, maxGapMs / 60_000.0);
-            return true;
-        }
+//        if (maxGap >= maxGapMs) {
+//            Vesta.warning("Hueco temporal detectado: %.2f minutos (umbral %.2f). Se omite estrategia.",
+//                    maxGap / 60_000.0, maxGapMs / 60_000.0);
+//            return true;
+//        }
         return false;
     }
 
@@ -263,16 +270,14 @@ public final class TradingTickLoop implements Notifiable {
             return;
         }
 
-        if (trading.hasOpenOperation()){
+        if (manager.hasOpenOperation()){
             updateStatusType(StatusType.TRADING);
             int longs = 0;
             int shorts = 0;
-            for (TradingManager.OpenOperation op : trading.getOpens()) {
-                if (op.isUpDireccion()) {
-                    longs++;
-                }else {
-                    shorts++;
-                }
+            if (manager.getOpen().isUpDireccion()) {
+                longs++;
+            }else {
+                shorts++;
             }
             if (longs == 1 && shorts == 0) {
                 updateStatus("Operando Long en %s", symbol);

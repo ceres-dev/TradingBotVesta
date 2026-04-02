@@ -1,4 +1,4 @@
-package xyz.cereshost.blocks;
+package xyz.cereshost.vesta.blocks;
 
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;

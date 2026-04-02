@@ -12,7 +12,7 @@ import xyz.cereshost.vesta.common.market.Trade;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategy.StrategyConfig;
 import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
-import xyz.cereshost.vesta.core.strategy.strategys.DefaultStrategy;
+import xyz.cereshost.vesta.core.strategy.strategis.DefaultStrategy;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
@@ -62,15 +62,6 @@ public class BackTestEngine {
 
         market.buildTradeCache();
 
-        int totalSamples = allCandles.size();
-        int lookBack = engine == null ? 250 : engine.getLookBack();
-
-        // Empezamos donde tenemos datos suficientes
-        int startIndex = lookBack + 1;
-
-        // Variables de estado
-        double initialBalance = balance;
-
         @NotNull
         final StrategyConfig config;
         if (strategy instanceof TradingStrategyConfigurable configurable) {
@@ -78,8 +69,19 @@ public class BackTestEngine {
         }else {
             config = StrategyConfig.builder().build();
         }
-        ProgressBar progressBar = new ProgressBar(totalSamples - 1);
 
+        int totalSamples = allCandles.size();
+        int lookBack = engine == null ? config.getLookBack() : engine.getLookBack();
+
+        // Empezamos donde tenemos datos suficientes
+        int startIndex = lookBack + 1;
+
+        // Variables de estado
+        double initialBalance = balance;
+
+
+        ProgressBar progressBar = new ProgressBar(totalSamples - 1);
+        progressBar.setEachPrint(200);
         // Loop principal
         for (int i = startIndex; i < totalSamples - 1; i++) {
             progressBar.setCurrentValue(i);
@@ -88,7 +90,7 @@ public class BackTestEngine {
             SequenceCandles window = allCandles.subSequence(i - lookBack, i + 1);
             PredictionEngine.SequenceCandlesPrediction prediction ;
             if (engine != null && config.getHowUseIA() != null && config.getHowUseIA().useModelIA()) {
-                prediction = engine.predictNextPriceDetail(window);
+                prediction = engine.predictNextPriceDetail(window, config.getFuturePredict());
 //                stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
             }else {
                 prediction = null;
@@ -115,7 +117,7 @@ public class BackTestEngine {
                     allCandles.get(i + 1),
                     operations
             );
-            operations.getOpens().forEach(TradingManager.OpenOperation::nextMinute);
+            operations.computeHasOpenOperation(TradingManager.OpenOperation::nextMinute);
             operations.computeCloses();
         }
         stats.getTradesComplete().addAll(extraStats);
@@ -135,7 +137,7 @@ public class BackTestEngine {
         // Fee se cobra al entrar (sobre entry) y al salir (sobre exit)
         double netPnL = getNetPnL(closeOperation, openOperation);
 
-        double pnlPercent = netPnL / openOperation.getAmountInitUSDT(); // sobre margen
+        double pnlPercent = netPnL / openOperation.getInitialMargenUSD(); // sobre margen
 
         balance += netPnL;
         if (balance < 0) balance = 0; // Quiebra
@@ -146,14 +148,9 @@ public class BackTestEngine {
         TradeResult resultObj = new TradeResult(netPnL, pnlPercent, closeOperation.getExitPrice(), closeOperation.getReason(), closeOperation.getEntryTime(), closeOperation.getExitTime());
         stats.addComplenteTrade(resultObj, balance);
         extraStats.add(new CompleteTrade(
+                openOperation.getRiskLimits(), closeOperation.getReason(), openOperation.getDireccion(),
                 openOperation.getEntryPrice(),
-                openOperation.getTpPrice(),
-                openOperation.getSlPrice(),
-                (float) openOperation.getTpPercent(),
-                (float) openOperation.getSlPercent(),
-                openOperation.getDireccion(),
                 closeOperation.getExitPrice(),
-                closeOperation.getReason(),
                 closeOperation.getEntryTime(),
                 closeOperation.getExitTime(),
                 netPnL,
@@ -164,7 +161,7 @@ public class BackTestEngine {
     }
 
     private double getNetPnL(TradingManager.@NotNull CloseOperation closeOperation, TradingManager.OpenOperation openOperation) {
-        double positionSize = openOperation.getAmountInitUSDT() * openOperation.getLeverage(); // notional
+        double positionSize = openOperation.getInitialMargenUSD() * openOperation.getLeverage(); // notional
         double qty = positionSize / openOperation.getEntryPrice();
 
         double entryFee = positionSize * market.getFeedMaker();
@@ -218,47 +215,45 @@ public class BackTestEngine {
             return;
         }
 
-        if (operations.getOpens().isEmpty()) {
-            currentPrice = candle.getClose();
-            currentTime = trades.getLast().time();
-        }else {
-            for (TradingManager.OpenOperation openOperation : operations.getOpens()) {
-                // Analiza cada operacion
-                for (Trade t : trades) {
-                    currentPrice = t.price();
-                    currentTime = t.time();
-                    double price = t.price();
-                    ((TradingManagerBackTest.BackTestOpenOperation) openOperation).setLastExitPrices(price);
-                    boolean computeLimit = false;
-                    switch (openOperation.getDireccion()) {
-                        case LONG -> {
-                            if (price >= openOperation.getTpPrice()) {
-                                operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.LONG_TAKE_PROFIT, openOperation));
-                                computeLimit = true;
-                                break;
+        if (operations.hasOpenOperation()) {
+            TradingManager.OpenOperation openOperation = operations.getOpen();
+            for (Trade t : trades) {
+                currentPrice = t.price();
+                currentTime = t.time();
+                double price = t.price();
+                ((TradingManagerBackTest.BackTestOpenOperation) openOperation).setLastExitPrices(price);
+                boolean computeLimit = false;
+                switch (openOperation.getDireccion()) {
+                    case LONG -> {
+                        if (price >= openOperation.getTpPrice()) {
+                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.LONG_TAKE_PROFIT, openOperation));
+                            computeLimit = true;
+                            break;
 
-                            }
-                            if (price <= openOperation.getSlPrice()) {
-                                operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.LONG_STOP_LOSS, openOperation));
-                                computeLimit = true;
-                            }
                         }
-                        case SHORT -> {
-                            if (price <= openOperation.getTpPrice()) {
-                                operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.SHORT_TAKE_PROFIT, openOperation));
-                                computeLimit = true;
-                                break;
-                            }
-                            if (price >= openOperation.getSlPrice()) {
-                                operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.SHORT_STOP_LOSS, openOperation));
-                                computeLimit = true;
-                            }
-
+                        if (price <= openOperation.getSlPrice()) {
+                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.LONG_STOP_LOSS, openOperation));
+                            computeLimit = true;
                         }
                     }
-                    if (computeLimit) break;
+                    case SHORT -> {
+                        if (price <= openOperation.getTpPrice()) {
+                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.SHORT_TAKE_PROFIT, openOperation));
+                            computeLimit = true;
+                            break;
+                        }
+                        if (price >= openOperation.getSlPrice()) {
+                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.SHORT_STOP_LOSS, openOperation));
+                            computeLimit = true;
+                        }
+
+                    }
                 }
+                if (computeLimit) break;
             }
+        } else {
+            currentPrice = candle.getClose();
+            currentTime = trades.getLast().time();
         }
     }
 
@@ -284,7 +279,7 @@ public class BackTestEngine {
 
         private List<TradeResult> trades = new ArrayList<>();
         private List<CompleteTrade> TradesComplete = new ArrayList<>();
-        private List<InCompleteTrade> allTrades = new ArrayList<>();
+        private List<IncompleteTrade> allTrades = new ArrayList<>();
 
         public BackTestStats(Market market) {
             this.market = market;
@@ -456,13 +451,10 @@ public class BackTestEngine {
 
     @EqualsAndHashCode(callSuper = true)
     @Data
-    public static final class CompleteTrade extends InCompleteTrade {
+    public static final class CompleteTrade extends IncompleteTrade {
 
-        private final float tpPercent;
-        private final float slPercent;
-        private final DireccionOperation direction;
-        private final double exitPrice;
         private final TradingManager.ExitReason exitReason;
+        private final double exitPrice;
         private final long exitTime;
         private final double pnl;
         private final float balance;
@@ -470,14 +462,11 @@ public class BackTestEngine {
         private final float pnlPercent;
 
         public CompleteTrade(
-                double entryPrice,
-                double tpPrice,
-                double slPrice,
-                float tpPercent,
-                float slPercent,
-                DireccionOperation direction,
-                double exitPrice,
+                TradingManager.RiskLimits riskLimits,
                 TradingManager.ExitReason exitReason,
+                DireccionOperation direction,
+                double entryPrice,
+                double exitPrice,
                 long entryTime,
                 long exitTime,
                 double pnl,
@@ -485,13 +474,10 @@ public class BackTestEngine {
                 float ratio,
                 float pnlPercent
         ) {
-            super(entryPrice, tpPrice, slPrice, entryTime);
-            this.tpPercent = tpPercent;
-            this.slPercent = slPercent;
-            this.direction = direction;
+            super(entryPrice, entryTime, riskLimits, direction);
             this.exitPrice = exitPrice;
-            this.exitReason = exitReason;
             this.exitTime = exitTime;
+            this.exitReason = exitReason;
             this.pnl = pnl;
             this.balance = balance;
             this.ratio = ratio;
@@ -500,11 +486,11 @@ public class BackTestEngine {
     }
 
     @Data
-    public static class InCompleteTrade {
+    public static class IncompleteTrade implements TradingManager.RiskLimiterContainer {
         private final double entryPrice;
-        private final double tpPrice;
-        private final double slPrice;
         private final long entryTime;
+        private final TradingManager.RiskLimits riskLimits;
+        private final DireccionOperation direccion;
     }
 
     // Mantener compatibilidad con tu código existente

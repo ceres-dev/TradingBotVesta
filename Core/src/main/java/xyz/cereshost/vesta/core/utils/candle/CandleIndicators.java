@@ -33,7 +33,7 @@ public final class CandleIndicators extends Candle {
     private final SequenceCandles sequenceCandles;
 
     public CandleIndicators(Candle candle, HashMap<String, Double> indicador, SequenceCandles sequenceCandles) {
-        super(candle.getTimeUnit(), candle.getOpenTime(), candle.getOpen(), candle.getHigh(), candle.getLow(), candle.getClose(), candle.getVolumen());
+        super(candle);
         this.indicador = indicador;
         this.sequenceCandles = sequenceCandles;
     }

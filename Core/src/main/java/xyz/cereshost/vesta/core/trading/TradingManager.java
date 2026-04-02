@@ -1,48 +1,60 @@
 package xyz.cereshost.vesta.core.trading;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Delegate;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 import static xyz.cereshost.vesta.core.trading.DireccionOperation.LONG;
-import static xyz.cereshost.vesta.core.trading.DireccionOperation.SHORT;
 
 public interface TradingManager extends Notifiable {
+
+    @Nullable OpenOperation open(RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
+
     /**
      * Abre una operacion en futuros perpetuos
+     *
      * @param tpPercent porcentaje para él limite Take Profit
      * @param slPercent porcentaje para él limite Stop Loss
      * @param direccion Si la operación es Short/Venta o una operación Larga/Compra
      * @param amountUSD Cantidad de USDT/USDC a operar
-     * @param leverage La cantidad de apaleamiento
+     * @param leverage  La cantidad de apaleamiento
      * @return la nueva instancia de la operación
      */
-    @Nullable OpenOperation open(double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
+    default @Nullable OpenOperation open(double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
+        return open(new RiskLimitsPercent(tpPercent, slPercent), direccion, amountUSD, leverage);
+    }
 
-    @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
+    @Nullable LimiteOperation limit(double entryPrice, RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
 
     /**
      * Cierras una Operación previamente Abierta
+     *
      * @param reason Razón de la salida
-     * @param openOperation La operacion que se va a cerrar
      */
-    @Nullable CloseOperation close(ExitReason reason, OpenOperation openOperation);
+    @Nullable CloseOperation close(ExitReason reason);
 
+    void cancelLimit(LimiteOperation limiteOperation);
 
-    int closeSize();
+    int limitsSize();
 
-    int openSize();
+    OpenOperation getOpen();
 
-    @NotNull List<OpenOperation> getOpens();
-
-    @NotNull List<CloseOperation> getCloses();
+    @NotNull List<LimiteOperation> getLimites();
 
     Market getMarket();
 
@@ -50,6 +62,7 @@ public interface TradingManager extends Notifiable {
 
     /**
      * Obtienes el preio actual del mercado
+     *
      * @return el precio absoluto actual
      */
 
@@ -57,15 +70,21 @@ public interface TradingManager extends Notifiable {
 
     /**
      * La hora actual (En el backtest se usa la hora del propio backtest)
+     *
      * @return La hora actual
      */
 
     long getCurrentTime();
 
-    default void log(String s){}
+    default void log(String s) {
+    }
 
     default boolean hasOpenOperation() {
-        return openSize() > 0;
+        return getOpen() != null;
+    }
+
+    default void computeHasOpenOperation(Consumer<OpenOperation> consumer) {
+        if (hasOpenOperation()) consumer.accept(getOpen());
     }
 
     @Data
@@ -81,11 +100,10 @@ public interface TradingManager extends Notifiable {
 
         public CloseOperation(double exitPrice, long exitTime, ExitReason reason, OpenOperation openOperation) {
             super(openOperation.getTradingManager(),
-                    openOperation.getEntryPrice(),
-                    openOperation.getTpPercent(),
-                    openOperation.getSlPercent(),
+                    openOperation.getRiskLimits(),
                     openOperation.getDireccion(),
-                    openOperation.getAmountInitUSDT(),
+                    openOperation.getEntryPrice(),
+                    openOperation.getInitialMargenUSD(),
                     openOperation.getLeverage()
             );
             this.exitPrice = exitPrice;
@@ -93,35 +111,27 @@ public interface TradingManager extends Notifiable {
             this.reason = reason;
             this.openOperation = openOperation;
         }
+
         /* Methods que implica una modificación a la operación */
         @Override
-        public void close(ExitReason reason){
+        public void close(ExitReason reason) {
             throw new OperationFilled(this);
         }
+
         @Override
-        public void close(){
+        public void close() {
             throw new OperationFilled(this);
         }
+
         @Override
-        public void setTpPercent(double tpPercent) {
-            throw new OperationFilled(this);
-        }
-        @Override
-        public void setSlPercent(double slPercent) {
-            throw new OperationFilled(this);
-        }
-        @Override
-        public void nextMinute(){
+        public void nextMinute() {
             throw new OperationFilled(this);
         }
     }
 
     @EqualsAndHashCode(callSuper = true)
     @Data
-    abstract class OpenOperation extends LimiteOperation {
-        private double tpPercent;
-        private double slPercent;
-
+    abstract class OpenOperation extends LimiteOperation implements RiskLimiterContainer {
         private final long entryTime;
         /**
          * Lista de banderas para identificar una operación
@@ -129,40 +139,28 @@ public interface TradingManager extends Notifiable {
         public final Set<String> flags = new HashSet<>();
 
         // Ojo el TP y SL en Porcentajes ABS sin apalancar
-        public OpenOperation(@NotNull TradingManager tradingManager, double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSDT, int leverage) {
-            super(entryPrice, direccion, tpPercent, slPercent, amountUSDT, leverage, tradingManager);
-            this.tpPercent = tpPercent;
-            this.slPercent = slPercent;
-
+        public OpenOperation(@NotNull TradingManager tradingManager, RiskLimits riskLimits, @NotNull DireccionOperation direccion, double entryPrice, double amountUSDT, int leverage) {
+            super(tradingManager, riskLimits, direccion, entryPrice, amountUSDT, leverage);
             this.entryTime = tradingManager.getCurrentTime();
         }
 
         public void close(ExitReason reason) {
-            tradingManager.close(reason, this);
+            tradingManager.close(reason);
         }
 
         public void close() {
-            tradingManager.close(ExitReason.STRATEGY, this);
+            tradingManager.close(ExitReason.STRATEGY);
         }
 
-        /**
-         * Obtienes el precio absoluto del limíte de Stop Loss
-         * @return Precio
-         */
-        public double getSlPrice() {
-            return entryPrice + (entryPrice * ((direccion.equals(SHORT) ? slPercent : -slPercent)*0.01));
-        }
-
-        /**
-         * Obtienes el precio absoluto del limíte de Take Profit
-         * @return Precio
-         */
-        public double getTpPrice() {
-            return entryPrice + (entryPrice * ((direccion.equals(SHORT) ? -tpPercent : tpPercent)*0.01));
+        @Override
+        @Contract(value = "_ -> fail")
+        public void setEntryPrice(double entryPrice) {
+            throw new OperationFilled("No se puede cambiar el precio de entrada en una posición ya abierta");
         }
 
         /**
          * Obtienes la diferencia porcentual desde el precio de apertura
+         *
          * @return diferencia porcentual -/+
          */
         public double getDiffPercent() {
@@ -172,10 +170,11 @@ public interface TradingManager extends Notifiable {
 
         /**
          * Obtienes el low de la operación sin comisión y sin apalancamiénto
+         *
          * @return El Roi crudo
          */
         public double getRoiRaw() {
-            if (isUpDireccion()){
+            if (isUpDireccion()) {
                 return getDiffPercent();
             } else {
                 return -getDiffPercent();
@@ -185,21 +184,23 @@ public interface TradingManager extends Notifiable {
         /**
          * Devuelve si la operacion en este instante de tiempo está en positivo
          * <strong>No tiene en cuenta la comisión y el apalancamiénto</strong>
+         *
          * @return true si es rentable, false en caso contrario
          */
-        public boolean isProfit(){
+        public boolean isProfit() {
             return getRoiRaw() > 0;
         }
 
-        public boolean isUpDireccion(){
+        public boolean isUpDireccion() {
             return direccion == LONG;
         }
 
         /**
          * Devuelve true si la operacion aún sigue abierta o solo está en modo lectura
+         *
          * @return true si está abierto y modificable false en caso contrario
          */
-        public boolean isOpen(){
+        public boolean isOpen() {
             return !(this instanceof CloseOperation);
         }
 
@@ -222,17 +223,33 @@ public interface TradingManager extends Notifiable {
     }
 
     @Data
-    abstract class LimiteOperation {
+    abstract class LimiteOperation implements RiskLimiterContainer {
+
         protected final UUID uuid = UUID.randomUUID();
-        protected final double entryPrice;
-        @NotNull
-        protected final DireccionOperation direccion;
-        protected final double originalTpPercent;
-        protected final double originalSlPercent;
-        protected final double amountInitUSDT;
+
+        protected final @NotNull TradingManager tradingManager;
+        protected final @NotNull RiskLimits originalRisklimits;
+        protected final @NotNull DireccionOperation direccion;
+        protected double entryPrice;
+        protected final double initialMargenUSD;
         protected final int leverage;
-        @NotNull
-        protected final TradingManager tradingManager;
+
+        public LimiteOperation(@NotNull TradingManager tradingManager,
+                               @NotNull RiskLimits originalRisklimits,
+                               @NotNull DireccionOperation direccion,
+                               double entryPrice, double amountUSDT, int leverage
+        ) {
+            this.tradingManager = tradingManager;
+            this.originalRisklimits = originalRisklimits;
+            this.direccion = direccion;
+            this.entryPrice = entryPrice;
+            this.initialMargenUSD = amountUSDT;
+            this.leverage = leverage;
+
+            this.riskLimits = originalRisklimits;
+        }
+
+        protected @NotNull RiskLimits riskLimits;
 
         @NotNull
         protected TimeInForce timeInForce = TimeInForce.GTC;
@@ -284,4 +301,173 @@ public interface TradingManager extends Notifiable {
         }
     }
 
+    @Data
+    @AllArgsConstructor
+    abstract class RiskLimits{
+        // Si es nulo no hay limite de Take Profit
+        @Nullable private Double takeProfit;
+        // Si es nulo no hay limite de Stop Loss
+        @Nullable private Double stopLoss;
+
+        private boolean isLimit = true;
+        private TimeInForce timeInForce = TimeInForce.GTC;
+
+        public RiskLimits(@Nullable Double takeProfit, @Nullable Double stopLoss) {
+            this.takeProfit = takeProfit;
+            this.stopLoss = stopLoss;
+        }
+
+        public RiskLimits setLimit(boolean isLimit) {
+            this.isLimit = isLimit;
+            return this;
+        }
+
+        public RiskLimits setTimeInForce(TimeInForce timeInForce) {
+            this.timeInForce = timeInForce;
+            return this;
+        }
+
+        private @Nullable BiFunction<Double, Boolean, Boolean> onUpdate = null;
+        private final boolean isAbsolute = this instanceof RiskLimitsAbsolute;
+
+        public void setStopLoss(Double stopLoss, double price) {
+            if (onUpdate != null) {
+                if (onUpdate.apply(isAbsolute ? stopLoss : (-(stopLoss/100)*price) + price, false)) this.stopLoss = stopLoss;
+            }else this.stopLoss = stopLoss;
+        }
+
+        public void setTakeProfit(Double takeProfit, double price) {
+            if (onUpdate != null) {
+                if (onUpdate.apply(isAbsolute ? takeProfit : ((takeProfit/100)*price) + price, true)) this.takeProfit = takeProfit;
+            }else this.takeProfit = takeProfit;
+        }
+
+        public void setTakeProfitPercent(double percent, double price) {
+            if (isAbsolute) {
+                setTakeProfit(price * (percent/100) + price, price);
+            }else setTakeProfit(percent, price);
+        }
+
+        public void addTakeProfitPercent(double percent, double price) {
+            if (isAbsolute) {
+                if (this.takeProfit == null){
+                    setTakeProfit(price * (percent/100) + price, price);
+                }else setTakeProfit(this.takeProfit + (price * (percent/100) + price), price);
+            }else {
+                if (this.takeProfit == null) {
+                    setTakeProfit(percent, price);
+                }else setTakeProfit(this.takeProfit + percent, price);
+            }
+        }
+
+        public void setStopLossPercent(double percent, double price) {
+            if (isAbsolute) {
+                setStopLoss(price * (percent/100) + price, price);
+            }else setStopLoss(percent, price);
+        }
+
+        public void addStopLossPercent(double percent, double price) {
+            if (isAbsolute) {
+                if (this.stopLoss == null){
+                    setStopLoss(price * (percent/100) + price, price);
+                }else setStopLoss(this.stopLoss + (price * (percent/100)) + price, price);
+            }else {
+                if (this.stopLoss == null) {
+                    setStopLoss(percent, price);
+                }else setStopLoss(this.stopLoss + percent, price);
+            }
+        }
+
+        public double getTpPercent(double price) {
+            Double takeProfit = getTakeProfit();
+            if (takeProfit == null) return Double.NaN;
+            if (!isAbsolute()) return takeProfit;
+            return ((takeProfit - price) / price) * 100D;
+        }
+
+        public double getSlPercent(double price) {
+            Double stopLoss = getStopLoss();
+            if (stopLoss == null) return Double.NaN;
+            if (!isAbsolute()) return stopLoss;
+            return ((stopLoss - price) / price) * 100D;
+        }
+
+        public double getTpPrice(double price){
+            Double takeProfit = getTakeProfit();
+            if (takeProfit == null) return Double.NaN;
+            if (isAbsolute()) {
+                return takeProfit;
+            }
+            return price + (price * (takeProfit) * 0.01D);
+        }
+
+        public double getSlPrice(double price){
+            Double stopLoss = getStopLoss();
+            if (stopLoss == null) return Double.NaN;
+            if (isAbsolute()) {
+                return stopLoss;
+            }
+            return price + (price * (-stopLoss) * 0.01D);
+        }
+    }
+
+    class RiskLimitsPercent extends RiskLimits {
+        public RiskLimitsPercent(@Nullable Double takeProfitPercent, @Nullable Double stopLossPercent) {
+            super(takeProfitPercent, stopLossPercent);
+        }
+    }
+
+    class RiskLimitsAbsolute extends RiskLimits {
+        public RiskLimitsAbsolute(@Nullable Double takeProfitAbsolute, @Nullable Double stopLossAbsolute) {
+            super(takeProfitAbsolute, stopLossAbsolute);
+        }
+
+        public RiskLimitsAbsolute(@Nullable Double takeProfitAbsolute, @Nullable Double stopLossAbsolute, Double price) {
+            super(takeProfitAbsolute == null ? null : takeProfitAbsolute + price, stopLossAbsolute == null ? null : price - stopLossAbsolute);
+            Vesta.error("TP: " + takeProfitAbsolute + "  SL: " + stopLossAbsolute);
+        }
+    }
+
+
+    interface RiskLimiterContainer {
+
+        @Contract(pure = true)
+        @NotNull RiskLimits getRiskLimits();
+
+        @NotNull DireccionOperation getDireccion();
+
+        double getEntryPrice();
+
+        default double getTpPercent() {
+            return getRiskLimits().getTpPercent(getEntryPrice());
+        }
+
+        default double getSlPercent() {
+            return getRiskLimits().getSlPercent(getEntryPrice());
+        }
+
+        default double getTpPrice(){
+            return getRiskLimits().getTpPrice(getEntryPrice());
+        }
+
+        default double getSlPrice(){
+            return getRiskLimits().getSlPrice(getEntryPrice());
+        }
+
+        default void setTpPercent(double tpPercent) {
+            getRiskLimits().setTakeProfitPercent(tpPercent, getEntryPrice());
+        }
+
+        default void setSlPercent(double slPercent) {
+            getRiskLimits().setStopLossPercent(slPercent, getEntryPrice());
+        }
+
+        default void addTpPercent(double tpPercent) {
+            getRiskLimits().addTakeProfitPercent(tpPercent, getEntryPrice());
+        }
+
+        default void addSlPercent(double slPercent) {
+            getRiskLimits().addStopLossPercent(slPercent, getEntryPrice());
+        }
+    }
 }

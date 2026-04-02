@@ -12,7 +12,7 @@ public class TestStrategy implements TradingStrategy {
     @Override
     public void executeStrategy(PredictionEngine.SequenceCandlesPrediction prediction, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager openOperations) {
         if (openOperations.hasOpenOperation()) {
-            openOperations.getOpens().getFirst().close();
+            openOperations.getOpen().close();
         }else {
             openOperations.open(0.4, 0.2, DireccionOperation.SHORT, openOperations.getAvailableBalance()/2, 1);
 

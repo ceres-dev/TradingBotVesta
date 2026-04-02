@@ -1,6 +1,7 @@
 package xyz.cereshost.vesta.core.trading;
 
 import lombok.Getter;
+import org.jetbrains.annotations.Contract;
 
 /**
  * Direcciones de operación
@@ -32,5 +33,36 @@ public enum DireccionOperation {
             case SHORT -> LONG;
             default -> NEUTRAL;
         };
+    }
+
+    public static DireccionOperation parse(String s) {
+        return switch (s.toUpperCase()) {
+            case "SELL" -> SHORT;
+            case "BUY" -> LONG;
+            default -> throw new IllegalArgumentException(s);
+        };
+    }
+
+    public static DireccionOperation parse(double d) {
+        if (d == 0){
+            return NEUTRAL;
+        }
+        if (d > 0){
+            return LONG;
+        }
+        if (d < 0){
+            return SHORT;
+        }
+        return NEUTRAL;
+    }
+
+    @Contract(pure = true)
+    public boolean isShort(){
+        return this == SHORT;
+    }
+
+    @Contract(pure = true)
+    public boolean isLong(){
+        return this == LONG;
     }
 }

@@ -4,5 +4,7 @@ public enum TimeInForce{
     GTC,
     IOC,
     FOK,
-    GTX
+    GTX,
+    GTD,
+    RPI
 }

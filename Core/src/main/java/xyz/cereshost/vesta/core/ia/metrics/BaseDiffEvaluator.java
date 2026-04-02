@@ -9,13 +9,13 @@ import org.jetbrains.annotations.NotNull;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-public abstract class AbstractDiffEvaluator extends Evaluator {
+public abstract class BaseDiffEvaluator extends Evaluator {
 
     private final int columnIndex;
     private final ConcurrentHashMap<String, NDArray> sumAccumulator = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicLong> countAccumulator = new ConcurrentHashMap<>();
 
-    protected AbstractDiffEvaluator(String name, int columnIndex) {
+    protected BaseDiffEvaluator(String name, int columnIndex) {
         super(name);
         this.columnIndex = columnIndex;
     }

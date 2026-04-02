@@ -7,6 +7,8 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
+
 @Getter
 @Setter
 @RequiredArgsConstructor
@@ -14,6 +16,8 @@ public class StrategyConfig {
 
     @Nullable
     private final HowUseIA howUseIA;
+    private final int futurePredict;
+    private final int lookBack;
 
 
     public static Builder builder() {
@@ -22,6 +26,8 @@ public class StrategyConfig {
 
     public static class Builder {
         private HowUseIA howUseIA;
+        private int futurePredict = 20;
+        private int lookBack = 250;
 
 
         private Builder() {}
@@ -31,9 +37,24 @@ public class StrategyConfig {
             this.howUseIA = howUseIA;
             return this;
         }
-        public StrategyConfig build() {
-            return new StrategyConfig(howUseIA);
+
+        @Contract(value = "_ -> this")
+        public Builder futurePredict(Integer futurePredict) {
+            this.futurePredict = futurePredict;
+            return this;
         }
+
+        @Contract(value = "_ -> this")
+        public Builder lookBack(int lookBack) {
+            this.lookBack = lookBack;
+            return this;
+        }
+
+        public StrategyConfig build() {
+            return new StrategyConfig(howUseIA, futurePredict, lookBack);
+        }
+
+
     }
 
     public interface HowUseIA{

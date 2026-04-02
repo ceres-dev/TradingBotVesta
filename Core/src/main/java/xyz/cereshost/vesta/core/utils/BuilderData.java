@@ -247,9 +247,9 @@ public class BuilderData {
 
         List<Float> fList = new ArrayList<>();
         fList.add(safeDiffPercent(curr.getClose(), prev.getClose()));
-        fList.add(safeDiffPercent(curr.getHigh(), prev.getHigh()));
-        fList.add(safeDiffPercent(curr.getLow(), prev.getLow()));
-        fList.add(safeDiffPercent(curr.getVolumen().baseVolume(), prev.getVolumen().baseVolume()));
+        fList.add(safeDiffPercent(curr.getHigh(), prev.getHighBody()));
+        fList.add(safeDiffPercent(curr.getLow(), prev.getLowBody()));
+        fList.add((float) Math.log(curr.getVolumen().quoteVolume()));
         fList.add(safeDiffPercent(curr.get("output5"), prev.get("output5")));
 
         float[] f = new float[fList.size()];
@@ -261,7 +261,7 @@ public class BuilderData {
     }
 
     public CandlesBuilder getProfierCandlesBuilder(){
-        return new CandlesBuilder().addEMAIndicator("output5", 12, 1);
+        return new CandlesBuilder().addATRIndicator("output5", 12);
     }
 
     public static double checkDouble(double d) throws IllegalArgumentException{

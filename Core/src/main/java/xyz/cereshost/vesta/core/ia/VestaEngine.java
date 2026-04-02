@@ -1,6 +1,7 @@
 package xyz.cereshost.vesta.core.ia;
 
 import ai.djl.Device;
+import ai.djl.Model;
 import ai.djl.engine.Engine;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDArrays;
@@ -33,7 +34,6 @@ import xyz.cereshost.vesta.core.ia.blocks.TemporalTransformerBlock;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.ia.metrics.MAEEvaluator;
-import xyz.cereshost.vesta.core.ia.metrics.MaxDiffEvaluator;
 import xyz.cereshost.vesta.core.ia.metrics.MetricsListener;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
@@ -47,10 +47,11 @@ import java.util.concurrent.*;
 public class VestaEngine {
 
     public static final int LOOK_BACK = 60*4;
+    public static final int SHORT_LOOK_BACK = 30;
     public static final int AUXILIAR_EPOCH = 1;
-    public static final int BACH_SIZE = 4;
+    public static final int BACH_SIZE = 8;
     public static final int SPLIT_DATA = 32;
-    public static final int EPOCH = SPLIT_DATA * 3;
+    public static final int EPOCH = SPLIT_DATA * 15;
 
     @Getter @Setter
     private static NDManager rootManager;
@@ -83,8 +84,7 @@ public class VestaEngine {
         Vesta.info("Usando dispositivo: " + device);
         Vesta.info("Entrenando con " + symbols.size() + " símbolos: " + symbols);
 
-//        try (PtModel model = (PtModel) Model.newInstance(Main.NAME_MODEL, device, "PyTorch")) {
-        try (PtModel model = (PtModel) IOdata.loadModel()) {
+        try (PtModel model = (PtModel) Model.newInstance(Main.NAME_MODEL, device, "PyTorch")) {
             PtNDManager manager = (PtNDManager) model.getNDManager();
 
             final TrainingData data;
@@ -123,19 +123,16 @@ public class VestaEngine {
             TrainingConfig config = new DefaultTrainingConfig(new VestaLoss())
                     .optOptimizer(Optimizer.adamW()
                             .optLearningRateTracker(Tracker.cosine()
-                                    .setBaseValue(.000_2f)
-                                    .optFinalValue(.000_001f)
-                                    .setMaxUpdates((int) (maxUpdates*.5f))
+                                    .setBaseValue(.000_1f)
+                                    .optFinalValue(.000_0025f)
+                                    .setMaxUpdates((int) (maxUpdates*.75f))
                                     .build())
                             .optWeightDecays(0)
                             .build())
                     .optDevices(Engine.getInstance().getDevices())
                     .addEvaluator(new MAEEvaluator())
-                    .addEvaluator(new MaxDiffEvaluator())
-//                    .addEvaluator(new MinDiffEvaluator())
                     .optInitializer(Initializer.ZEROS, Parameter.Type.BETA)
                     .optExecutorService(EXECUTOR_TRAINING)
-//                    .addTrainingListeners(TrainingListener.Defaults.logging())
                     .addTrainingListeners(
                             new EpochTrainingListener(),
                             new EvaluatorTrainingListener(),
@@ -161,7 +158,7 @@ public class VestaEngine {
             ChunkDataset sampleTraining = computeDataset(data.nextTrainingData(), batchSize, managerTraining);
             ChunkDataset sampleVal = computeDataset(data.nextValidationData(), 64, managerTraining);
 
-            ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
+//            ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 //            executorService.scheduleAtFixedRate(() -> {
 //                try {
 //                    IOdata.saveModel(model);
@@ -247,7 +244,8 @@ public class VestaEngine {
         SequentialBlock mainBlock = new SequentialBlock();
 
         TTLHeader(mainBlock);
-        // Salidas en orden: [upMove, downMove, 0, 0, 0]
+        mainBlock.add(Linear.builder().setUnits(2048).build());
+
         ParallelBlock branches = new ParallelBlock(list -> {
             NDArray out0 = list.get(0).singletonOrThrow();
             NDArray out1 = list.get(1).singletonOrThrow();
@@ -263,7 +261,7 @@ public class VestaEngine {
         branches.add(getMagnitud());   // output 1: high
         branches.add(getMagnitud());   // output 2: low
         branches.add(getMagnitud());   // output 3: volumen
-        branches.add(getMagnitud());   // output 4: MAE
+        branches.add(getMagnitud());   // output 4: Otro (Indicador)
 
         mainBlock.add(branches);
         return mainBlock;
@@ -292,8 +290,6 @@ public class VestaEngine {
         return new SequentialBlock()
                 .add(Linear.builder().setUnits(128).build())
                 .add(Linear.builder().setUnits(128).build())
-                .add(Linear.builder().setUnits(128).build())
-                .add(Linear.builder().setUnits(64).build())
                 .add(Linear.builder().setUnits(64).build())
                 .add(Linear.builder().setUnits(64).build())
                 .add(Linear.builder().setUnits(32).build())
@@ -309,35 +305,65 @@ public class VestaEngine {
     }
 
     private static void TTLHeader(SequentialBlock mainBlock) {
-        mainBlock.add(TemporalTransformerBlock.builder()
-                        .setModelDim(8*64)
-                        .setNumHeads(8)
-                        .setFeedForwardDim(2048)
-                        .setDropoutRate(.05f)
-                        .setAttentionProbsDropoutProb(.005f)
-                        .setMaxSequenceLength(LOOK_BACK)
+        int shortLookback = Math.min(SHORT_LOOK_BACK, LOOK_BACK);
+
+        ParallelBlock dualLookback = new ParallelBlock(list -> {
+            NDArray longFeatures = list.get(0).singletonOrThrow();   // [B, 2H]
+            NDArray shortFeatures = list.get(1).singletonOrThrow();  // [B, 2H]
+            NDArray merged = NDArrays.concat(new NDList(longFeatures, shortFeatures), 1); // [B, 4H]
+            return new NDList(merged);
+        });
+
+        dualLookback.add(buildTemporalSummaryBlock(
+                LOOK_BACK,
+                false,
+                false
+        ));
+        dualLookback.add(buildTemporalSummaryBlock(
+                shortLookback,
+                true,
+                true
+        ));
+
+        mainBlock.add(dualLookback);
+    }
+
+    private static SequentialBlock buildTemporalSummaryBlock(int maxSequenceLength, boolean useRecentWindow, boolean b) {
+        SequentialBlock block = new SequentialBlock();
+        if (useRecentWindow) {
+            block.add(new LambdaBlock(ndArrays -> {
+                NDArray seq = ndArrays.singletonOrThrow(); // [B, T, F]
+                long totalSteps = seq.getShape().get(1);
+                long start = Math.max(0, totalSteps - maxSequenceLength);
+                NDArray recent = seq.get(":, " + start + ":, :");
+                return new NDList(recent);
+            }));
+        }
+        block.add(TemporalTransformerBlock.builder()
+                        .setModelDim(b ? 4*32 : 8*64)
+                        .setNumHeads(b ? 4 : 8)
+                        .setFeedForwardDim(1024)
+                        .setDropoutRate(0)
+                        .setAttentionProbsDropoutProb(.01f)
+                        .setMaxSequenceLength(maxSequenceLength)
                         .build())
                 .add(new LambdaBlock(ndArrays -> {
                     NDArray seq = ndArrays.singletonOrThrow();  // [B, T, H]
-                    NDArray last = seq.get(":, -1, :");              // [B, H]
-                    NDArray mean = seq.mean(new int[]{1});            // [B, H]
+                    NDArray last = seq.get(":, -1, :");         // [B, H]
+                    NDArray mean = seq.mean(new int[]{1});      // [B, H]
 
                     NDArray combined = NDArrays.concat(
                             new NDList(last, mean),
                             1 // concat en features
                     ); // [B, 2H]
                     return new NDList(combined);
-                }))
-                .add(Linear.builder().setUnits(512).build());
+                }));
+        return block;
     }
-    
+
     private static ChunkDataset computeDataset(Pair<float[][][], float[][]> pairNormalize, int batchSize, NDManager manager) {
         NDArray X_train = EngineUtils.concat3DArrayToNDArray(pairNormalize.getKey(), manager, 1024);
         NDArray y_train = manager.create(pairNormalize.getValue());
-//        float[][][] x = pairNormalize.getKey();
-//        float[][] y = pairNormalize.getValue();
-//        float[][][] xNew = new float[2][x[0].length][x[0][0].length];
-//        float[][] yNew = new float[2][y[0].length];
         Arrays.fill(pairNormalize.getValue(), null);
         Arrays.fill(pairNormalize.getKey(), null);
         int i = Math.min(countEpoch/100, 4);

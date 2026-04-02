@@ -21,10 +21,18 @@ public abstract class BaseCandle{
         return close > open;
     }
 
-    public double highBody(){
+    public double getHighBody(){
         return Math.max(open, close);
     }
-    public double lowBody(){
+    public double getLowBody(){
         return Math.min(open, close);
+    }
+
+    public double getMidBody(){
+        return (open + close)/2;
+    }
+
+    public double getMid(){
+        return (open + close + low + high)/4;
     }
 }

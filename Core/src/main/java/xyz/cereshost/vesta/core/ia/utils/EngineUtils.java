@@ -28,65 +28,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static xyz.cereshost.vesta.core.ia.PredictionEngine.THRESHOLD_RELATIVE;
-
 @UtilityClass
 public class EngineUtils {
-
-    public static final float MIN_DIRECTION_RATIO = 2.0f;
-    public static final float THRESHOLD_RATIO = 0.5f;
-
-    public record DirectionFilterResult(
-            int direction,
-            float maxMove,
-            float minMove,
-            float ratio,
-            float confidence
-    ) {
-        public DireccionOperation toOperation() {
-            return directionToOperation(direction);
-        }
-    }
-
-    public static @NotNull DirectionFilterResult filterDirectionByExtremes(float maxValue, float minValue) {
-        float absMax = Math.abs(maxValue);
-        float absMin = Math.abs(minValue);
-
-        if (!Float.isFinite(absMax) || !Float.isFinite(absMin)) {
-            return new DirectionFilterResult(0, absMax, absMin, 0f, 0f);
-        }
-
-        float diff = Math.abs(absMax - absMin);
-        if (diff < (float) PredictionEngine.THRESHOLD_PRICE) {
-            return new DirectionFilterResult(0, absMax, absMin, 0f, 0f);
-        }
-
-        int direction = absMax > absMin ? 1 : -1;
-        float ratio = direction == 1
-                ? (absMin == 0f ? Float.POSITIVE_INFINITY : absMax / absMin)
-                : (absMax == 0f ? Float.POSITIVE_INFINITY : absMin / absMax);
-
-        if (ratio < MIN_DIRECTION_RATIO) {
-            return new DirectionFilterResult(0, absMax, absMin, ratio, 0f);
-        }
-
-        float confidence = (absMax + absMin == 0f) ? 0f : diff / (absMax + absMin);
-        return new DirectionFilterResult(direction, absMax, absMin, ratio, confidence);
-    }
-
-    public static int directionFromRatio(float ratio) {
-        return PredictionUtils.directionFromRatioThreshold(ratio, THRESHOLD_RATIO);
-    }
-
-    public static @NotNull DireccionOperation directionToOperation(int direction) {
-        if (direction > 0) {
-            return DireccionOperation.LONG;
-        }
-        if (direction < 0) {
-            return DireccionOperation.SHORT;
-        }
-        return DireccionOperation.NEUTRAL;
-    }
 
 //    public static void checkEngines() {
 //        Vesta.info("=== Verificando Engines DJL ===");
@@ -109,44 +52,6 @@ public class EngineUtils {
 //            }
 //        }
 //    }
-
-    public static List<Dataset> splitIntoDatasets(
-            NDArray X,
-            NDArray y,
-            int splits,
-            int batchSize,
-            Device device
-    ) throws IOException, TranslateException {
-
-        long samples = X.getShape().get(0);
-        long splitSize = samples / splits;
-
-        List<Dataset> datasets = new ArrayList<>();
-
-        for (int i = 0; i < splits; i++) {
-            long start = i * splitSize;
-            long end = (i == splits - 1) ? samples : start + splitSize;
-
-            NDArray Xpart = X.get(
-                    new NDIndex(start + ":" + end + ",:,:")
-            );
-            NDArray ypart = y.get(
-                    new NDIndex(start + ":" + end)
-            );
-
-            Dataset ds = new ArrayDataset.Builder()
-                    .setData(Xpart)
-                    .optLabels(ypart)
-                    .setSampling(batchSize, true)
-                    .optDevice(device)
-                    .build();
-
-            ds.prepare();
-            datasets.add(ds);
-        }
-
-        return datasets;
-    }
 
     /**
      * Aplanar array 3D a 1D

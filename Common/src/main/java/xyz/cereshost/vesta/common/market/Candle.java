@@ -4,6 +4,7 @@ import lombok.AccessLevel;
 import lombok.Data;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -14,6 +15,7 @@ public class Candle extends BaseCandle implements CandleTemporality {
     @Getter(AccessLevel.NONE)
     @NotNull private final TimeUnitMarket timeUnitMarket;
     @NotNull private final Volumen volumen;
+    @Nullable private Candle.DepthCandle depth;
 
     public Candle(@NotNull TimeUnitMarket timeUnitMarket,
                   long openTime,
@@ -28,6 +30,20 @@ public class Candle extends BaseCandle implements CandleTemporality {
         this.openTime = openTime;
         this.timeUnitMarket = timeUnitMarket;
     }
+
+    public Candle(@NotNull Candle candle){
+        this(candle.getTimeUnit(),
+                candle.getOpenTime(),
+                candle.getOpen(),
+                candle.getHigh(),
+                candle.getLow(),
+                candle.getClose(),
+                candle.getVolumen()
+        );
+        setDepth(candle.getDepth());
+    }
+
+    public record DepthCandle(double bidPrice, double askPrice, double bidLiq, double askLiq, double mid, double spread) {}
 
     @Override
     public int hashCode() {

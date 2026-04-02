@@ -80,7 +80,7 @@ public class KlinesSerializable implements ParseSerializable<Candle> {
         double takerBuyQuoteVolume = Double.parseDouble(p[10]);
 
         long openTime = Long.parseLong(p[0]);
-        long closeTime = Long.parseLong(p[5]);
+        long closeTime = Long.parseLong(p[6]);
         return new Candle(
                 TimeUnitMarket.parse(openTime, closeTime),
                 openTime, // Open time

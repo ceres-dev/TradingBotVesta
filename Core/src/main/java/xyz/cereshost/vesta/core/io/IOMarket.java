@@ -96,7 +96,7 @@ public class IOMarket {
     ){
         Vesta.info("📡 Solicitud de dato a binance del mercado: " + s);
         String rawCandles = Utils.getRequest("https://fapi.binance.com/fapi/v1/klines" + "?symbol=" + s + "&interval=1m&limit=" + limitCandle);
-        ObjectMapper mapperCandles = new ObjectMapper();
+        ObjectMapper mapperCandles = new ObjectMapper(); // https://testnet.binancefuture.com
         JsonNode root1;
         try {
             root1 = mapperCandles.readTree(rawCandles);

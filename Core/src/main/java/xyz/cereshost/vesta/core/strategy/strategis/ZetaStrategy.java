@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.strategy.strategys;
+package xyz.cereshost.vesta.core.strategy.strategis;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -83,7 +83,7 @@ public class ZetaStrategy implements TradingStrategy {
 
         if (operations.hasOpenOperation()) {
             operations.log("Ya hay una operacion abierta");
-            TradingManager.OpenOperation openOperation = operations.getOpens().getFirst();
+            TradingManager.OpenOperation openOperation = operations.getOpen();
             if (openOperation.getFlags().contains("Beta")) {
                 openOperation.close();
             }else {
@@ -143,7 +143,7 @@ public class ZetaStrategy implements TradingStrategy {
     }
 
     @Override
-    public CandlesBuilder getBuilder(){
+    public @NotNull CandlesBuilder getBuilder(){
         return new CandlesBuilder().addATRIndicator("atr", 14).addRSIIndicator("rsi", 8);
     }
 

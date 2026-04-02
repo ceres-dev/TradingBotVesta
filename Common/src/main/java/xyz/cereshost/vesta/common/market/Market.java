@@ -12,13 +12,13 @@ public class Market {
 
     public Market(@NotNull String symbol) {
         this.symbol = symbol;
-        this.trades = new LinkedHashSet<>(100_000);
+        this.trades = new LinkedHashSet<>(10_000);
         this.depths = new LinkedHashSet<>();
         this.candles = new LinkedHashSet<>(1_000);
     }
 
     @Getter
-    private final TimeUnitMarket TimeUnitMarket = ONE_MINUTE;
+    private final TimeUnitMarket timeUnitMarket = ONE_MINUTE;
     @NotNull
     @Getter
     private final String symbol;
@@ -114,8 +114,38 @@ public class Market {
         return sorted;
     }
 
-    @Getter
-    private transient NavigableMap<Long, List<Trade>> tradesByMinuteCache;
+    @Getter private transient NavigableMap<Long, List<Trade>> tradesByMinuteCache;
+    @Getter private transient NavigableMap<Long, Depth> depthByMinuteCache;
+
+    public void buildTradeCache() {
+        if ((tradesByMinuteCache == null || tradesByMinuteCache.isEmpty()) && !trades.isEmpty()) {
+            final LinkedHashMap<Long, List<Trade>> map = new LinkedHashMap<>();
+            Iterator<Trade> it = trades.iterator();
+            while (it.hasNext()) {
+                Trade t = it.next();
+
+                long minute = (t.time() / timeUnitMarket.getMilliseconds()) * timeUnitMarket.getMilliseconds();
+                map.computeIfAbsent(minute, k -> new ArrayList<>(20)).add(t);
+                it.remove();
+            }
+            tradesByMinuteCache = new TreeMap<>();
+            tradesByMinuteCache.putAll(map);
+        }
+    }
+
+    public void buildDepthCache() {
+        if ((depthByMinuteCache == null || depthByMinuteCache.isEmpty()) && !depths.isEmpty()){
+            NavigableMap<Long, Depth> depthByMinute = new TreeMap<>();
+            for (Depth d : getDepths()) {
+                // Depth llega con sello posterior al cierre de la vela; lo alineamos al minuto previo.
+                long shifted = d.getDate() - timeUnitMarket.getMilliseconds();
+                long minute = (Math.max(0L, shifted) / timeUnitMarket.getMilliseconds()) * timeUnitMarket.getMilliseconds();
+                depthByMinute.put(minute, d);
+            }
+            depthByMinuteCache = new TreeMap<>();
+            depthByMinuteCache.putAll(depthByMinute);
+        }
+    }
 
     public List<Trade> getTradesInWindow(long startTime, long endTime) {
         if (tradesByMinuteCache == null) {
@@ -128,23 +158,6 @@ public class Market {
                 .flatMap(List::stream)
                 .sorted(Comparator.comparingLong(Trade::time)) // Asegurar orden cronológico
                 .toList();
-    }
-
-    public void buildTradeCache() {
-        if ((tradesByMinuteCache == null || tradesByMinuteCache.isEmpty()) && !trades.isEmpty()) {
-            final LinkedHashMap<Long, List<Trade>> map = new LinkedHashMap<>();
-            Iterator<Trade> it = trades.iterator();
-            while (it.hasNext()) {
-                Trade t = it.next();
-
-                long minute = (t.time() / 60_000) * 60_000;
-                map.computeIfAbsent(minute, k -> new ArrayList<>(20)).add(t);
-                it.remove();
-            }
-            tradesByMinuteCache = new TreeMap<>();
-            tradesByMinuteCache.putAll(map);
-        }
-
     }
 
     public List<Candle> candleList = null;
@@ -204,7 +217,7 @@ public class Market {
         trades.clear();
         depths.clear();
         candles.clear();
-        tradesByMinuteCache.clear();
+        if (tradesByMinuteCache != null) tradesByMinuteCache.clear();
     }
 
     public double getFeedTaker(){

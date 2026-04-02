@@ -38,7 +38,7 @@ public class MetricsListener extends TrainingListenerAdapter {
         float maeTrain = result.getTrainEvaluation("ema");
         float maeValidation = result.getValidateEvaluation("ema");
 //        float minValidation = result.getValidateEvaluation("min_diff");
-        float closeValidation = result.getValidateEvaluation("max_diff");
+//        float closeValidation = result.getValidateEvaluation("max_diff");
         // Calucar porgreso
         int totalEpoch = (VestaEngine.EPOCH * (Main.MAX_MONTH_TRAINING-2) * VestaEngine.AUXILIAR_EPOCH);
         double progress = (double) trainer.getTrainingResult().getEpoch() / totalEpoch;

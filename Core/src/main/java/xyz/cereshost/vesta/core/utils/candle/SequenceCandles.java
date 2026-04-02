@@ -7,9 +7,13 @@ import lombok.Getter;
 import lombok.experimental.Delegate;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.utils.ConcurrentHashBiDictionary;
+import xyz.cereshost.vesta.core.utils.BiDictionary;
 
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 
 /**
  * Una lista de {@link CandleContainer} con indicadores técnicos ya computados.
@@ -29,38 +33,43 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class SequenceCandles implements List<SequenceCandles.CandleContainer> {
 
-    private final ConcurrentHashMap<Byte, String> dictionaryByte;
-    private final ConcurrentHashMap<String, Byte> dictionaryString;
+    private final BiDictionary<String, Byte> dictionary;
+
     @Delegate
     private final List<CandleContainer> candlesContainer;
 
-    public SequenceCandles(ConcurrentHashMap<String, Byte> dictionaryString, List<CandleContainer> candlesContainer) {
-        this.dictionaryString = dictionaryString;
-        ConcurrentHashMap<Byte, String> dictionaryByte = new ConcurrentHashMap<>();
-        for (Map.Entry<String, Byte> entry : dictionaryString.entrySet()) dictionaryByte.put(entry.getValue(), entry.getKey());
-        this.dictionaryByte = dictionaryByte;
+    public SequenceCandles(BiDictionary<String, Byte> dictionary, List<CandleContainer> candlesContainer) {
+        this.dictionary = dictionary;
         this.candlesContainer = candlesContainer;
+    }
+
+    public CandleContainer getLast(int i) {
+        return candlesContainer.get(candlesContainer.size() - (1 + i));
     }
 
     public CandleIndicators getCandleLast() {
         return getCandle(candlesContainer.size() - 1);
     }
 
+    public CandleIndicators getCandleLast(int i){
+        return getCandle(candlesContainer.size() - (1 + i));
+    }
+
     public CandleIndicators getCandle(int index) {
         CandleContainer candleContainer = candlesContainer.get(index);
         HashMap<String, Double> map = new HashMap<>();
         for (byte key = 0; key < candleContainer.indicador().length; key++) {
-            map.put(dictionaryByte.get(key), candleContainer.indicador()[key]);
+            map.put(dictionary.getLeft(key), candleContainer.indicador()[key]);
         }
         return new CandleIndicators(candleContainer, map, this);
     }
 
     public SequenceCandles copy(){
-        return new SequenceCandles(dictionaryString, candlesContainer);
+        return new SequenceCandles(dictionary, candlesContainer);
     }
 
     public SequenceCandles subSequence(int fromIndex, int toIndex) {
-        return new SequenceCandles(dictionaryString, candlesContainer.subList(fromIndex, toIndex));
+        return new SequenceCandles(dictionary, candlesContainer.subList(fromIndex, toIndex));
     }
 
     public List<Candle> toCandlesSimple() {
@@ -70,14 +79,14 @@ public class SequenceCandles implements List<SequenceCandles.CandleContainer> {
     @Override
     public boolean addAll(@NotNull Collection<? extends CandleContainer> c) {
         if (c instanceof SequenceCandles sequenceCandles) {
-            this.dictionaryByte.putAll(sequenceCandles.dictionaryByte);
-            this.dictionaryString.putAll(sequenceCandles.dictionaryString);
+            this.dictionary.addAll(sequenceCandles.dictionary);
+            this.dictionary.addAll(sequenceCandles.dictionary);
         }
         return candlesContainer.addAll(c);
     }
 
     public static SequenceCandles empty(){
-        return new SequenceCandles(new ConcurrentHashMap<>(), new ArrayList<>(5_000));
+        return new SequenceCandles(new ConcurrentHashBiDictionary<>(), new ArrayList<>(5_000));
     }
 
     /**
@@ -98,7 +107,7 @@ public class SequenceCandles implements List<SequenceCandles.CandleContainer> {
         private final double[] indicador;
 
         public CandleContainer(Candle candle, double[] indicador) {
-            super(candle.getTimeUnit(), candle.getOpenTime(), candle.getOpen(), candle.getHigh(), candle.getLow(), candle.getClose(), candle.getVolumen());
+            super(candle);
             this.indicador = indicador;
         }
 

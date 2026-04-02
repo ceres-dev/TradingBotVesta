@@ -16,7 +16,7 @@ public interface TradingStrategy {
 
    void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations);
 
-   default CandlesBuilder getBuilder(){
+   default @NotNull CandlesBuilder getBuilder(){
       return new CandlesBuilder();
    };
 }

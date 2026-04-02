@@ -10,13 +10,11 @@ import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.UUID;
 
 public class TradingManagerBackTest implements TradingManager {
 
-    private final HashMap<UUID, BackTestOpenOperation> openOperations = new HashMap<>();
+    private @Nullable BackTestOpenOperation openOperation = null;
     private final ArrayList<BackTestCloseOperation> closeOperations = new ArrayList<>();
 
     @Getter
@@ -27,38 +25,44 @@ public class TradingManagerBackTest implements TradingManager {
         this.backTestEngine = backTestEngine;
     }
 
+
     @Override
-    public int openSize(){
-        return openOperations.size();
+    public int limitsSize() {
+        throw new UnsupportedOperationException("Not supported yet.");
     }
 
     @Override
-    public int closeSize(){
-        return closeOperations.size();
+    public @Nullable OpenOperation getOpen() {
+        return openOperation;
     }
 
     @Override
-    public @Nullable OpenOperation open(double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
+    public @Nullable OpenOperation open(RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
         // Lo minimo para invertir en Binance
         if (amountUSD *leverage < 5)return null;
         double currentPrice = backTestEngine.getCurrentPrice();
         // Simular el bin y el ask al comprar en mercado
 //        double realPrice = direccion == DireccionOperation.LONG ? currentPrice + 0.0001 : currentPrice - 0.0001;
-        BackTestOpenOperation o = new BackTestOpenOperation(this, currentPrice, tpPercent, slPercent, direccion, amountUSD, leverage);
+        BackTestOpenOperation o = new BackTestOpenOperation(this, riskLimits, currentPrice, direccion, amountUSD, leverage);
         lastOpenOperation.add(o);
-        openOperations.put(o.getUuid() , o);
+        openOperation = o;
         return o;
     }
 
     @Override
-    public @Nullable CloseOperation close(ExitReason reason, OpenOperation openOperation) {
+    public @Nullable CloseOperation close(ExitReason reason) {
         BackTestCloseOperation closeOperation = new BackTestCloseOperation(backTestEngine.getCurrentPrice(), backTestEngine.getCurrentTime(), reason, openOperation);
         closeOperations.add(closeOperation);
         return closeOperation;
     }
 
     @Override
-    public @Nullable LimiteOperation limit(double entryPrice, double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
+    public @Nullable LimiteOperation limit(double entryPrice, RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
+        throw new UnsupportedOperationException("Not supported yet.");
+    }
+
+    @Override
+    public void cancelLimit(LimiteOperation limiteOperation) {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
@@ -67,13 +71,8 @@ public class TradingManagerBackTest implements TradingManager {
     }
 
     @Override
-    public @NotNull List<OpenOperation> getOpens() {
-        return new ArrayList<>(openOperations.values());
-    }
-
-    @Override
-    public @NotNull List<CloseOperation> getCloses() {
-        return new ArrayList<>(closeOperations);
+    public @NotNull List<LimiteOperation> getLimites() {
+        throw new UnsupportedOperationException("Not supported yet.");
     }
 
     @Override
@@ -84,10 +83,12 @@ public class TradingManagerBackTest implements TradingManager {
     @Override
     public double getAvailableBalance() {
         double balanceAvailable = backTestEngine.getBalance();
-        for (TradingManager.OpenOperation openOperation : getOpens()){
-            balanceAvailable -= openOperation.getAmountInitUSDT();
+        if (openOperation != null) {
+            balanceAvailable -= openOperation.getInitialMargenUSD();
+            return balanceAvailable;
+        }else {
+            return balanceAvailable;
         }
-        return balanceAvailable;
     }
 
     @Override
@@ -103,10 +104,10 @@ public class TradingManagerBackTest implements TradingManager {
     public void computeCloses() {
         lastOpenOperation.clear();
         for (CloseOperation closeOperation : closeOperations) {
-            BackTestOpenOperation open = openOperations.get(closeOperation.getUuid());
+            BackTestOpenOperation open = openOperation;
             if (open != null) {
                 backTestEngine.computeClose(closeOperation, open);
-                openOperations.remove(closeOperation.getUuid());
+                openOperation = null;
             }
             backTestEngine.getStrategy().closeOperation(closeOperation, this);
         }
@@ -127,8 +128,8 @@ public class TradingManagerBackTest implements TradingManager {
 
         @Getter @Setter
         private double lastExitPrices;
-        public BackTestOpenOperation(TradingManager tradingManager, double currentPrice, double tpPercent, double slPercent, DireccionOperation direccion, double amountUSDT, int leverage) {
-            super(tradingManager, currentPrice, tpPercent, slPercent, direccion, amountUSDT, leverage);
+        public BackTestOpenOperation(TradingManager tradingManager, RiskLimits riskLimits, double entryPrice, DireccionOperation direccion, double amountUSDT, int leverage) {
+            super(tradingManager, riskLimits, direccion, entryPrice, amountUSDT, leverage);
         }
     }
 

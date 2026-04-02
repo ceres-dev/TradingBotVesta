@@ -436,7 +436,7 @@ public class ChartUtils {
     public static void animateCandlePredictions(
             String title,
             List<Candle> candles,
-            List<BackTestEngine.InCompleteTrade> trades,
+            List<BackTestEngine.IncompleteTrade> trades,
             int windowSize,
             int delayMs
     ) {
@@ -446,7 +446,7 @@ public class ChartUtils {
     public static void animateCandlePredictions(
             String title,
             List<Candle> candles,
-            List<BackTestEngine.InCompleteTrade> trades,
+            List<BackTestEngine.IncompleteTrade> trades,
             int windowSize,
             int delayMs,
             double zoomOutFactor,
@@ -461,7 +461,7 @@ public class ChartUtils {
         }
 
         List<PredictionPoint> preds = new ArrayList<>();
-        for (BackTestEngine.InCompleteTrade trade : trades) {
+        for (BackTestEngine.IncompleteTrade trade : trades) {
             preds.add(new PredictionPoint(trade.getEntryTime(), trade.getTpPrice(), trade.getSlPrice()));
         }
 
@@ -674,8 +674,8 @@ public class ChartUtils {
             for (int i = 0; i < ExtraData.size(); i++) {
                 BackTestEngine.CompleteTrade stat = ExtraData.get(i);
                 // Calcular magnitud del TP (en porcentaje de log return)
-                float tpMagnitude = Math.abs(stat.getTpPercent()); // Convertir a puntos base
-                float slMagnitude = Math.abs(stat.getSlPercent()); // Convertir a puntos base
+                float tpMagnitude = (float) Math.abs(stat.getTpPercent()); // Convertir a puntos base
+                float slMagnitude = (float) Math.abs(stat.getSlPercent()); // Convertir a puntos base
                 float roi = (float) (stat.getPnlPercent() * 100); // Convertir a porcentaje
 
                 dataList.add(new TPSLROIData(tpMagnitude, slMagnitude, roi));
@@ -1146,9 +1146,9 @@ public class ChartUtils {
                 double entryX = entryCandle.getOpenTime();
 
                 // Agregar marker de entrada
-                if (trade.getDirection() == DireccionOperation.LONG) {
+                if (trade.getDireccion() == DireccionOperation.LONG) {
                     entryLongSeries.add(entryX, trade.getEntryPrice());
-                } else if (trade.getDirection() == DireccionOperation.SHORT) {
+                } else if (trade.getDireccion() == DireccionOperation.SHORT) {
                     entryShortSeries.add(entryX, trade.getEntryPrice());
                 }
 
@@ -1295,16 +1295,16 @@ public class ChartUtils {
         if (trades != null && !trades.isEmpty()) {
             // Contar estadísticas
             long longWins = trades.stream()
-                    .filter(t -> t.getDirection() == DireccionOperation.LONG && t.getPnl() > 0)
+                    .filter(t -> t.getDireccion() == DireccionOperation.LONG && t.getPnl() > 0)
                     .count();
             long longLosses = trades.stream()
-                    .filter(t -> t.getDirection() == DireccionOperation.LONG && t.getPnl() <= 0)
+                    .filter(t -> t.getDireccion() == DireccionOperation.LONG && t.getPnl() <= 0)
                     .count();
             long shortWins = trades.stream()
-                    .filter(t -> t.getDirection() == DireccionOperation.SHORT && t.getPnl() > 0)
+                    .filter(t -> t.getDireccion() == DireccionOperation.SHORT && t.getPnl() > 0)
                     .count();
             long shortLosses = trades.stream()
-                    .filter(t -> t.getDirection() == DireccionOperation.SHORT && t.getPnl() <= 0)
+                    .filter(t -> t.getDireccion() == DireccionOperation.SHORT && t.getPnl() <= 0)
                     .count();
 
             String legendText = String.format(
@@ -1347,8 +1347,8 @@ public class ChartUtils {
         for (int i = 0; i < trades.size(); i++) {
             BackTestEngine.CompleteTrade trade = trades.get(i);
 
-            String direction = trade.getDirection() == DireccionOperation.LONG ? "LONG" :
-                    trade.getDirection() == DireccionOperation.SHORT ? "SHORT" : "NEUT";
+            String direction = trade.getDireccion() == DireccionOperation.LONG ? "LONG" :
+                    trade.getDireccion() == DireccionOperation.SHORT ? "SHORT" : "NEUT";
 
             String exitReason = trade.getExitReason().name()
                     .replace("LONG_", "")

@@ -2,6 +2,7 @@ package xyz.cereshost.vesta.core.trading.real.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.exception.BinanceCodeException;
 import xyz.cereshost.vesta.core.message.Notifiable;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
@@ -13,10 +14,7 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.Locale;
-import java.util.Map;
-import java.util.StringJoiner;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.function.Consumer;
 
 public interface BinanceApi extends Notifiable {
@@ -25,10 +23,9 @@ public interface BinanceApi extends Notifiable {
                         DireccionOperation direccion,
                         TypeOrder type,
                         TimeInForce timeInForce,
-                        String quantity,
+                        Double quantity,
                         Double stopPrice,
-                        boolean reduceOnly,
-                        boolean closePosition
+                        boolean reduceOnly
     );
 
 
@@ -36,8 +33,7 @@ public interface BinanceApi extends Notifiable {
                     DireccionOperation direccion,
                     TypeOrder type,
                     TimeInForce timeInForce,
-                    String quantity,
-                    Double price,
+                    Double quantity,
                     Double stopPrice,
                     boolean reduceOnly,
                     boolean closePosition
@@ -47,7 +43,9 @@ public interface BinanceApi extends Notifiable {
 
     void closeAll(String symbol);
 
-    boolean checkOrderFilled(String symbol, long orderId, boolean isAlgoOrder);
+    List<OrderData> getAllOrders(String symbol);
+
+    @Nullable PositionData getPosition(String symbol);
 
     void changeLeverage(String symbol, int leverage);
 
@@ -99,5 +97,23 @@ public interface BinanceApi extends Notifiable {
 
         return String.format(Locale.US, "%.2f", price);
     }
+
+    record OrderData(
+            long orderID,
+            Double price,
+            Double triggerPrice,
+            Double quantity,
+            Boolean isAlgoOrder,
+            TimeInForce timeInForce,
+            TypeOrder type,
+            DireccionOperation direccionOperation
+    ) {}
+
+    record PositionData(
+            Double entryPrice,
+            Double margen,
+            Integer leverage,
+            DireccionOperation direccionOperation
+    ){}
 
 }

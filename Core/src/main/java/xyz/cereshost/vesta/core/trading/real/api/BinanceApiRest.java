@@ -22,6 +22,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.TreeMap;
 import java.util.function.Consumer;
@@ -63,33 +64,32 @@ public final class BinanceApiRest implements BinanceApi {
                            DireccionOperation side,
                            TypeOrder type,
                            TimeInForce timeInForce,
-                           String quantity,
+                           Double quantity,
                            Double price,
-                           Double stopPrice,
                            boolean reduceOnly,
                            boolean closePosition
     ) {
         // Para órdenes no condicionales (MARKET, LIMIT), seguir usando el endpoint tradicional
+        if (!type.isValidValue(null, price)) throw new IllegalArgumentException();
         TreeMap<String, String> params = new TreeMap<>();
         params.put("symbol", symbol);
         params.put("side", side.getSide());
         params.put("type", type.name());
-        if (type.isLimit()) params.put("timeInForce", timeInForce.name());
-        if (price != null) params.put("price", formatPrice(symbol, price));
-        if (closePosition) {
-            params.put("closePosition", "true");
-        } else if (quantity != null) {
-            params.put("quantity", quantity);
-            if (reduceOnly) params.put("reduceOnly", "true");
+        params.put("quantity", formatQuantity(symbol, quantity));
+        params.put("closePosition", String.valueOf(closePosition));
+        if (type.isLimit()) {
+            params.put("timeInForce", timeInForce.name());
+            params.put("price", formatPrice(symbol, price));
         }
-        if (stopPrice != null) params.put("stopPrice", formatPrice(symbol, stopPrice));
+        if (reduceOnly) params.put("reduceOnly", "true");
+        //        if (type.isExit()) params.put("stopPrice", formatPrice(symbol, stopPrice));
 
-        Vesta.info("Enviando orden REST: " + type + " " + side +
-                " Qty:" + (quantity != null ? quantity : "null") +
-                " Price:" + (price != null ? price : "null") +
-                " Stop:" + stopPrice +
-                " reduceOnly:" + reduceOnly +
-                " closePosition:" + closePosition);
+//        Vesta.info("Enviando orden REST: " + type + " " + side +
+//                " Qty:" + (quantity != null ? quantity : "null") +
+//                " Price:" + (price != null ? price : "null") +
+//                " Stop:" + stopPrice +
+//                " reduceOnly:" + reduceOnly +
+//                " closePosition:" + closePosition);
 
         JsonNode root = sendSignedRequest("POST", "/fapi/v1/order", params);
         return root.get("orderId").asLong();
@@ -100,11 +100,11 @@ public final class BinanceApiRest implements BinanceApi {
                                DireccionOperation side,
                                TypeOrder type,
                                TimeInForce timeInForce,
-                               String quantity,
+                               Double quantity,
                                Double stopPrice,
-                               boolean reduceOnly,
-                               boolean closePosition
+                               boolean reduceOnly
     ) {
+//        if (!type.isValidValue(stopPrice, stopPrice)) throw new IllegalArgumentException();
         TreeMap<String, String> params = new TreeMap<>();
         params.put("algoType", "CONDITIONAL");          // Obligatorio para órdenes condicionales
         params.put("symbol", symbol);
@@ -113,20 +113,16 @@ public final class BinanceApiRest implements BinanceApi {
         if (type.isLimit()) params.put("timeInForce", timeInForce.name());         // Recomendado para condicionales
 
         // Si se quiere cerrar la posición completa, se usa closePosition y NO se envía quantity
-        if (closePosition) {
+        if (type.isAllowClosePosition()) {
             params.put("closePosition", "true");
         } else if (quantity != null) {
-            params.put("quantity", quantity);
-            if (reduceOnly) {
-                params.put("reduceOnly", "true");
-            }
+            params.put("quantity", formatQuantity(symbol, quantity));
+            if (reduceOnly) params.put("reduceOnly", "true");
         }
 
         // Precio de activación (obligatorio para STOP_MARKET/TAKE_PROFIT_MARKET)
-        if (stopPrice != null) {
-            params.put("triggerPrice", formatPrice(symbol, stopPrice));
-        }
-
+        params.put("triggerPrice", formatPrice(symbol, stopPrice));
+        if (type.isLimit()) params.put("price", formatPrice(symbol, stopPrice));
         // WorkingType (opcional, pero recomendado)
         params.put("workingType", "MARK_PRICE");
 
@@ -154,34 +150,57 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
-    public boolean checkOrderFilled(String symbol, long orderId, boolean isAlgoOrder) {
-        if (orderId == 0) return false;
-
-        if (isAlgoOrder) {
-            // Para órdenes algorítmicas
-            TreeMap<String, String> params = new TreeMap<>();
-            params.put("symbol", symbol);
-            params.put("algoId", String.valueOf(orderId));
-
-            JsonNode root = sendSignedRequest("GET", "/fapi/v1/algoOrder", params);
-            // El estado puede ser "FILLED" o "FINISHED" para órdenes ejecutadas
-            if (root.has("algoStatus")) {
-                String status = root.get("algoStatus").asText();
-                return "FILLED".equals(status) || "FINISHED".equals(status);
-            }
-            return false;
-        } else {
-            // Para órdenes normales
-            TreeMap<String, String> params = new TreeMap<>();
-            params.put("symbol", symbol);
-            params.put("orderId", String.valueOf(orderId));
-
-            JsonNode root = sendSignedRequest("GET", "/fapi/v1/order", params);
-            if (root.has("status")) {
-                return "FILLED".equals(root.get("status").asText());
-            }
-            return false;
+    public List<OrderData> getAllOrders(String symbol) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("symbol", symbol);
+        ArrayList<OrderData> operations = new ArrayList<>();
+        List<JsonNode> nodes = new ArrayList<>();
+        for (JsonNode node :  sendSignedRequest("GET", "/fapi/v1/openOrders", params)) nodes.add(node);
+        for (JsonNode node :  sendSignedRequest("GET", "/fapi/v1/openAlgoOrders", params)) nodes.add(node);
+        for (JsonNode node : nodes) {
+            long orderId = node.get("orderId") == null ?  node.get("algoId").asLong() : node.get("orderId").asLong();
+            Double price = node.get("price").asDouble();
+            Double triggerPrice = node.get("triggerPrice") == null ? null : node.get("triggerPrice").asDouble();
+            Double quantity = node.get("origQty") == null ? node.get("quantity").asDouble() : node.get("origQty").asDouble();
+            TimeInForce timeInForce = TimeInForce.valueOf(node.get("timeInForce").asText());
+            TypeOrder typeOrder = TypeOrder.valueOf(node.get("type") == null ? node.get("orderType").asText() : node.get("type").asText());
+            DireccionOperation side = DireccionOperation.parse(node.get("side").asText());
+            Boolean isAlgoOrder = node.get("algoType") != null;
+            operations.add(new OrderData(orderId,
+                    price,
+                    triggerPrice,
+                    quantity,
+                    isAlgoOrder,
+                    timeInForce,
+                    typeOrder,
+                    side
+            ));
         }
+
+        return operations;
+    }
+
+    @Override
+    public PositionData getPosition(String symbol) {
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("symbol", symbol);
+        JsonNode operationsV2 = sendSignedRequest("GET", "/fapi/v2/positionRisk", params);
+        JsonNode operationsV3 = sendSignedRequest("GET", "/fapi/v3/positionRisk", params);
+        JsonNode operationV2 = operationsV2.get(0);
+        JsonNode operationV3 = operationsV3.get(0);
+        PositionData positionData;
+        DireccionOperation direccionOperation = DireccionOperation.parse(operationV2.get("positionAmt").asDouble());
+        if (direccionOperation != DireccionOperation.NEUTRAL){
+            positionData = new PositionData(
+                    Double.valueOf(operationV2.get("entryPrice").asText()),
+                    Double.valueOf(operationV3.get("positionInitialMargin").asText()),
+                    Integer.valueOf(operationV2.get("leverage").asText()),
+                    direccionOperation
+            );
+        }else {
+            positionData = null;
+        }
+        return positionData;
     }
 
     @Override

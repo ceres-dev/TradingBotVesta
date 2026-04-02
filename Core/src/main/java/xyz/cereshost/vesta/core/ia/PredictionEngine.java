@@ -29,8 +29,6 @@ import java.util.List;
 @Getter
 public class PredictionEngine {
 
-    public static final double THRESHOLD_PRICE = 0.002; // No se usa
-    public static final double THRESHOLD_RELATIVE = 0.5;
     private static final int MODEL_OUTPUTS = 5;
     private static final int REQUIRED_AUTOREGRESSIVE_FEATURES = 5;
 
