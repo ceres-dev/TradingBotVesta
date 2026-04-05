@@ -28,6 +28,7 @@ import ai.djl.util.Pair;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.blocks.TemporalTransformerBlock;
@@ -46,12 +47,12 @@ import java.util.concurrent.*;
 
 public class VestaEngine {
 
-    public static final int LOOK_BACK = 60*4;
+    public static final int LOOK_BACK = 60*5;
     public static final int SHORT_LOOK_BACK = 30;
     public static final int AUXILIAR_EPOCH = 1;
     public static final int BACH_SIZE = 8;
     public static final int SPLIT_DATA = 32;
-    public static final int EPOCH = SPLIT_DATA * 15;
+    public static final int EPOCH = SPLIT_DATA * 20;
 
     @Getter @Setter
     private static NDManager rootManager;
@@ -69,7 +70,7 @@ public class VestaEngine {
      * Entrena un modelo con múltiples símbolos combinados
      */
     @SuppressWarnings("UnusedAssignment")
-    public static @NotNull TrainingTestsResults trainingModel(@NotNull List<String> symbols) throws IOException {
+    public static @NotNull TrainingTestsResults trainingModel(@NotNull List<Symbol> symbols) throws IOException {
         Engine torch = Engine.getEngine("PyTorch");
         JniUtils.setGraphExecutorOptimize(false);
 
@@ -149,6 +150,8 @@ public class VestaEngine {
             for (Parameter p : model.getBlock().getParameters().values()) {
                 totalParams += p.getArray().getShape().size();
             }
+            model.setProperty("lookback", String.valueOf(LOOK_BACK));
+            model.setProperty("features", String.valueOf(BuilderData.FEATURES));
             Vesta.info("🧠 Total de parámetros: %,d", totalParams);
             Vesta.info("Iniciando entrenamiento con " + EPOCH* AUXILIAR_EPOCH *maxMonthTraining + " epochs...");
             rootManager = manager;
@@ -290,6 +293,7 @@ public class VestaEngine {
         return new SequentialBlock()
                 .add(Linear.builder().setUnits(128).build())
                 .add(Linear.builder().setUnits(128).build())
+                .add(Linear.builder().setUnits(128).build())
                 .add(Linear.builder().setUnits(64).build())
                 .add(Linear.builder().setUnits(64).build())
                 .add(Linear.builder().setUnits(32).build())
@@ -344,7 +348,7 @@ public class VestaEngine {
                         .setNumHeads(b ? 4 : 8)
                         .setFeedForwardDim(1024)
                         .setDropoutRate(0)
-                        .setAttentionProbsDropoutProb(.01f)
+                        .setAttentionProbsDropoutProb(.05f)
                         .setMaxSequenceLength(maxSequenceLength)
                         .build())
                 .add(new LambdaBlock(ndArrays -> {

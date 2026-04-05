@@ -6,6 +6,7 @@ import ai.djl.util.Pair;
 import com.google.gson.JsonIOException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.packet.Utils;
 import xyz.cereshost.vesta.common.Vesta;
@@ -49,7 +50,7 @@ public class IOdata {
         return dir;
     }
 
-    public static Path saveTrainingCache(Path dir, String symbol, int month, float[][][] X, float[][] y, boolean useZip) throws IOException {
+    public static Path saveTrainingCache(Path dir, Symbol symbol, int month, float[][][] X, float[][] y, boolean useZip) throws IOException {
         if (X == null || X.length == 0 || y == null || y.length == 0) {
             throw new IllegalArgumentException("Empty training cache");
         }
@@ -231,8 +232,7 @@ public class IOdata {
     /**
      * Cargar modelo simple (backward compatibility)
      */
-    public static Model loadModel() throws IOException {
-        Device device = Device.gpu();
+    public static Model loadModel(Device device) throws IOException {
         Path modelDir = MODEL_DIR.toAbsolutePath();
 
         Vesta.info("📂 Cargando modelo desde: " + modelDir);
@@ -316,7 +316,7 @@ public class IOdata {
         }
     }
 
-    public record CacheProperties(int lookback, int features, int outputs, List<String> symbol, int monthData, int sizeData) {
+    public record CacheProperties(int lookback, int features, int outputs, List<Symbol> symbol, int monthData, int sizeData) {
 
         @NotNull
         public UUID getUUID() {

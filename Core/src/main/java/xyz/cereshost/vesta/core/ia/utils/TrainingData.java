@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
@@ -437,7 +438,7 @@ public class TrainingData {
         return new Normalize(xNormalizer, yNormalizer, X_train_norm.get(), X_val_norm.get(), X_test_norm.get(), y_train_norm.get(), y_val_norm.get(), y_test_norm.get());
     }
 
-    public IOdata.CacheProperties getCacheProperties(List<String> market) {
+    public IOdata.CacheProperties getCacheProperties(List<Symbol> market) {
         return new IOdata.CacheProperties(lookback, features, yCols, market, Main.MAX_MONTH_TRAINING, samplesSize);
     }
 

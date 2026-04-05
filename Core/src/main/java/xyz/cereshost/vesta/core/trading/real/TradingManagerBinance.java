@@ -7,6 +7,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
@@ -44,7 +45,7 @@ public class TradingManagerBinance implements TradingManager {
 
     @Override
     public OpenOperation open(TradingManager.RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
-        String symbol = getMarket().getSymbol();
+        Symbol symbol = getMarket().getSymbol();
         try {
             CountDownLatch latch = new CountDownLatch(3);
             tradingTickLoop.getExecutor().execute(() -> {
@@ -111,7 +112,7 @@ public class TradingManagerBinance implements TradingManager {
 
     @Override
     public @Nullable LimiteOperation limit(double entryPrice, TradingManager.RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
-        String symbol = getMarket().getSymbol();
+        Symbol symbol = getMarket().getSymbol();
         if (!Double.isFinite(entryPrice) || entryPrice <= 0) {
             Vesta.error("Precio de entrada invalido para orden limite en %s: %s", symbol, entryPrice);
             return null;
@@ -186,7 +187,7 @@ public class TradingManagerBinance implements TradingManager {
         BinanceOpenOperation op = openOperation;
         if (op == null) return null;
 
-        String symbol = getMarket().getSymbol();
+        Symbol symbol = getMarket().getSymbol();
         try {
             CountDownLatch latch = new CountDownLatch(2);
             Vesta.info("🔒 Cerrando operacion: %s por %s", op.getUuid(), reason);
@@ -243,7 +244,7 @@ public class TradingManagerBinance implements TradingManager {
         if (pending == null) {
             return;
         }
-        String symbol = getMarket().getSymbol();
+        Symbol symbol = getMarket().getSymbol();
         binanceApi.cancelOrder(symbol, pending.getOrderId(), false);
         Vesta.info("Orden LIMIT cancelada: %s (%s)", pending.getUuid(), pending.getOrderId());
         info("Orden LIMIT cancelada: %s", pending.getUuid());
@@ -293,7 +294,7 @@ public class TradingManagerBinance implements TradingManager {
         Vesta.info("📃 " + log);
     }
 
-    private void placeProtectionOrders(@NotNull String symbol, @NotNull RiskLimitsBinance op, MargenContainer margen) {
+    private void placeProtectionOrders(@NotNull Symbol symbol, @NotNull RiskLimitsBinance op, MargenContainer margen) {
         DireccionOperation direccionInverse = op.getDireccion().inverse();
         double slPrice = op.getSlPrice();
         if (!Double.isNaN(slPrice)) {
@@ -426,7 +427,7 @@ public class TradingManagerBinance implements TradingManager {
                         isTpOrder ? "TP" : "SL", getUuid());
                 return false;
             }
-            String symbol = tradingBinance.getMarket().getSymbol();
+            Symbol symbol = tradingBinance.getMarket().getSymbol();
 
             long oldOrderId = isTpOrder ? getTpBinanceId() : getSlBinanceId();
             boolean oldIsAlgo = isTpOrder ? isTpIsAlgo() : isSlIsAlgo();

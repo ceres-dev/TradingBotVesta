@@ -33,7 +33,7 @@ public class RequestMarketListener extends PacketListener<RequestMarketClient> {
             marketLoaded.concat(Vesta.MARKETS.get(packet.getSymbol()));
             marketLoaded.sortd();
             Vesta.info("📡 Datos recopilados de: " + packet.getSymbol() + " (" + ( System.currentTimeMillis() - systemTime) + "ms) Enviando..." );
-            PacketHandler.sendPacketReply(packet, new MarketDataServer(marketLoaded, System.currentTimeMillis()));
+            PacketHandlerServer.sendPacketReply(packet, new MarketDataServer(marketLoaded, System.currentTimeMillis()));
         });
 
     }

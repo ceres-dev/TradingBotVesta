@@ -119,7 +119,7 @@ public class CandlesBuilder {
     @NotNull
     @Contract(pure = true, value = "_, -> new")
     public SequenceCandles build(@NotNull Market market) {
-        BaseBarSeries series = new BaseBarSeriesBuilder().withName(market.getSymbol()).build();
+        BaseBarSeries series = new BaseBarSeriesBuilder().withName(market.getSymbol().toString()).build();
         NavigableMap<Long, Candle> candleByUnitTime = new TreeMap<>();
         long ms = market.getTimeUnitMarket().getMilliseconds();
 

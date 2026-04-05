@@ -10,7 +10,7 @@ import static xyz.cereshost.vesta.common.market.TimeUnitMarket.*;
 
 public class Market {
 
-    public Market(@NotNull String symbol) {
+    public Market(@NotNull Symbol symbol) {
         this.symbol = symbol;
         this.trades = new LinkedHashSet<>(10_000);
         this.depths = new LinkedHashSet<>();
@@ -21,7 +21,7 @@ public class Market {
     private final TimeUnitMarket timeUnitMarket = ONE_MINUTE;
     @NotNull
     @Getter
-    private final String symbol;
+    private final Symbol symbol;
     @Getter
     private LinkedHashSet<Trade> trades;
     @Getter
@@ -221,7 +221,7 @@ public class Market {
     }
 
     public double getFeedTaker(){
-        if (symbol.endsWith("USDT")) {
+        if (symbol.isUSDT()) {
             return 0.0005;
         } else {
             return 0.0004;
@@ -229,7 +229,7 @@ public class Market {
     }
 
     public double getFeedMaker(){
-        if (symbol.endsWith("USDT")) {
+        if (symbol.isUSDT()) {
             return 0.0002;
         }else {
             return 0;

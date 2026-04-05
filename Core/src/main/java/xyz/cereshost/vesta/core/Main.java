@@ -1,5 +1,6 @@
 package xyz.cereshost.vesta.core;
 
+import ai.djl.Device;
 import ai.djl.util.Pair;
 import com.google.gson.Gson;
 import lombok.Getter;
@@ -7,6 +8,7 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
@@ -39,8 +41,8 @@ public class Main {
 
     public static final String NAME_MODEL = "VestaIA";
 
-    @NotNull public static final List<String> SYMBOLS_TRAINING = List.of("SOLUSDC");
-    @NotNull public static final String SYMBOL = "SOLUSDC";
+    @NotNull public static final List<Symbol> SYMBOLS_TRAINING = List.of(Symbol.SOLUSDC);
+    @NotNull public static final Symbol SYMBOL = Symbol.SOLUSDC;
     @NotNull public static final DataSource DATA_SOURCE_FOR_TRAINING_MODEL = DataSource.LOCAL_ZST;
     @NotNull public static final DataSource DATA_SOURCE_FOR_BACK_TEST = DataSource.LOCAL_ZST;
     public static final int MAX_MONTH_TRAINING = 4;
@@ -74,10 +76,10 @@ public class Main {
                 Vesta.info("🔙 Ejecutando backtest...");
                 market.sortd();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
-                PredictionEngine engine = new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(), VestaEngine.LOOK_BACK, BuilderData.FEATURES);
+                PredictionEngine engine = new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu()));
                 showDataBackTest(new BackTestEngine(market, engine, new EtaStrategy()).run());
             }
-            case "trading" -> new TradingTickLoop("SOLUSDC", null, new MarketMakerStrategy(), new BinanceApiRest(true), MediaNotification.empty()).startCandleLoop();
+            case "trading" -> new TradingTickLoop(Symbol.SOLUSDC, null, new MarketMakerStrategy(), new BinanceApiRest(true), MediaNotification.empty()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + SYMBOL +"\\trades"));
             case "diagnose" -> {
                 Market market = getMarket();
@@ -86,7 +88,7 @@ public class Main {
                 List<Integer> indexes = List.of(120, 180, 240, 300, 360, 420, 480);
                 //for (int i = 300; i < 400; i+=5) indexes.add(i);
                 for (int i : indexes) {
-                    showPredictionSnapshot(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(), VestaEngine.LOOK_BACK, BuilderData.FEATURES), i, 30);
+                    showPredictionSnapshot(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu())), i, 30);
                 }
             }
             case "prediction" -> {
@@ -103,9 +105,7 @@ public class Main {
                 PredictionEngine engine = new PredictionEngine(
                         pair.getKey(),
                         pair.getValue(),
-                        IOdata.loadModel(),
-                        VestaEngine.LOOK_BACK,
-                        BuilderData.FEATURES
+                        IOdata.loadModel(Device.gpu())
                 );
 
                 showPredictionSnapshotRealMarket(market, engine, candlesAgo, horizon);
@@ -116,7 +116,7 @@ public class Main {
     private static @NotNull Market getMarket() throws InterruptedException, ExecutionException {
         Market market = new Market(SYMBOL);
         List<CompletableFuture<Market>> task = new ArrayList<>();
-        for (int day = 20; day >= 9; day--) {
+        for (int day = 22; day >= 12; day--) {
             int finalDay = day;
             task.add(CompletableFuture.supplyAsync(() -> {
                 try {

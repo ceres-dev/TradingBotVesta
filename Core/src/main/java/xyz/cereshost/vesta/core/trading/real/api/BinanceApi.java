@@ -3,6 +3,7 @@ package xyz.cereshost.vesta.core.trading.real.api;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.exception.BinanceCodeException;
 import xyz.cereshost.vesta.core.message.Notifiable;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
@@ -19,7 +20,7 @@ import java.util.function.Consumer;
 
 public interface BinanceApi extends Notifiable {
 
-    long placeAlgoOrder(String symbol,
+    long placeAlgoOrder(Symbol symbol,
                         DireccionOperation direccion,
                         TypeOrder type,
                         TimeInForce timeInForce,
@@ -29,7 +30,7 @@ public interface BinanceApi extends Notifiable {
     );
 
 
-    long placeOrder(String symbol,
+    long placeOrder(Symbol symbol,
                     DireccionOperation direccion,
                     TypeOrder type,
                     TimeInForce timeInForce,
@@ -39,21 +40,21 @@ public interface BinanceApi extends Notifiable {
                     boolean closePosition
     );
 
-    void cancelOrder(String symbol, long orderId, boolean isAlgoOrder);
+    void cancelOrder(Symbol symbol, long orderId, boolean isAlgoOrder);
 
-    void closeAll(String symbol);
+    void closeAll(Symbol symbol);
 
-    List<OrderData> getAllOrders(String symbol);
+    List<OrderData> getAllOrders(Symbol symbol);
 
-    @Nullable PositionData getPosition(String symbol);
+    @Nullable PositionData getPosition(Symbol symbol);
 
-    void changeLeverage(String symbol, int leverage);
+    void changeLeverage(Symbol symbol, int leverage);
 
-    double getTickerPrice(String symbol);
+    double getTickerPrice(Symbol symbol);
 
-    double getBalance(String symbol);
+    double getBalance(Symbol symbol);
 
-    void checkRepose(JsonNode node, String method, String endpoint, String symbol) throws BinanceCodeException;
+    void checkRepose(Symbol symbol, JsonNode node, String method, String endpoint) throws BinanceCodeException;
 
     void setExceptionHandler(Consumer<Exception> consumer);
 

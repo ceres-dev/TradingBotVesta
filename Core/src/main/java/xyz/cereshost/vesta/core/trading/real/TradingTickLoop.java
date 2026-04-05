@@ -6,10 +6,7 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.common.market.Depth;
-import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Trade;
+import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.core.exception.BinanceCodeWeakException;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
@@ -42,7 +39,7 @@ public final class TradingTickLoop implements Notifiable {
     private static final long MAX_ALLOWED_GAP_MS = TimeUnit.MINUTES.toMillis(5);
     private static final long RECENT_WINDOW_MS = TimeUnit.DAYS.toMillis(1);
     private static final int LOCAL_ZIP_WARMUP_DAYS = 5;
-    private final String symbol;
+    private final Symbol symbol;
     @Getter
     private final Executor executor = Executors.newFixedThreadPool(6);
     @NotNull
@@ -64,7 +61,7 @@ public final class TradingTickLoop implements Notifiable {
                 return t;
             });
 
-    public TradingTickLoop(@NotNull String symbol,
+    public TradingTickLoop(@NotNull Symbol symbol,
                            @Nullable PredictionEngine engine,
                            @NotNull TradingStrategy tradingStrategy,
                            @NotNull BinanceApi binanceApi,

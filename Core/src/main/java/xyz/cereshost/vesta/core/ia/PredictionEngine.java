@@ -39,13 +39,13 @@ public class PredictionEngine {
     private final int features;
     private final Device device;
 
-    public PredictionEngine(XNormalizer xNormalizer, YNormalizer yNormalizer, Model model, int lookBack, int features) {
+    public PredictionEngine(XNormalizer xNormalizer, YNormalizer yNormalizer, Model model) {
         this.device = Device.gpu();
         this.model = model;
         this.xNormalizer = xNormalizer;
         this.yNormalizer = yNormalizer;
-        this.lookBack = lookBack;
-        this.features = features;
+        this.lookBack = Integer.parseInt(model.getProperty("lookBack"));
+        this.features = Integer.parseInt(model.getProperty("features"));
     }
 
     /**
@@ -53,7 +53,7 @@ public class PredictionEngine {
      * Devuelve los valores desnormalizados para un unico ejemplo (batch=1).
      * Formato: [close, high, low, volumen, ema]
      */
-    public float[] predictRaw(float[][][] inputSequence) {
+    private float[] predictRaw(float[][][] inputSequence) {
         if (inputSequence == null || inputSequence.length == 0) {
             throw new IllegalArgumentException("inputSequence no puede ser null o vacio");
         }

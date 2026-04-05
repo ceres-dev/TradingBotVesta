@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.TrainingData;
@@ -39,11 +40,11 @@ public class BuilderData {
     public final static int FEATURES = 5;
     public static final int DEFAULT_FUTURE_WINDOW = 30;
 
-    public static @NotNull TrainingData buildTrainingData(@NotNull List<String> symbols, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
+    public static @NotNull TrainingData buildTrainingData(@NotNull List<Symbol> symbols, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
         List<PairCache> cacheEntries = new ArrayList<>();
         long time = System.currentTimeMillis();
         List<CompletableFuture<Object>> waitingCacheSave = new ArrayList<>();
-        for (String symbol : symbols) {
+        for (Symbol symbol : symbols) {
             try {
                 SequenceCandles allCandlesForChart = SequenceCandles.empty();
 
@@ -183,7 +184,7 @@ public class BuilderData {
         int yCols = cacheEntries.getFirst().yCols;
 
         long delta = (System.currentTimeMillis() - time);
-        Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", symbols), totalSamples, delta/60_000,((delta/1000)%60));
+        Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", symbols.stream().map(Symbol::toString).toList()), totalSamples, delta/60_000,((delta/1000)%60));
 
         System.gc();
         return new TrainingData(cacheEntries.stream().map(PairCache::getCacheFile).toList(), totalSamples, seqLen, features, yCols);

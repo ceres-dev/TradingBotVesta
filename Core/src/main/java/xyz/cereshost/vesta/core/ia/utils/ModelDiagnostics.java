@@ -1,5 +1,6 @@
 package xyz.cereshost.vesta.core.ia.utils;
 
+import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
@@ -26,7 +27,7 @@ public final class ModelDiagnostics {
             return;
         }
 
-        Model model = IOdata.loadModel();
+        Model model = IOdata.loadModel(Device.gpu());
         Pair<XNormalizer, YNormalizer> norms = IOdata.loadNormalizers();
         TrainingData data = IOdata.getBuiltData();
 //        if (data.isLoadInRam()) {

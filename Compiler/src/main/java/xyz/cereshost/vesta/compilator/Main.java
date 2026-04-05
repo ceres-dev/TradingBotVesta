@@ -6,7 +6,7 @@ import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.compilator.endpoint.BinanceAPI;
 import xyz.cereshost.vesta.compilator.file.IOdata;
 import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.packet.PacketHandler;
+import xyz.cereshost.vesta.common.packet.PacketHandlerServer;
 import xyz.cereshost.vesta.common.packet.RequestMarketListener;
 
 import java.nio.file.Files;
@@ -22,14 +22,14 @@ import java.util.concurrent.locks.LockSupport;
 public class Main {
 
     @Getter
-    private static PacketHandler packetHandler;
+    private static PacketHandlerServer packetHandlerServer;
     private static final ScheduledExecutorService EXECUTOR = Executors.newScheduledThreadPool(6);
 
     public static void main(String[] args) throws Exception {
 
         new RequestMarketListener();
-        packetHandler = new PacketHandler();
-        packetHandler.upServer();
+        packetHandlerServer = new PacketHandlerServer();
+        packetHandlerServer.upServer();
 
         for (String name : Vesta.MARKETS_NAMES) {
             Optional<Path> last = IOdata.getLastSnapshot(name);

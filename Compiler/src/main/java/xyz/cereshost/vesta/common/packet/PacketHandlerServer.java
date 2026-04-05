@@ -18,7 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-public class PacketHandler extends BasePacketHandler {
+public class PacketHandlerServer extends BasePacketHandler {
 
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
     @Getter
@@ -26,7 +26,7 @@ public class PacketHandler extends BasePacketHandler {
     @Getter
     private static final HashMap<UUID, UUID> mapUUIDS = new HashMap<>();
 
-    private final int PORT = 2545;
+    private final static int PORT = 2545;
 
     public void upServer() {
         executor.submit(() -> {
@@ -131,7 +131,7 @@ public class PacketHandler extends BasePacketHandler {
             if (packetListener != null) {
                 packetListener.receivePacket(p);
             }
-            BasePacketHandler.replyFuture(p);
+            replyFuture(p);
         } catch (Exception e) {
             Vesta.info("❌ Error procesando mensaje: %s", e.getMessage());
         }

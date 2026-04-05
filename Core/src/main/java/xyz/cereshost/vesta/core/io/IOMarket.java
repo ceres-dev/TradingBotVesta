@@ -16,7 +16,7 @@ import xyz.cereshost.vesta.common.packet.server.MarketDataServer;
 import xyz.cereshost.vesta.core.DataSource;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
-import xyz.cereshost.vesta.core.packet.PacketHandler;
+import xyz.cereshost.vesta.core.packet.PacketHandlerClient;
 
 import java.io.*;
 import java.net.URL;
@@ -53,7 +53,7 @@ public class IOMarket {
     // dayIndex=1 => ayer (dataset diario completo más reciente).
     private static final int DEFAULT_LOOKBACK_DAY_INDEX = 1;
 
-    public static Market loadMarketsRecentDays(String s, int days, boolean loadTrades) throws InterruptedException, IOException {
+    public static Market loadMarketsRecentDays(Symbol s, int days, boolean loadTrades) throws InterruptedException, IOException {
         int normalizedDays = Math.max(1, days);
         Market merged = new Market(s);
 
@@ -81,15 +81,15 @@ public class IOMarket {
         return merged;
     }
 
-    public static Market loadMarkets(DataSource data, String s) throws InterruptedException, IOException {
-        return loadMarkets(data, s, -1, true);
+    public static Market loadMarkets(DataSource data, Symbol symbol) throws InterruptedException, IOException {
+        return loadMarkets(data, symbol, -1, true);
     }
 
-    public static Market loadMarkets(DataSource data, String s, int dayIndex) throws InterruptedException, IOException {
-        return loadMarkets(data, s, dayIndex, true);
+    public static Market loadMarkets(DataSource data, Symbol symbol, int dayIndex) throws InterruptedException, IOException {
+        return loadMarkets(data, symbol, dayIndex, true);
     }
 
-    public static Market loadMarketsBinance(String s,
+    public static Market loadMarketsBinance(Symbol s,
                                             int limitCandle,
                                             int limitTrade,
                                             int limitDepth
@@ -153,7 +153,7 @@ public class IOMarket {
         return market;
     }
 
-    public static Market loadMarkets(DataSource data, String s, int dayIndex, boolean loadTrades) throws InterruptedException, IOException {
+    public static Market loadMarkets(DataSource data, Symbol s, int dayIndex, boolean loadTrades) throws InterruptedException, IOException {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicLong lastUpdate = new AtomicLong();
         AtomicReference<Market> marketFinal = new AtomicReference<>(null);
@@ -161,7 +161,7 @@ public class IOMarket {
         switch (data) {
             case LOCAL_NETWORK, LOCAL_NETWORK_MINIMAL -> {
                 Vesta.info("📡 Enviado solicitud de datos del mercado: " + s);
-                PacketHandler.sendPacket(new RequestMarketClient(s, data == DataSource.LOCAL_NETWORK), MarketDataServer.class).thenAccept(packet -> {
+                PacketHandlerClient.sendPacket(new RequestMarketClient(s.toString(), data == DataSource.LOCAL_NETWORK), MarketDataServer.class).thenAccept(packet -> {
                     marketFinal.set(packet.getMarket());
                     latch.countDown();
                     lastUpdate.set(packet.getLastUpdate());
@@ -281,7 +281,7 @@ public class IOMarket {
     }
 
 
-    private static File ensureFileCached(String baseDir, String symbol, String type, LocalDate date) throws IOException {
+    private static File ensureFileCached(String baseDir, Symbol symbol, String type, LocalDate date) throws IOException {
         String monthStr = String.format("%02d", date.getMonthValue());
         String dayStr = String.format("%02d", date.getDayOfMonth());
         String dateStr = String.format("%d-%s-%s", date.getYear(), monthStr, dayStr);

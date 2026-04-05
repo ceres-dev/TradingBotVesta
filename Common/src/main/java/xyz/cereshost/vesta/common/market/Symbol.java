@@ -808,4 +808,14 @@ public enum Symbol {
     public boolean isUSDC(){
         return this.name().endsWith("USDC");
     }
+
+    public String getQuoteAsset(){
+        if (isUSDT()){
+            return "USDT";
+        }
+        if (isUSDC()){
+            return "USDC";
+        }
+        return "null";
+    }
 }

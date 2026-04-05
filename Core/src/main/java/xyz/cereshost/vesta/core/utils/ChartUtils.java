@@ -21,6 +21,7 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
@@ -197,7 +198,7 @@ public class ChartUtils {
 
 
 
-    public static void showCandleChart(String title, SequenceCandles candles, String symbol) {
+    public static void showCandleChart(String title, SequenceCandles candles, Symbol symbol) {
         if (candles == null || candles.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
             return;
@@ -888,7 +889,7 @@ public class ChartUtils {
         return sum / values.size();
     }
 
-    public static void showCandleChartWithTrades(String title, List<Candle> candles, String symbol, List<BackTestEngine.CompleteTrade> trades) {
+    public static void showCandleChartWithTrades(String title, List<Candle> candles, Symbol symbol, List<BackTestEngine.CompleteTrade> trades) {
         if (candles == null || candles.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
             return;

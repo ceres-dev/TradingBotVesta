@@ -18,7 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.locks.LockSupport;
 
-public class PacketHandler extends BasePacketHandler {
+public class PacketHandlerClient extends BasePacketHandler {
 
     private static final Queue<PacketClient> packetQueue = new ConcurrentLinkedQueue<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -29,7 +29,7 @@ public class PacketHandler extends BasePacketHandler {
 
     private static final int PORT = 2545;
 
-    public PacketHandler() {
+    public PacketHandlerClient() {
         executor.submit(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
@@ -38,7 +38,7 @@ public class PacketHandler extends BasePacketHandler {
                     socket.setTcpNoDelay(true);
                     socket.setKeepAlive(true);
 
-                    // Buffers grandes (MUY importante)
+                    // Buffers grandes
                     socket.setSendBufferSize(4 * 1024 * 1024);   // 4MB
                     socket.setReceiveBufferSize(4 * 1024 * 1024);
 
@@ -60,7 +60,7 @@ public class PacketHandler extends BasePacketHandler {
                     handleClientConnection(); // Leer en bloques
                 } catch (IOException e) {
                     Vesta.warning("Reconectando en 5s...");
-                    LockSupport.parkNanos(5_000_000_000L);
+                    LockSupport.parkNanos(TimeUnit.SECONDS.toNanos(5));
                 }
             }
         });
