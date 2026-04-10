@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.packet;
+package xyz.cereshost.vesta.ui;
 
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
@@ -20,7 +20,7 @@ import java.util.concurrent.locks.LockSupport;
 
 public class PacketHandlerClient extends BasePacketHandler {
 
-    private static final Queue<PacketClient> packetQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<PacketClient> packetQueue = new ConcurrentLinkedQueue<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private static SocketProperties socketProperties;
     public static final UUID idClient = UUID.randomUUID();
@@ -29,7 +29,8 @@ public class PacketHandlerClient extends BasePacketHandler {
 
     private static final int PORT = 2545;
 
-    public PacketHandlerClient() {
+    @Override
+    public void start(){
         executor.submit(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
@@ -39,16 +40,16 @@ public class PacketHandlerClient extends BasePacketHandler {
                     socket.setKeepAlive(true);
 
                     // Buffers grandes
-                    socket.setSendBufferSize(4 * 1024 * 1024);   // 4MB
-                    socket.setReceiveBufferSize(4 * 1024 * 1024);
+                    socket.setSendBufferSize(4 * 1024);   // 4KB
+                    socket.setReceiveBufferSize(4 * 1024);
 
                     socket.connect(new InetSocketAddress(HOST, PORT), 5_000);
                     Vesta.info("✅ Cliente conectado a %s", HOST);
 
                     BufferedOutputStream out =
-                            new BufferedOutputStream(socket.getOutputStream(), 4 * 1024 * 1024);
+                            new BufferedOutputStream(socket.getOutputStream(), 4 * 1024);
                     BufferedInputStream in =
-                            new BufferedInputStream(socket.getInputStream(), 4 * 1024 * 1024);
+                            new BufferedInputStream(socket.getInputStream(), 4 * 1024);
 
                     socketProperties = new SocketProperties(socket, out, in);
 
@@ -64,7 +65,12 @@ public class PacketHandlerClient extends BasePacketHandler {
                 }
             }
         });
+    }
 
+    @Override
+    public void stop() {
+        this.executor.shutdown();
+        this.isStared = false;
     }
 
     private void handleClientConnection() {
@@ -117,7 +123,7 @@ public class PacketHandlerClient extends BasePacketHandler {
         BasePacketHandler.replyFuture(p);
     }
 
-    public static void sendPacket(@NotNull PacketClient packet) {
+    public void sendPacket(@NotNull PacketClient packet) {
         packet.setFrom(idClient);
         byte[] payload = PacketManager.encodePacket(packet);
 
@@ -148,7 +154,7 @@ public class PacketHandlerClient extends BasePacketHandler {
         }
     }
 
-    public static void sendAllPacket() {
+    public void sendAllPacket() {
         List<PacketClient> packets = new ArrayList<>(packetQueue);
         packetQueue.clear();
         for (PacketClient packet : packets) {
@@ -156,7 +162,7 @@ public class PacketHandlerClient extends BasePacketHandler {
         }
     }
 
-    public static <T extends Packet> @NotNull CompletableFuture<T> sendPacket(@NotNull PacketClient packet, Class<T> packetRepose) {
+    public <T extends Packet> @NotNull CompletableFuture<T> sendPacket(@NotNull PacketClient packet, Class<T> packetRepose) {
         try {
             latch.await();
         } catch (InterruptedException e) {
@@ -167,7 +173,7 @@ public class PacketHandlerClient extends BasePacketHandler {
     }
 
 
-    public static void sendPacketReplay(@NotNull Packet packetOld, @NotNull PacketClient packet) {
+    public void sendPacketReplay(@NotNull Packet packetOld, @NotNull PacketClient packet) {
         packet.setUuidPacket(packetOld.getUuidPacket());
         sendPacket(packet);
     }

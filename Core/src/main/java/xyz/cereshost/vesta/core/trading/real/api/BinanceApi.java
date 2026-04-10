@@ -58,9 +58,9 @@ public interface BinanceApi extends Notifiable {
 
     void setExceptionHandler(Consumer<Exception> consumer);
 
-    JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params);
+    @NotNull JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params);
 
-    JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params);
+    @NotNull JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params);
 
     default String buildQueryString(@NotNull TreeMap<String, String> params) {
         StringJoiner sj = new StringJoiner("&");
@@ -87,6 +87,8 @@ public interface BinanceApi extends Notifiable {
         if (symbol.startsWith("ETH")) return String.format(Locale.US, "%.2f", qty);
         if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.1f", qty);
         if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", qty);
+        if (symbol.startsWith("XAU")) return String.format(Locale.US, "%.3f", qty);
+
 
         return String.format(Locale.US, "%.0f", qty); // Default int
     }
@@ -95,6 +97,7 @@ public interface BinanceApi extends Notifiable {
         if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.1f", price);
         if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.4f", price);
         if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", price);
+        if (symbol.startsWith("XAU")) return String.format(Locale.US, "%.2f", price);
 
         return String.format(Locale.US, "%.2f", price);
     }

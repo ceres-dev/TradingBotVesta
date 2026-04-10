@@ -12,11 +12,11 @@ import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 public class EpsilonStrategy implements TradingStrategy {
 
-    private static final int FAST_EMA_LENGTH = 10;
+    private static final int FAST_EMA_LENGTH = 18;
     private static final int SLOW_EMA_LENGTH = 30;
 
     private static final double TP_PERCENT = 0.3;
-    private static final double SL_PERCENT = 0.3;
+    private static final double SL_PERCENT = 0.1;
     private static final int LEVERAGE = 4;
     private static final double ORDER_BALANCE_FRACTION = 1.0;
     private static final double MIN_ORDER_NOTIONAL = 5.0;

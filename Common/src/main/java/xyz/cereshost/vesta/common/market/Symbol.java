@@ -818,4 +818,9 @@ public enum Symbol {
         }
         return "null";
     }
+
+    public boolean isTradFi(){
+        // TODO: expandir esta lista
+        return this == XAUUSDT || this == XAGUSDT || this == AMZNUSDT;
+    }
 }

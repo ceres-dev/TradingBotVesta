@@ -2,11 +2,10 @@ package xyz.cereshost.vesta.common.market;
 
 import lombok.Getter;
 
-import java.io.Closeable;
 import java.util.concurrent.TimeUnit;
 
 @Getter
-public enum TimeUnitMarket {
+public enum TimeFrameMarket {
     ONE_MINUTE(TimeUnit.MINUTES.toMillis(1), "1m"),
     THREE_MINUTES(TimeUnit.MINUTES.toMillis(3), "3m"),
     FIVE_MINUTE(TimeUnit.MINUTES.toMillis(5), "5m"),
@@ -24,17 +23,25 @@ public enum TimeUnitMarket {
     private final long milliseconds;
     private final String keyName;
 
-    TimeUnitMarket(long ms, String key){
+    TimeFrameMarket(long ms, String key){
         this.milliseconds = ms;
         this.keyName = key;
     }
 
-    public static TimeUnitMarket parse(long timeOpen, long timeClose){
-        int diff = Math.toIntExact(timeClose - timeOpen) + 1;
-        for (TimeUnitMarket timeUnitMarket : TimeUnitMarket.values()) {
-            if (diff == timeUnitMarket.milliseconds)
-                return timeUnitMarket;
+    public static TimeFrameMarket parse(long timeOpen, long timeClose){
+        int delta = Math.toIntExact(timeClose - timeOpen) + 1;
+        for (TimeFrameMarket timeFrameMarket : TimeFrameMarket.values()) {
+            if (delta == timeFrameMarket.milliseconds)
+                return timeFrameMarket;
         }
-        throw new IllegalArgumentException("Invalid time unit");
+        throw new IllegalArgumentException("Invalid time unit: " + delta);
+    }
+
+    public static TimeFrameMarket parse(String keyName){
+        for (TimeFrameMarket timeFrameMarket : TimeFrameMarket.values()) {
+            if (timeFrameMarket.keyName.equals(keyName))
+                return timeFrameMarket;
+        }
+        throw new IllegalArgumentException("Invalid time unit: " + keyName);
     }
 }

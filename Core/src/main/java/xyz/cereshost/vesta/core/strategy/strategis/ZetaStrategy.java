@@ -2,6 +2,7 @@ package xyz.cereshost.vesta.core.strategy.strategis;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
@@ -11,159 +12,115 @@ import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 public class ZetaStrategy implements TradingStrategy {
-    private static final double GRID_POINT_PERCENT = 0.2;
-    private static final double BASE_ORDER_UNITS = 0.04;
-    private static final double BASE_ORDER_MARGIN_USDT = 10.0;
-    private static final double MARTINGALE_MULTIPLIER = 2;
-    private static final boolean ANTI_MARTINGALE = false;
-    private static final int LEVERAGE = 35;
-    private static final double MIN_ORDER_NOTIONAL = 5.0;
+    // TradingView inputs:
+    // point = 32, os = 1, mf = 2, anti = false
+    private static final double POINT = 32;
+    private static final double ORDER_SIZE_BASE = 1.0;
+    private static final double MARTINGALE_MULTIPLIER = 2.0;
+    private static final boolean ANTI_MARTINGALE = true;
+
+    // Mapping interno qty -> margen USD (el engine opera por amountUSD + leverage)
+    private static final double BASE_MARGIN_USD_PER_QTY = 10.0;
+    private static final int LEVERAGE = 4;
 
     @Nullable
     private Double baseline;
-    private double orderUnits = BASE_ORDER_UNITS;
-    @NotNull
-    private DireccionOperation pendingSignal = DireccionOperation.NEUTRAL;
-    private double pendingDistancePercent;
+    private double size = ORDER_SIZE_BASE;
 
     @Override
-    public void executeStrategy(PredictionEngine.@Nullable SequenceCandlesPrediction pred, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager operations) {
+    public void executeStrategy(PredictionEngine.@Nullable SequenceCandlesPrediction prediction, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager operations) {
         CandleIndicators current = visibleCandles.getCandleLast();
+        // Fuente de precio usando indicador tecnico construido por CandlesBuilder
         double close = current.getClose();
-        if (!Double.isFinite(close) || close <= 0) {
-            operations.log("EL cierre de la vela dio infinito");
+        double ema = Math.abs(current.get("close_ema_low") - visibleCandles.getCandleLast(1).get("close_ema_low"));
+        double atr = current.get("atr");
+        if (!Double.isFinite(close) || close <= 0.0) {
             return;
         }
 
         if (baseline == null || !Double.isFinite(baseline)) {
             baseline = close;
-            operations.log("EL baseline dio infinito");
             return;
         }
 
         double previousBaseline = baseline;
-        if (!Double.isFinite(previousBaseline) || previousBaseline <= 0) {
-            baseline = close;
-            operations.log("EL baseline dio infinito");
-            return;
-        }
-
-        double movePercent = ((close - previousBaseline) / previousBaseline) * 100.0;
-        if (!Double.isFinite(movePercent)) {
-            operations.log("EL movePercent dio infinito");
-            return;
-        }
-
-        if (Math.abs(movePercent) >= GRID_POINT_PERCENT) {
+        if (close > previousBaseline + POINT || close < previousBaseline - POINT) {
             baseline = close;
         }
 
-        DireccionOperation signal = getSignal(baseline, previousBaseline);
+        double newBaseline = baseline;
+        if (!Double.isFinite(newBaseline) || !Double.isFinite(previousBaseline)) {
+            return;
+        }
+
+        DireccionOperation signal = DireccionOperation.NEUTRAL;
+        if (newBaseline > previousBaseline) {
+            signal = DireccionOperation.LONG;
+        } else if (newBaseline < previousBaseline) {
+            signal = DireccionOperation.SHORT;
+        }
+
         if (signal == DireccionOperation.NEUTRAL) {
-            operations.log("Momento no optimo para operar baseline: " + baseline + " previousBaseline: " + previousBaseline);
             return;
         }
 
-        if (current.get("atr") < .7){
-            return;
-        }
-        double distancePercent = GRID_POINT_PERCENT;//* ((atrPercent - 0.01) * 0.1);// baselineMovePercent;
-        if (!Double.isFinite(distancePercent)) {
-            operations.log("EL distancePercent dio infinito");
+        double upper = newBaseline + POINT;
+        double lower = newBaseline - POINT;
+        if (!Double.isFinite(upper) || !Double.isFinite(lower)) {
             return;
         }
 
-//        for (TradingManager.OpenOperation open : operations.getOpens()) {
-//            if (open.getDireccion() != signal) {
-//                pendingSignal = signal;
-//                pendingDistancePercent = distancePercent;
-//                operations.close(TradingManager.ExitReason.STRATEGY_INVERSION, open);
-//            }
-//        }
+        if (ema < 0.8) return;
+//        if (atr < 9 || atr > 17) return;
 
         if (operations.hasOpenOperation()) {
-            operations.log("Ya hay una operacion abierta");
-            TradingManager.OpenOperation openOperation = operations.getOpen();
-            if (openOperation.getFlags().contains("Beta")) {
-                openOperation.close();
-            }else {
-                return;
+            TradingManager.OpenOperation open = operations.getOpen();
+            if (open != null && open.getDireccion() != signal) {
+                open.close(TradingManager.ExitReason.STRATEGY_INVERSION);
             }
+            return;
         }
 
-        operations.open(
-                distancePercent,
-                distancePercent/3,
-                signal,
-                operations.getAvailableBalance()/2,
-                LEVERAGE
-        );
-    }
+        double requestedMargin = BASE_MARGIN_USD_PER_QTY * Math.max(size, ORDER_SIZE_BASE);
+        double available = operations.getAvailableBalance();
+        double amountUsd = Math.min(requestedMargin, available);
+        if (!Double.isFinite(amountUsd) || amountUsd <= 0.0) {
+            return;
+        }
+//        TradingManager.RiskLimits riskLimits = new TradingManager.RiskLimitsAbsolute(null, null);
+        TradingManager.RiskLimits riskLimits = signal.isLong()
+                ? new TradingManager.RiskLimitsAbsolute(upper, null)
+                : new TradingManager.RiskLimitsAbsolute(lower, null);
 
+        operations.open(riskLimits, signal, amountUsd, LEVERAGE);
+    }
 
     @Override
     public void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations) {
         double pnlPercent = getClosedPnlPercent(closeOperation);
-        if (pnlPercent > 0) {
-            orderUnits = ANTI_MARTINGALE ? orderUnits * MARTINGALE_MULTIPLIER : BASE_ORDER_UNITS;
-        } else if (pnlPercent < 0) {
-            orderUnits = ANTI_MARTINGALE ? BASE_ORDER_UNITS : orderUnits * MARTINGALE_MULTIPLIER;
+
+        if (ANTI_MARTINGALE) {
+            size = pnlPercent > 0.0 ? size * MARTINGALE_MULTIPLIER : ORDER_SIZE_BASE;
+        } else {
+            size = pnlPercent < 0.0 ? size * MARTINGALE_MULTIPLIER : ORDER_SIZE_BASE;
         }
 
-        if (!Double.isFinite(orderUnits) || orderUnits <= 0) {
-            orderUnits = BASE_ORDER_UNITS;
+        if (!Double.isFinite(size) || size <= 0.0) {
+            size = ORDER_SIZE_BASE;
         }
-
-        if (closeOperation.getReason() != TradingManager.ExitReason.STRATEGY_INVERSION
-                || pendingSignal == DireccionOperation.NEUTRAL
-                || !Double.isFinite(pendingDistancePercent)
-                || pendingDistancePercent <= 0) {
-            return;
-        }
-
-        double minMarginUsdt = MIN_ORDER_NOTIONAL / Math.max(LEVERAGE, 1);
-        double amountUsdt = Math.max(orderUnits * BASE_ORDER_MARGIN_USDT, minMarginUsdt);
-        amountUsdt = Math.min(amountUsdt, operations.getAvailableBalance());
-        DireccionOperation signal = pendingSignal;
-        double distancePercent = pendingDistancePercent;
-        pendingSignal = DireccionOperation.NEUTRAL;
-        pendingDistancePercent = 0;
-
-        if (amountUsdt * LEVERAGE < MIN_ORDER_NOTIONAL) {
-            return;
-        }
-
-        operations.open(
-                distancePercent,
-                distancePercent,
-                signal,
-                amountUsdt,
-                LEVERAGE
-        );
     }
 
     @Override
-    public @NotNull CandlesBuilder getBuilder(){
-        return new CandlesBuilder().addATRIndicator("atr", 14).addRSIIndicator("rsi", 8);
-    }
-
-    @NotNull
-    private static DireccionOperation getSignal(double baseline, double previousBaseline) {
-        if (baseline > previousBaseline) {
-            return DireccionOperation.LONG;
-        }
-        if (baseline < previousBaseline) {
-            return DireccionOperation.SHORT;
-        }
-        return DireccionOperation.NEUTRAL;
+    public @NotNull CandlesBuilder getBuilder() {
+        return new CandlesBuilder().addEMAIndicator("close_ema_low", 30).addATRIndicator("atr", 14);
     }
 
     private static double getClosedPnlPercent(@NotNull TradingManager.CloseOperation closeOperation) {
         TradingManager.OpenOperation open = closeOperation.getOpenOperation();
         double entry = open.getEntryPrice();
         double exit = closeOperation.getExitPrice();
-        if (!Double.isFinite(entry) || !Double.isFinite(exit) || entry <= 0) {
-            return 0;
+        if (!Double.isFinite(entry) || !Double.isFinite(exit) || entry <= 0.0) {
+            return 0.0;
         }
 
         double movePercent = ((exit - entry) / entry) * 100.0;

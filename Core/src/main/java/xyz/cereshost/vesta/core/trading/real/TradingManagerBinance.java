@@ -320,6 +320,10 @@ public class TradingManagerBinance implements TradingManager {
         }
     }
 
+    public void signContract(){
+        binanceApi.sendSignedRequest("POST", "/fapi/v1/stock/contract", new TreeMap<>());
+    }
+
     public synchronized void sync(){
         List<BinanceApi.OrderData> orders = binanceApi.getAllOrders(market.getSymbol());
         BinanceApi.PositionData position = binanceApi.getPosition(market.getSymbol());

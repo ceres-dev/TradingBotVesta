@@ -7,10 +7,12 @@ public enum DataSource {
     /**
      * Obtienes los datos de un servidor en la red local
      */
+    @Deprecated
     LOCAL_NETWORK,
     /**
      * Obtienes los datos de un servidor en la red local (Las dos últimas horas)
      */
+    @Deprecated
     LOCAL_NETWORK_MINIMAL,
     /**
      * Descarga los datos a través de la api de Binance

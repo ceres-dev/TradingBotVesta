@@ -1,5 +1,6 @@
 package xyz.cereshost.vesta.common.packet;
 
+import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 
 import java.net.Socket;
@@ -9,6 +10,9 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public abstract class BasePacketHandler {
+
+    @Getter
+    protected boolean isStared = false;
 
     /**
      * Los paquetes que espera una respuesta rápida
@@ -75,4 +79,7 @@ public abstract class BasePacketHandler {
         return UUID.nameUUIDFromBytes(name.getBytes(StandardCharsets.UTF_8));
     }
 
+    public abstract void start();
+
+    public abstract void stop();
 }

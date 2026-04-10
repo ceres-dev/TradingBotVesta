@@ -9,6 +9,7 @@ import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.common.market.TypeMarket;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
@@ -27,7 +28,7 @@ import java.util.function.BiFunction;
 public class TrainingData {
 
     private static final int INDEX_FOR_VALIDATION = 0;
-    private static final int INDEX_FOR_TEST = 1;
+    private static final int INDEX_FOR_TEST = 0;
 
 
     private final boolean loadInRam;
@@ -170,7 +171,7 @@ public class TrainingData {
     }
 
     private void computeNormalizeFromROM(){
-        List<Path> trainingList = files.subList(2, files.size());
+        List<Path> trainingList = files.subList(1, files.size());
         if (trainingList.isEmpty()) {
             throw new IllegalStateException("No hay data de entrenamiento para normalizar.");
         }
@@ -270,7 +271,7 @@ public class TrainingData {
             this.random = new Random();
         }
         if (!loadInRam){
-            List<Path> trainingList = files.subList(2, files.size());
+            List<Path> trainingList = files.subList(1, files.size());
             for (int i = 0; i < amount; i++){
                 int j = (fileCursor + i) % trainingList.size();
                 pairsLoaded.add(CompletableFuture.supplyAsync(() ->
@@ -315,14 +316,14 @@ public class TrainingData {
         }else {
             try {
                 if (pairsLoaded.isEmpty()) {
-                    List<Path> trainingList = files.subList(2, files.size());
+                    List<Path> trainingList = files.subList(1, files.size());
                     int idx = nextTrainingFileIndex(trainingList);
                     pairsLoaded.add(CompletableFuture.supplyAsync(() ->
                             getPairNormalizeFromDisk(trainingList.get(idx)), VestaEngine.EXECUTOR_TRAINING)
                     );
                 }
                 result = pairsLoaded.pollFirst().get();
-                List<Path> trainingList = files.subList(2, files.size());
+                List<Path> trainingList = files.subList(1, files.size());
                 while (pairsLoaded.size() < maxLoaded) {
                     int idx = nextTrainingFileIndex(trainingList);
                     pairsLoaded.add(CompletableFuture.supplyAsync(() ->
@@ -438,8 +439,8 @@ public class TrainingData {
         return new Normalize(xNormalizer, yNormalizer, X_train_norm.get(), X_val_norm.get(), X_test_norm.get(), y_train_norm.get(), y_val_norm.get(), y_test_norm.get());
     }
 
-    public IOdata.CacheProperties getCacheProperties(List<Symbol> market) {
-        return new IOdata.CacheProperties(lookback, features, yCols, market, Main.MAX_MONTH_TRAINING, samplesSize);
+    public IOdata.CacheProperties getCacheProperties(List<TypeMarket> typeMarket) {
+        return new IOdata.CacheProperties(lookback, features, yCols, typeMarket, Main.MAX_MONTH_TRAINING, samplesSize);
     }
 
     @Getter

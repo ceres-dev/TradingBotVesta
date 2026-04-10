@@ -6,19 +6,28 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-import static xyz.cereshost.vesta.common.market.TimeUnitMarket.*;
+import static xyz.cereshost.vesta.common.market.TimeFrameMarket.*;
 
 public class Market {
 
     public Market(@NotNull Symbol symbol) {
+        this(symbol, ONE_MINUTE);
+    }
+
+    public Market(@NotNull Symbol symbol, TimeFrameMarket timeFrameMarket) {
         this.symbol = symbol;
+        this.timeFrameMarket = timeFrameMarket;
         this.trades = new LinkedHashSet<>(10_000);
         this.depths = new LinkedHashSet<>();
         this.candles = new LinkedHashSet<>(1_000);
     }
 
+    public Market(@NotNull TypeMarket typeMarket) {
+        this(typeMarket.symbol(),  typeMarket.timeFrameMarket());
+    }
+
     @Getter
-    private final TimeUnitMarket timeUnitMarket = ONE_MINUTE;
+    private final TimeFrameMarket timeFrameMarket;
     @NotNull
     @Getter
     private final Symbol symbol;
@@ -124,7 +133,7 @@ public class Market {
             while (it.hasNext()) {
                 Trade t = it.next();
 
-                long minute = (t.time() / timeUnitMarket.getMilliseconds()) * timeUnitMarket.getMilliseconds();
+                long minute = (t.time() / timeFrameMarket.getMilliseconds()) * timeFrameMarket.getMilliseconds();
                 map.computeIfAbsent(minute, k -> new ArrayList<>(20)).add(t);
                 it.remove();
             }
@@ -138,8 +147,8 @@ public class Market {
             NavigableMap<Long, Depth> depthByMinute = new TreeMap<>();
             for (Depth d : getDepths()) {
                 // Depth llega con sello posterior al cierre de la vela; lo alineamos al minuto previo.
-                long shifted = d.getDate() - timeUnitMarket.getMilliseconds();
-                long minute = (Math.max(0L, shifted) / timeUnitMarket.getMilliseconds()) * timeUnitMarket.getMilliseconds();
+                long shifted = d.getDate() - timeFrameMarket.getMilliseconds();
+                long minute = (Math.max(0L, shifted) / timeFrameMarket.getMilliseconds()) * timeFrameMarket.getMilliseconds();
                 depthByMinute.put(minute, d);
             }
             depthByMinuteCache = new TreeMap<>();
@@ -194,7 +203,7 @@ public class Market {
 
         List<Candle> selectedCandles = orderedCandles.subList(from, to);
         long startTime = selectedCandles.getFirst().getOpenTime();
-        long endTimeExclusive = selectedCandles.getLast().getOpenTime() + 60_000L;
+        long endTimeExclusive = selectedCandles.getLast().getOpenTime() + timeFrameMarket.getMilliseconds();
 
         copy.candles = new LinkedHashSet<>(selectedCandles);
         copy.trades = new LinkedHashSet<>(

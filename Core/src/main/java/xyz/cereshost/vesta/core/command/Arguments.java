@@ -195,56 +195,51 @@ public class Arguments {
      *     * Hola -toJson mundo
      * </pre></blockquote>
      * Se crea este argumento final  {@code * Hola mundo } y por separado se obtiene {@code  -toJson} que es el flag
-     * @param command El comando donde se tomara los flags de referencia
      * @param args Argumento crudo
      * @return Argumento
      */
 
     @Contract(value = "_, _ -> new")
-    public static Arguments buildArgsWithFlags(@NotNull BaseCommand command, String... args) {
-        if (command instanceof Flags flags){
-            List<String> nameFlags = flags.getNameFlags();
-            List<String> finalArgs = new ArrayList<>();
-            HashMap<String, CommandFlag<?>> finalFlags = new HashMap<>();
-            String lastFlagName = "";
-            for (String arg : args){
-                if (lastFlagName.startsWith("-") && !arg.startsWith("-")){
-                    //if (lastFlagName.isBlank()) continue;
-                    String stringFlag = lastFlagName.substring(1);
-                    Flags.Flag f = flags.getFlag(stringFlag);
-                    lastFlagName = arg;
-                    if (f == null) continue;
-                    try{
-                        switch (f.getValue()){
-                            case BOOLEAN -> finalArgs.add(arg);
-                            case STRING -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, arg, f.getArgs()));
-                            case INTEGER -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, Integer.parseInt(arg)));
-                            case FLOAT -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, Float.parseFloat(arg)));
-                        }
-                    }catch (NumberFormatException ignored){
+    public static Arguments buildArgsWithFlags(@NotNull Flags flags, String... args) {
+        List<String> nameFlags = flags.getNameFlags();
+        List<String> finalArgs = new ArrayList<>();
+        HashMap<String, CommandFlag<?>> finalFlags = new HashMap<>();
+        String lastFlagName = "";
+        for (String arg : args){
+            if (lastFlagName.startsWith("-") && !arg.startsWith("-")){
+                //if (lastFlagName.isBlank()) continue;
+                String stringFlag = lastFlagName.substring(1);
+                Flags.Flag f = flags.getFlag(stringFlag);
+                lastFlagName = arg;
+                if (f == null) continue;
+                try{
+                    switch (f.getValue()){
+                        case BOOLEAN -> finalArgs.add(arg);
+                        case STRING -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, arg, f.getArgs()));
+                        case INTEGER -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, Integer.parseInt(arg)));
+                        case FLOAT -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, Float.parseFloat(arg)));
+                    }
+                }catch (NumberFormatException ignored){
 
+                }
+            }else {
+                if (arg.startsWith("-")){
+                    String stringFlag = arg.substring(1);
+                    Flags.Flag f = flags.getFlag(stringFlag);
+                    if (f == null)continue;
+                    lastFlagName = arg;
+                    switch (f.getValue()){
+                        case BOOLEAN -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, true));
+                        case STRING -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, null, f.getArgs()));
+                        case INTEGER -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, 0));
+                        case FLOAT -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, 0f));
                     }
                 }else {
-                    if (arg.startsWith("-")){
-                        String stringFlag = arg.substring(1);
-                        Flags.Flag f = flags.getFlag(stringFlag);
-                        if (f == null)continue;
-                        lastFlagName = arg;
-                        switch (f.getValue()){
-                            case BOOLEAN -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, true));
-                            case STRING -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, null, f.getArgs()));
-                            case INTEGER -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, 0));
-                            case FLOAT -> finalFlags.put(stringFlag, new CommandFlag<>(stringFlag, 0f));
-                        }
-                    }else {
-                        finalArgs.add(arg);
-                    }
+                    finalArgs.add(arg);
                 }
             }
-            return new Arguments(finalArgs, finalFlags);
-        }else {
-            return new Arguments(args);
         }
+        return new Arguments(finalArgs, finalFlags);
     }
 
     @Contract(value = "_ -> new")

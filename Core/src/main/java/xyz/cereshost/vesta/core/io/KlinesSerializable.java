@@ -1,16 +1,24 @@
 package xyz.cereshost.vesta.core.io;
 
-import xyz.cereshost.vesta.common.market.TimeUnitMarket;
+import org.jetbrains.annotations.NotNull;
+import xyz.cereshost.vesta.common.market.TimeFrameMarket;
 import xyz.cereshost.vesta.common.market.Volumen;
 import xyz.cereshost.vesta.common.market.Candle;
 
 import java.io.*;
-import java.util.ArrayDeque;
-import java.util.Deque;
-
-import static xyz.cereshost.vesta.core.io.IOMarket.*;
+import java.util.Objects;
 
 public class KlinesSerializable implements ParseSerializable<Candle> {
+
+    private static final int META_MAGIC_TIME_UNIT = 0x54554D31; // "TUM1"
+    private TimeFrameMarket timeFrameMarket = null;
+
+    @Override
+    public void writeMetaDataBin(DataOutput out, @NotNull Candle source) throws IOException {
+        TimeFrameMarket sourceTimeUnit = source.getTimeUnit();
+        out.writeInt(META_MAGIC_TIME_UNIT);
+        out.writeInt(sourceTimeUnit.ordinal());
+    }
 
     @Override
     public void writeBin(DataOutput out, Candle candle) throws IOException {
@@ -29,43 +37,48 @@ public class KlinesSerializable implements ParseSerializable<Candle> {
     }
 
     @Override
-    public Deque<Candle> readBin(DataInputStream in) throws IOException {
+    public Candle readBin(DataInputStream in) throws IOException {
+        long openTime = in.readLong();
+        double open = in.readDouble();
+        double high = in.readDouble();
+        double low = in.readDouble();
+        double close = in.readDouble();
+        double quoteVolume = in.readDouble();
+        double baseVolume = in.readDouble();
+        double takerBuyQuoteVolume = in.readDouble();
+        double sellQuoteVolume = in.readDouble();
+        double deltaUSDT = in.readDouble();
+        double buyRatio = in.readDouble();
+
+        return new Candle(
+                Objects.requireNonNull(timeFrameMarket),
+                openTime,
+                open,
+                high,
+                low,
+                close,
+                new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)
+        );
+    }
+
+    @Override
+    public void readMetaDataBin(DataInputStream in) throws IOException {
+        if (!in.markSupported()) {
+            return;
+        }
+
+        in.mark(Integer.BYTES * 2);
         int magic = in.readInt();
-        if (magic != getMagic()) {
-            return null;
+        if (magic != META_MAGIC_TIME_UNIT) {
+            in.reset();
+            return;
         }
-        int version = in.readInt();
-        if (version != BIN_VERSION) {
-            return null;
+
+        int ordinal = in.readInt();
+        TimeFrameMarket[] values = TimeFrameMarket.values();
+        if (ordinal >= 0 && ordinal < values.length) {
+            timeFrameMarket = values[ordinal];
         }
-        Deque<Candle> list = new ArrayDeque<>(44_000);
-        while (true) {
-            try {
-                long openTime = in.readLong();
-                double open = in.readDouble();
-                double high = in.readDouble();
-                double low = in.readDouble();
-                double close = in.readDouble();
-                double quoteVolume = in.readDouble();
-                double baseVolume = in.readDouble();
-                double takerBuyQuoteVolume = in.readDouble();
-                double sellQuoteVolume = in.readDouble();
-                double deltaUSDT = in.readDouble();
-                double buyRatio = in.readDouble();
-                list.add(new Candle(
-                        TimeUnitMarket.ONE_MINUTE, // TODO: Guardar la unidad de tiempo dentro del bin
-                        openTime,
-                        open,
-                        high,
-                        low,
-                        close,
-                        new Volumen(quoteVolume, baseVolume, takerBuyQuoteVolume, sellQuoteVolume, deltaUSDT, buyRatio)
-                ));
-            } catch (EOFException eof) {
-                break;
-            }
-        }
-        return list;
     }
 
     @Override
@@ -82,7 +95,7 @@ public class KlinesSerializable implements ParseSerializable<Candle> {
         long openTime = Long.parseLong(p[0]);
         long closeTime = Long.parseLong(p[6]);
         return new Candle(
-                TimeUnitMarket.parse(openTime, closeTime),
+                TimeFrameMarket.parse(openTime, closeTime),
                 openTime, // Open time
                 Double.parseDouble(p[1]), // Open
                 Double.parseDouble(p[2]), // High

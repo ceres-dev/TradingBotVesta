@@ -24,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.TreeMap;
 import java.util.function.Consumer;
 
@@ -82,7 +83,7 @@ public final class BinanceApiRest implements BinanceApi {
             params.put("price", formatPrice(symbol.name(), price));
         }
         if (reduceOnly) params.put("reduceOnly", "true");
-        //        if (type.isExit()) params.put("stopPrice", formatPrice(symbol, stopPrice));
+        //        if (type.isExit()) params.put("stopPrice", formatPrice(typeMarkets, stopPrice));
 
 //        Vesta.info("Enviando orden REST: " + type + " " + side +
 //                " Qty:" + (quantity != null ? quantity : "null") +
@@ -186,8 +187,8 @@ public final class BinanceApiRest implements BinanceApi {
         params.put("symbol", symbol.toString());
         JsonNode operationsV2 = sendSignedRequest("GET", "/fapi/v2/positionRisk", params);
         JsonNode operationsV3 = sendSignedRequest("GET", "/fapi/v3/positionRisk", params);
-        JsonNode operationV2 = operationsV2.get(0);
-        JsonNode operationV3 = operationsV3.get(0);
+        JsonNode operationV2 = Objects.requireNonNull(operationsV2).get(0);
+        JsonNode operationV3 = Objects.requireNonNull(operationsV3).get(0);
         PositionData positionData;
         DireccionOperation direccionOperation = DireccionOperation.parse(operationV2.get("positionAmt").asDouble());
         if (direccionOperation != DireccionOperation.NEUTRAL){
@@ -211,7 +212,7 @@ public final class BinanceApiRest implements BinanceApi {
             params.put("symbol", symbol.toString());
             JsonNode positions = sendSignedRequest("GET", "/fapi/v2/positionRisk", params);
 
-            for (JsonNode position : positions) {
+            for (JsonNode position : Objects.requireNonNull(positions)) {
                 String posSymbol = position.get("symbol").asText();
                 if (symbol.toString().equals(posSymbol)) {
                     double positionAmt = position.get("positionAmt").asDouble();
@@ -265,7 +266,7 @@ public final class BinanceApiRest implements BinanceApi {
         String quoteAsset = symbol.getQuoteAsset();
 
         // 3. Acceder al array de 'assets'
-        if (root.has("assets") && root.get("assets").isArray()) {
+        if (Objects.requireNonNull(root).has("assets") && root.get("assets").isArray()) {
             JsonNode assets = root.get("assets");
 
             for (JsonNode assetNode : assets) {
@@ -288,7 +289,7 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
-    public JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
+    public @NotNull JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
         params.put("timestamp", String.valueOf(System.currentTimeMillis()));
         params.put("recvWindow", "20000");
         try {
@@ -303,10 +304,14 @@ public final class BinanceApiRest implements BinanceApi {
                     .build();
 
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            // Parsear la respuesta
             ObjectMapper mapper = new ObjectMapper();
+            // El EndPoint /fapi/v1/stock/contract solo retornar un "SUCCESS" en texto plano (no json)
+            if (response.body().equals("SUCCESS")) {
+                return mapper.readTree("{}");
+            }
             JsonNode root = mapper.readTree(response.body());
-            checkRepose(Symbol.valueOf(params.get("symbol")), root, method, endpoint);
+            String symbolName = params.get("symbol");
+            checkRepose(symbolName == null ? null : Symbol.valueOf(symbolName), root, method, endpoint);
             return root;
         }catch (Exception e) {
             exceptionHandler.accept(e);
@@ -319,7 +324,7 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
-    public JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiRequestException {
+    public @NotNull JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params) throws BinanceApiRequestException {
         try {
             params.put("timestamp", String.valueOf(System.currentTimeMillis()));
             params.put("recvWindow", "20000");

@@ -1,8 +1,10 @@
-package xyz.cereshost.vesta.common.packet;
+package xyz.cereshost.vesta.core.packet;
 
 import lombok.Getter;
+import lombok.SneakyThrows;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
+import xyz.cereshost.vesta.common.packet.*;
 import xyz.cereshost.vesta.common.packet.client.HelloClient;
 
 import java.io.*;
@@ -21,20 +23,19 @@ import java.util.concurrent.Executors;
 public class PacketHandlerServer extends BasePacketHandler {
 
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
-    @Getter
-    private static final HashMap<UUID, SocketProperties> sockets = new HashMap<>();
-    @Getter
-    private static final HashMap<UUID, UUID> mapUUIDS = new HashMap<>();
+    private final HashMap<UUID, SocketProperties> sockets = new HashMap<>();
+    private final HashMap<UUID, UUID> mapUUIDS = new HashMap<>();
 
     private final static int PORT = 2545;
 
-    public void upServer() {
+    @Override
+    public void start() {
         executor.submit(() -> {
             try (ServerSocketChannel serverChannel = ServerSocketChannel.open()) {
                 serverChannel.bind(new InetSocketAddress("0.0.0.0", PORT));
                 Vesta.info("🚀 Servidor escuchando en 0.0.0.0:%d", PORT);
 
-                while (!Thread.currentThread().isInterrupted()) {
+                while (!Thread.currentThread().isInterrupted() && isStared) {
                     SocketChannel clientChannel = serverChannel.accept();
 
                     // Configuración del Socket
@@ -61,6 +62,16 @@ public class PacketHandlerServer extends BasePacketHandler {
                 Vesta.info("❌ Error en el servidor: %s", e.getMessage());
             }
         });
+    }
+
+    @SneakyThrows
+    @Override
+    public void stop() {
+        this.executor.shutdown();
+        this.mapUUIDS.clear();
+        for (Map.Entry<UUID, SocketProperties> entry : sockets.entrySet()) entry.getValue().close();
+        sockets.clear();
+        this.isStared = false;
     }
 
     private void startListening(@NotNull SocketProperties sp, SocketChannel channel) {
@@ -112,7 +123,7 @@ public class PacketHandlerServer extends BasePacketHandler {
         sockets.entrySet().removeIf(entry -> entry.getValue().equals(sp));
     }
 
-    public static void processMessage(byte[] message) {
+    public void processMessage(byte[] message) {
         try {
             Class<?> clazz = PacketManager.getPacketClass(message);
             PacketListener<? extends Packet> packetListener = listeners.get(clazz);
@@ -137,7 +148,7 @@ public class PacketHandlerServer extends BasePacketHandler {
         }
     }
 
-    public static void sendPacket(@NotNull Packet packet, UUID to) {
+    public void sendPacket(@NotNull Packet packet, UUID to) {
         byte[] payload = PacketManager.encodePacket(packet);
         UUID internalId = null;
 
@@ -170,7 +181,7 @@ public class PacketHandlerServer extends BasePacketHandler {
         }
     }
 
-    public static void sendPacketReply(@NotNull PacketClient paketOld, @NotNull Packet packetSend) {
+    public void sendPacketReply(@NotNull PacketClient paketOld, @NotNull Packet packetSend) {
         packetSend.setUuidPacket(paketOld.getUuidPacket());
         sendPacket(packetSend, paketOld.getFrom());
     }

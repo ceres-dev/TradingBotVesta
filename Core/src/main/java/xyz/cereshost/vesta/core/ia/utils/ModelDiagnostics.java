@@ -22,14 +22,14 @@ public final class ModelDiagnostics {
     private ModelDiagnostics() {}
 
     public static void run() throws IOException {
-        if (!IOdata.isBuiltData()) {
-            Vesta.error("No hay cache de entrenamiento. Ejecuta primero build/training.");
-            return;
-        }
+//        if (!IOdata.isBuiltData()) {
+//            Vesta.error("No hay cache de entrenamiento. Ejecuta primero build/training.");
+//            return;
+//        }
 
         Model model = IOdata.loadModel(Device.gpu());
         Pair<XNormalizer, YNormalizer> norms = IOdata.loadNormalizers();
-        TrainingData data = IOdata.getBuiltData();
+//        TrainingData data = IOdata.getBuiltData();
 //        if (data.isLoadInRam()) {
 //            data.prepareNormalize();
 //        } else {
@@ -37,50 +37,50 @@ public final class ModelDiagnostics {
 //            data.setYNormalizer(norms.getValue());
 //        }
 
-        Pair<float[][][], float[][]> test = data.getTestNormalize();
-        float[][][] x = test.getKey();
-        float[][] y = test.getValue();
+//        Pair<float[][][], float[][]> test = data.getTestNormalize();
+//        float[][][] x = test.getKey();
+//        float[][] y = test.getValue();
 
-        if (x == null || x.length == 0) {
-            Vesta.error("Test data vacia.");
-            return;
-        }
-
-        int sampleSize = Math.min(SAMPLE_LIMIT, x.length);
-        int[] sampleIdx = sampleIndices(x.length, sampleSize, 1337);
-        float[][][] sampleX = new float[300_000][x[0].length][x[0][0].length];
-        float[][] sampleY = new float[300_000][y[0].length];
-        for (int i = 0; i < sampleSize; i++) {
-            int idx = sampleIdx[i];
-            sampleX[i] = x[idx];
-            sampleY[i] = y[idx];
-        }
-
-        float[][][] lastOnly1 = maskHistory(sampleX, 1);
-        float[][][] lastOnly5 = maskHistory(sampleX, 5);
-        float[][][] shuffled = shuffleTime(sampleX, 1337);
-        float[][][] reversed = reverseTime(sampleX);
-
-        Predictions base = predict(model, norms.getValue(), sampleX);
-        Predictions pLast1 = predict(model, norms.getValue(), lastOnly1);
-        Predictions pLast5 = predict(model, norms.getValue(), lastOnly5);
-        Predictions pShuf = predict(model, norms.getValue(), shuffled);
-        Predictions pRev = predict(model, norms.getValue(), reversed);
-
-        float[] trueRatio = ratioFromY(norms.getValue(), sampleY);
-
-        Vesta.info("----- Diagnostico de Sensibilidad -----");
-        printStats("Ratio real", trueRatio);
-        printStats("Ratio pred", base.ratio);
-
-        Vesta.info("Sensibilidad Ratio | last=1  MAE: %.6f", mae(base.ratio, pLast1.ratio));
-        Vesta.info("Sensibilidad Ratio | last=5  MAE: %.6f", mae(base.ratio, pLast5.ratio));
-        Vesta.info("Sensibilidad Ratio | shuffle MAE: %.6f", mae(base.ratio, pShuf.ratio));
-        Vesta.info("Sensibilidad Ratio | reverse MAE: %.6f", mae(base.ratio, pRev.ratio));
-        printLookbackSweep(model, norms.getValue(), base, sampleX);
-        Vesta.info("Correlacion (pred vs real): %.4f", corr(base.ratio, trueRatio));
-        Vesta.info("Frac |pred| > 0.95: %.2f%%", 100.0 * fracAbsGreater(base.ratio, 0.95f));
-        Vesta.info("Frac |pred| < 0.10: %.2f%%", 100.0 * fracAbsLess(base.ratio, 0.10f));
+//        if (x == null || x.length == 0) {
+//            Vesta.error("Test data vacia.");
+//            return;
+//        }
+//
+//        int sampleSize = Math.min(SAMPLE_LIMIT, x.length);
+//        int[] sampleIdx = sampleIndices(x.length, sampleSize, 1337);
+//        float[][][] sampleX = new float[300_000][x[0].length][x[0][0].length];
+//        float[][] sampleY = new float[300_000][y[0].length];
+//        for (int i = 0; i < sampleSize; i++) {
+//            int idx = sampleIdx[i];
+//            sampleX[i] = x[idx];
+//            sampleY[i] = y[idx];
+//        }
+//
+//        float[][][] lastOnly1 = maskHistory(sampleX, 1);
+//        float[][][] lastOnly5 = maskHistory(sampleX, 5);
+//        float[][][] shuffled = shuffleTime(sampleX, 1337);
+//        float[][][] reversed = reverseTime(sampleX);
+//
+//        Predictions base = predict(model, norms.getValue(), sampleX);
+//        Predictions pLast1 = predict(model, norms.getValue(), lastOnly1);
+//        Predictions pLast5 = predict(model, norms.getValue(), lastOnly5);
+//        Predictions pShuf = predict(model, norms.getValue(), shuffled);
+//        Predictions pRev = predict(model, norms.getValue(), reversed);
+//
+//        float[] trueRatio = ratioFromY(norms.getValue(), sampleY);
+//
+//        Vesta.info("----- Diagnostico de Sensibilidad -----");
+//        printStats("Ratio real", trueRatio);
+//        printStats("Ratio pred", base.ratio);
+//
+//        Vesta.info("Sensibilidad Ratio | last=1  MAE: %.6f", mae(base.ratio, pLast1.ratio));
+//        Vesta.info("Sensibilidad Ratio | last=5  MAE: %.6f", mae(base.ratio, pLast5.ratio));
+//        Vesta.info("Sensibilidad Ratio | shuffle MAE: %.6f", mae(base.ratio, pShuf.ratio));
+//        Vesta.info("Sensibilidad Ratio | reverse MAE: %.6f", mae(base.ratio, pRev.ratio));
+//        printLookbackSweep(model, norms.getValue(), base, sampleX);
+//        Vesta.info("Correlacion (pred vs real): %.4f", corr(base.ratio, trueRatio));
+//        Vesta.info("Frac |pred| > 0.95: %.2f%%", 100.0 * fracAbsGreater(base.ratio, 0.95f));
+//        Vesta.info("Frac |pred| < 0.10: %.2f%%", 100.0 * fracAbsLess(base.ratio, 0.10f));
     }
 
     private static Predictions predict(Model model, YNormalizer yNormalizer, float[][][] x) {

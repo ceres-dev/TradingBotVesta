@@ -15,11 +15,11 @@ public class DefaultStrategy implements TradingStrategy {
     boolean b = false;
     @Override
     public void executeStrategy(PredictionEngine.SequenceCandlesPrediction pred, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager openOperations) {
-//        openOperations.computeHasOpenOperation(op -> {
-////            if (op.getMinutesOpen() >= 30) openOperations.close(TradingManager.ExitReason.STRATEGY);
-//            op.setSlPercent(2);
-//            op.addTpPercent(1);
-//        });
+        openOperations.computeHasOpenOperation(op -> {
+            if (op.getMinutesOpen() >= 3) openOperations.close(TradingManager.ExitReason.STRATEGY);
+            op.setSlPercent(2);
+            op.addTpPercent(1);
+        });
         if (b) return;
         b = true;
         openOperations.open(

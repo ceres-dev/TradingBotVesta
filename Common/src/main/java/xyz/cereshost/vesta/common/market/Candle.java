@@ -13,11 +13,11 @@ public class Candle extends BaseCandle implements CandleTemporality {
 
     private final long openTime;
     @Getter(AccessLevel.NONE)
-    @NotNull private final TimeUnitMarket timeUnitMarket;
+    @NotNull private final TimeFrameMarket timeFrameMarket;
     @NotNull private final Volumen volumen;
     @Nullable private Candle.DepthCandle depth;
 
-    public Candle(@NotNull TimeUnitMarket timeUnitMarket,
+    public Candle(@NotNull TimeFrameMarket timeFrameMarket,
                   long openTime,
                   double open,
                   double high,
@@ -28,7 +28,7 @@ public class Candle extends BaseCandle implements CandleTemporality {
         super(open, high, low, close);
         this.volumen = volumen;
         this.openTime = openTime;
-        this.timeUnitMarket = timeUnitMarket;
+        this.timeFrameMarket = timeFrameMarket;
     }
 
     public Candle(@NotNull Candle candle){
@@ -57,7 +57,7 @@ public class Candle extends BaseCandle implements CandleTemporality {
     }
 
     @Override
-    public @NotNull TimeUnitMarket getTimeUnit() {
-        return timeUnitMarket;
+    public @NotNull TimeFrameMarket getTimeUnit() {
+        return timeFrameMarket;
     }
 }

@@ -9,9 +9,11 @@ import org.ta4j.core.BaseBarSeriesBuilder;
 import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.*;
 import org.ta4j.core.indicators.averages.EMAIndicator;
+import org.ta4j.core.indicators.averages.MMAIndicator;
 import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.indicators.averages.WMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
+import org.ta4j.core.indicators.helpers.MedianPriceIndicator;
 import org.ta4j.core.indicators.supertrend.SuperTrendIndicator;
 import org.ta4j.core.indicators.volume.VWAPIndicator;
 import org.ta4j.core.num.DecimalNum;
@@ -121,7 +123,7 @@ public class CandlesBuilder {
     public SequenceCandles build(@NotNull Market market) {
         BaseBarSeries series = new BaseBarSeriesBuilder().withName(market.getSymbol().toString()).build();
         NavigableMap<Long, Candle> candleByUnitTime = new TreeMap<>();
-        long ms = market.getTimeUnitMarket().getMilliseconds();
+        long ms = market.getTimeFrameMarket().getMilliseconds();
 
         for (Candle cs : market.getCandles()) {
             long minute = (cs.getOpenTime() / ms) * ms;
@@ -165,7 +167,7 @@ public class CandlesBuilder {
 
         long startMinute = candleByUnitTime.firstKey();
         long endMinute = candleByUnitTime.lastKey();
-        long step = market.getTimeUnitMarket().getMilliseconds();
+        long step = market.getTimeFrameMarket().getMilliseconds();
 
         List<SequenceCandles.CandleContainer> candles = new ArrayList<>();
         int index = 0;

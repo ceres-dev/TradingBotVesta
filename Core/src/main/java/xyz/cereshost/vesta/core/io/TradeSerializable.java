@@ -4,12 +4,13 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.market.Trade;
 
 import java.io.*;
-import java.util.ArrayDeque;
-import java.util.Deque;
-
-import static xyz.cereshost.vesta.core.io.IOMarket.*;
 
 public class TradeSerializable implements ParseSerializable<Trade> {
+
+    @Override
+    public void writeMetaDataBin(DataOutput out, @NotNull Trade source) throws IOException {
+
+    }
 
     @Override
     public void writeBin(@NotNull DataOutput out, Trade trade) throws IOException {
@@ -20,28 +21,17 @@ public class TradeSerializable implements ParseSerializable<Trade> {
     }
 
     @Override
-    public Deque<Trade> readBin(@NotNull DataInputStream in) throws IOException {
-        int magic = in.readInt();
-        if (magic != getMagic()) {
-            return null;
-        }
-        int version = in.readInt();
-        if (version != BIN_VERSION) {
-            return null;
-        }
-        Deque<Trade> list = new ArrayDeque<>(50_000);
-        while (true) {
-            try {
-                long time = in.readLong();
-                double price = in.readDouble();
-                double qty = in.readDouble();
-                boolean isBuyerMaker = in.readBoolean();
-                list.add(new Trade(time, (float) price, (float) qty, isBuyerMaker));
-            } catch (EOFException eof) {
-                break;
-            }
-        }
-        return list;
+    public Trade readBin(@NotNull DataInputStream in) throws IOException {
+        long time = in.readLong();
+        double price = in.readDouble();
+        double qty = in.readDouble();
+        boolean isBuyerMaker = in.readBoolean();
+        return new Trade(time, (float) price, (float) qty, isBuyerMaker);
+    }
+
+    @Override
+    public void readMetaDataBin(DataInputStream in) throws IOException {
+
     }
 
     @Override

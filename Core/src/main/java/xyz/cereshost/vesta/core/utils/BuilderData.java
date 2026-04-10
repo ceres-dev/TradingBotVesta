@@ -9,11 +9,13 @@ import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.common.market.TypeMarket;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.TrainingData;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.IOdata;
+import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalIndex;
 import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
 import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
@@ -40,15 +42,16 @@ public class BuilderData {
     public final static int FEATURES = 5;
     public static final int DEFAULT_FUTURE_WINDOW = 30;
 
-    public static @NotNull TrainingData buildTrainingData(@NotNull List<Symbol> symbols, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
+    public static @NotNull TrainingData buildTrainingData(@NotNull List<TypeMarket> typeMarkets, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
         List<PairCache> cacheEntries = new ArrayList<>();
         long time = System.currentTimeMillis();
         List<CompletableFuture<Object>> waitingCacheSave = new ArrayList<>();
-        for (Symbol symbol : symbols) {
+        for (TypeMarket typeMarket : typeMarkets) {
+            final Symbol symbol = typeMarket.symbol();
             try {
                 SequenceCandles allCandlesForChart = SequenceCandles.empty();
 
-                Vesta.info("Procesando símbolo (Relativo): " + symbol);
+                Vesta.info("Procesando símbolo (Relativo): " + typeMarket.symbol());
 
                 // Procesar cada mes por separado SIN acumular
                 List<Integer> months = IntStream.rangeClosed(1, maxMonth)
@@ -74,7 +77,7 @@ public class BuilderData {
                                 LocalDate date = targetMonth.atDay(day);
                                 int dayIndex = IOMarket.resolveDayIndex(date);
                                 Vesta.info("(idx:%d) ⬆️ Cargando dia %s", currentMonth, date);
-                                Market market = IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_TRAINING_MODEL, symbol, dayIndex);
+                                Market market = IOMarket.loadMarket(typeMarket, new LoadDataMethodLocalIndex(false, dayIndex));
                                 if (market == null) {
                                     Vesta.warning("(idx:%d) Mercado vacio para %s", currentMonth, date);
                                     continue;
@@ -92,10 +95,13 @@ public class BuilderData {
                                 Vesta.warning("(idx:%d) insuficiente historial: " + candlesThisMonth.size() + " velas", currentMonth);
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
+
                             Vesta.info("(idx:%d) 📦 Exportando Pair (C:%d)", currentMonth, candlesThisMonth.size());
+
                             Pair<float[][][], float[][]> pair = BuilderData.buildPair(candlesThisMonth, LOOK_BACK);
                             AtomicReference<float[][][]> Xraw = new AtomicReference<>(pair.getKey());
                             AtomicReference<float[][]> yraw = new AtomicReference<>(pair.getValue());
+
                             if (Xraw.get().length == 0) {
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
@@ -113,7 +119,7 @@ public class BuilderData {
                             MonthMarketCache cache = new MonthMarketCache(samples, seqLen, features, yCols, candlesThisMonth, true);
                             waitingCacheSave.add(CompletableFuture.supplyAsync(() -> {
                                 try {
-                                    Path path = IOdata.saveTrainingCache(IOdata.createTrainingCacheDir(), symbol, currentMonth, Xraw.get(), yraw.get(), false);
+                                    Path path = IOdata.saveTrainingCache(IOdata.createTrainingCacheDir(typeMarkets), typeMarket.symbol(), currentMonth, Xraw.get(), yraw.get(), false);
                                     cache.setCacheFile(path);
                                 } catch (IOException ignored) {}
                                 Arrays.fill(Xraw.get(), null);
@@ -184,7 +190,7 @@ public class BuilderData {
         int yCols = cacheEntries.getFirst().yCols;
 
         long delta = (System.currentTimeMillis() - time);
-        Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", symbols.stream().map(Symbol::toString).toList()), totalSamples, delta/60_000,((delta/1000)%60));
+        Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", typeMarkets.stream().map(TypeMarket::symbol).map(Symbol::toString).toList()), totalSamples, delta/60_000,((delta/1000)%60));
 
         System.gc();
         return new TrainingData(cacheEntries.stream().map(PairCache::getCacheFile).toList(), totalSamples, seqLen, features, yCols);
@@ -231,7 +237,7 @@ public class BuilderData {
         float[][][] X = new float[samples][lookBack][FEATURES];
         float[][] y = new float[samples][5];
 
-        for (int i = 1; i < samples; i++) {
+        for (int i = 0; i < samples; i++) {
             // X
             for (int j = 0; j < lookBack; j++) {
                 X[i][j] = extractFeatures(candles.getCandle(i + j + 1), candles.getCandle(i + j));
@@ -239,7 +245,8 @@ public class BuilderData {
             // Y
             CandleIndicators cOld = candles.getCandle(i);
             CandleIndicators cNew = candles.getCandle(i + 1);
-            y[i] = extractFeatures(cNew, cOld);
+            float[] t = extractFeatures(cNew, cOld);
+            y[i] = t;
         }
         return new Pair<>(X, y);
     }
@@ -262,7 +269,7 @@ public class BuilderData {
     }
 
     public CandlesBuilder getProfierCandlesBuilder(){
-        return new CandlesBuilder().addATRIndicator("output5", 12);
+        return new CandlesBuilder().addATRIndicator("output5", 14);
     }
 
     public static double checkDouble(double d) throws IllegalArgumentException{

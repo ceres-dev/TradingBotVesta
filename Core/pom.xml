@@ -30,7 +30,7 @@
 
     <dependencies>
         <dependency>
-            <groupId>xyz.cereshost.vesta</groupId>
+            <groupId>xyz.cereshost.vesta.common</groupId>
             <artifactId>Common</artifactId>
             <version>1.0</version>
         </dependency>

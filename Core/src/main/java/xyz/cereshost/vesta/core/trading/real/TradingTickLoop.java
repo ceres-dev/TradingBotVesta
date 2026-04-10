@@ -10,6 +10,7 @@ import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.core.exception.BinanceCodeWeakException;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
+import xyz.cereshost.vesta.core.io.setup.LoadDataMethodBinance;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.message.Notifiable;
 import xyz.cereshost.vesta.core.strategy.StrategyConfig;
@@ -34,12 +35,12 @@ import java.util.concurrent.locks.LockSupport;
 
 public final class TradingTickLoop implements Notifiable {
 
-    private static final long CANDLE_MS = 60_000;
     private static final long OFFSET = 1_500;
     private static final long MAX_ALLOWED_GAP_MS = TimeUnit.MINUTES.toMillis(5);
     private static final long RECENT_WINDOW_MS = TimeUnit.DAYS.toMillis(1);
     private static final int LOCAL_ZIP_WARMUP_DAYS = 5;
-    private final Symbol symbol;
+
+    private final TypeMarket typeMarket;
     @Getter
     private final Executor executor = Executors.newFixedThreadPool(6);
     @NotNull
@@ -55,27 +56,29 @@ public final class TradingTickLoop implements Notifiable {
     @Nullable
     private final Market recentMarket;
 
+
     private static final ScheduledExecutorService WORKERS = Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r);
                 t.setName("Candle-Worker");
                 return t;
             });
 
-    public TradingTickLoop(@NotNull Symbol symbol,
+    public TradingTickLoop(@NotNull TypeMarket typeMarket,
                            @Nullable PredictionEngine engine,
                            @NotNull TradingStrategy tradingStrategy,
                            @NotNull BinanceApi binanceApi,
                            @Nullable MediaNotification mediaNotification
     ) {
-        this.symbol = symbol;
+        this.typeMarket = typeMarket;
         this.engine = engine;
         this.strategy = tradingStrategy;
         this.mediaNotification = Objects.requireNonNullElse(mediaNotification, MediaNotification.empty());
         try {
             binanceApi.setExceptionHandler(this::stop);
             binanceApi.setMediaNotification(this.mediaNotification);
+
             Vesta.info("Estrategia: %s", strategy.getClass().getSimpleName());
-            Market warmupMarket = IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, true);
+            Market warmupMarket = IOMarket.loadMarketsRecentDays(typeMarket, LOCAL_ZIP_WARMUP_DAYS, true);
             if (warmupMarket.getCandles().isEmpty()) {
                 this.localWarmupMarket = null;
                 Vesta.warning("No se encontró histórico LOCAL_ZIP para warmup, usando solo BINANCE en vivo.");
@@ -85,7 +88,7 @@ public final class TradingTickLoop implements Notifiable {
                         LOCAL_ZIP_WARMUP_DAYS, warmupMarket.getCandles().size()
                 );
             }
-            Market recent = IOMarket.loadMarketsBinance(symbol, 1440, 1000, 100);
+            Market recent = IOMarket.loadMarket(typeMarket, new LoadDataMethodBinance(1440, 1000, 100));
             this.recentMarket = recent.getCandles().isEmpty() ? null : recent;
             Market bootMarket = loadMarket();
             manager = new TradingManagerBinance(binanceApi, mediaNotification, bootMarket);
@@ -98,12 +101,15 @@ public final class TradingTickLoop implements Notifiable {
     public boolean isClose = false;
 
     public void startCandleLoop() {
+        if (typeMarket.symbol().isTradFi()){
+            manager.signContract();
+        }
         if (localWarmupMarket != null) {
             WORKERS.scheduleAtFixedRate(() -> {
                 try {
                     synchronized (localWarmupMarket) {
                         localWarmupMarket.clear();
-                        localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, false));
+                        localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(typeMarket, LOCAL_ZIP_WARMUP_DAYS, false));
                     }
                 } catch (InterruptedException | IOException e) {
                     throw new RuntimeException(e);
@@ -114,7 +120,7 @@ public final class TradingTickLoop implements Notifiable {
             while (!Thread.currentThread().isInterrupted() && !isClose) {
                 try {
                     long serverTime = getBinanceServerTime();
-                    long nextCandle = ((serverTime / CANDLE_MS) + 1) * CANDLE_MS;
+                    long nextCandle = ((serverTime / typeMarket.timeFrameMarket().getMilliseconds()) + 1) * typeMarket.timeFrameMarket().getMilliseconds();
                     long targetTime = nextCandle + OFFSET;
                     long sleep = targetTime - serverTime;
 
@@ -188,7 +194,7 @@ public final class TradingTickLoop implements Notifiable {
             if ((counter % 10) == 0 && localWarmupMarket != null) {
                 synchronized (localWarmupMarket) {
                     localWarmupMarket.clear();
-                    localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(symbol, LOCAL_ZIP_WARMUP_DAYS, false));
+                    localWarmupMarket.concat(IOMarket.loadMarketsRecentDays(typeMarket, LOCAL_ZIP_WARMUP_DAYS, false));
                 }
             }
             return;
@@ -201,7 +207,7 @@ public final class TradingTickLoop implements Notifiable {
         }
 //        ChartUtils.showCandleChart("temporal", allCandles, "?");
 
-        Vesta.info("💰 Precio del %s: %.2f", symbol, allCandles.getCandleLast().getClose());
+        Vesta.info("💰 Precio del %s: %.2f", typeMarket.symbol(), allCandles.getCandleLast().getClose());
 
         PredictionEngine.SequenceCandlesPrediction result;
         int endExclusive = allCandles.size() - 1;
@@ -229,11 +235,11 @@ public final class TradingTickLoop implements Notifiable {
             }
             prev = current;
         }
-//        if (maxGap >= maxGapMs) {
-//            Vesta.warning("Hueco temporal detectado: %.2f minutos (umbral %.2f). Se omite estrategia.",
-//                    maxGap / 60_000.0, maxGapMs / 60_000.0);
-//            return true;
-//        }
+        if (maxGap >= maxGapMs) {
+            Vesta.warning("Hueco temporal detectado: %.2f minutos (umbral %.2f). Se omite estrategia.",
+                    maxGap / 60_000.0, maxGapMs / 60_000.0);
+            return true;
+        }
         return false;
     }
 
@@ -266,7 +272,7 @@ public final class TradingTickLoop implements Notifiable {
             updateStatus("Loop detenido");
             return;
         }
-
+        Symbol symbol = typeMarket.symbol();
         if (manager.hasOpenOperation()){
             updateStatusType(StatusType.TRADING);
             int longs = 0;
@@ -315,7 +321,7 @@ public final class TradingTickLoop implements Notifiable {
 
     @Contract(pure = true, value = "-> new")
     public Market loadMarket() throws IOException, InterruptedException {
-        Market liveMarket = IOMarket.loadMarketsBinance(symbol, 5, 30, 10);
+        Market liveMarket = IOMarket.loadMarket(typeMarket, new LoadDataMethodBinance(5, 30, 10));
         if (recentMarket != null) {
             synchronized (recentMarket) {
                 recentMarket.concat(liveMarket);
@@ -323,7 +329,7 @@ public final class TradingTickLoop implements Notifiable {
             }
         }
 
-        Market merged = new Market(symbol);
+        Market merged = new Market(typeMarket);
         if (localWarmupMarket == null || localWarmupMarket.getCandles().isEmpty()) {
             if (recentMarket != null) {
                 synchronized (recentMarket) {

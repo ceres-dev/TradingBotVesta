@@ -309,12 +309,20 @@ public interface TradingManager extends Notifiable {
         // Si es nulo no hay limite de Stop Loss
         @Nullable private Double stopLoss;
 
+        @Nullable private Double qty;
+
         private boolean isLimit = true;
         private TimeInForce timeInForce = TimeInForce.GTC;
 
         public RiskLimits(@Nullable Double takeProfit, @Nullable Double stopLoss) {
             this.takeProfit = takeProfit;
             this.stopLoss = stopLoss;
+        }
+
+        public RiskLimits(@Nullable Double takeProfit, @Nullable Double stopLoss,  @Nullable Double qty) {
+            this.takeProfit = takeProfit;
+            this.stopLoss = stopLoss;
+            this.qty = qty;
         }
 
         public RiskLimits setLimit(boolean isLimit) {
@@ -395,18 +403,14 @@ public interface TradingManager extends Notifiable {
         public double getTpPrice(double price){
             Double takeProfit = getTakeProfit();
             if (takeProfit == null) return Double.NaN;
-            if (isAbsolute()) {
-                return takeProfit;
-            }
+            if (isAbsolute()) return takeProfit;
             return price + (price * (takeProfit) * 0.01D);
         }
 
         public double getSlPrice(double price){
             Double stopLoss = getStopLoss();
             if (stopLoss == null) return Double.NaN;
-            if (isAbsolute()) {
-                return stopLoss;
-            }
+            if (isAbsolute()) return stopLoss;
             return price + (price * (-stopLoss) * 0.01D);
         }
     }

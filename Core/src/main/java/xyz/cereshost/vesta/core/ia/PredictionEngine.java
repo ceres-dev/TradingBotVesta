@@ -44,8 +44,8 @@ public class PredictionEngine {
         this.model = model;
         this.xNormalizer = xNormalizer;
         this.yNormalizer = yNormalizer;
-        this.lookBack = Integer.parseInt(model.getProperty("lookBack"));
-        this.features = Integer.parseInt(model.getProperty("features"));
+        this.lookBack = VestaEngine.LOOK_BACK; // Integer.parseInt(model.getProperty("lookBack"));
+        this.features = BuilderData.FEATURES; //Integer.parseInt(model.getProperty("features"));
     }
 
     /**

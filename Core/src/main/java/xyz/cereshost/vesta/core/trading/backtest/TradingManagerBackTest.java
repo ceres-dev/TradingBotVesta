@@ -15,6 +15,7 @@ import java.util.List;
 public class TradingManagerBackTest implements TradingManager {
 
     private @Nullable BackTestOpenOperation openOperation = null;
+    private @Nullable BackTestOpenOperation openForRemoveOperation = null;
     private final ArrayList<BackTestCloseOperation> closeOperations = new ArrayList<>();
 
     @Getter
@@ -53,6 +54,8 @@ public class TradingManagerBackTest implements TradingManager {
     public @Nullable CloseOperation close(ExitReason reason) {
         BackTestCloseOperation closeOperation = new BackTestCloseOperation(backTestEngine.getCurrentPrice(), backTestEngine.getCurrentTime(), reason, openOperation);
         closeOperations.add(closeOperation);
+        openForRemoveOperation = openOperation;
+        openOperation = null;
         return closeOperation;
     }
 
@@ -101,13 +104,13 @@ public class TradingManagerBackTest implements TradingManager {
         return backTestEngine.getCurrentTime();
     }
 
-    public void computeCloses() {
+    public void computeClose() {
         lastOpenOperation.clear();
         for (CloseOperation closeOperation : closeOperations) {
-            BackTestOpenOperation open = openOperation;
+            BackTestOpenOperation open = openForRemoveOperation;
             if (open != null) {
                 backTestEngine.computeClose(closeOperation, open);
-                openOperation = null;
+                openForRemoveOperation = null;
             }
             backTestEngine.getStrategy().closeOperation(closeOperation, this);
         }

@@ -40,7 +40,7 @@ public class MetricsListener extends TrainingListenerAdapter {
 //        float minValidation = result.getValidateEvaluation("min_diff");
 //        float closeValidation = result.getValidateEvaluation("max_diff");
         // Calucar porgreso
-        int totalEpoch = (VestaEngine.EPOCH * (Main.MAX_MONTH_TRAINING-2) * VestaEngine.AUXILIAR_EPOCH);
+        int totalEpoch = (VestaEngine.EPOCH * (Main.MAX_MONTH_TRAINING-1) * VestaEngine.AUXILIAR_EPOCH);
         double progress = (double) trainer.getTrainingResult().getEpoch() / totalEpoch;
         long time = System.currentTimeMillis();
         long delta = Math.abs(lastTime - time);
@@ -58,7 +58,7 @@ public class MetricsListener extends TrainingListenerAdapter {
         );
 
         // Ejecutar tarea de forma asincrónico
-        VestaEngine.EXECUTOR.execute(() -> {
+        Main.EXECUTOR.execute(() -> {
             lastTime = time;
             VestaLoss customLoss = (VestaLoss) trainer.getLoss();
             VestaLoss.LossReport l = customLoss.awaitNextBatchData();

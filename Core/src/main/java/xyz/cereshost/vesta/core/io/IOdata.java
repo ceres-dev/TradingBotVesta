@@ -7,6 +7,7 @@ import com.google.gson.JsonIOException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.common.market.TypeMarket;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.packet.Utils;
 import xyz.cereshost.vesta.common.Vesta;
@@ -44,8 +45,8 @@ public class IOdata {
         );
     }
 
-    public static Path createTrainingCacheDir() throws IOException {
-        Path dir = new CacheProperties(VestaEngine.LOOK_BACK, BuilderData.FEATURES, 5, Main.SYMBOLS_TRAINING, Main.MAX_MONTH_TRAINING, -1).getPath();
+    public static Path createTrainingCacheDir(List<TypeMarket> typeMarkets) throws IOException {
+        Path dir = new CacheProperties(VestaEngine.LOOK_BACK, BuilderData.FEATURES, 5, typeMarkets, Main.MAX_MONTH_TRAINING, -1).getPath();
         Files.createDirectories(dir);
         return dir;
     }
@@ -303,24 +304,24 @@ public class IOdata {
     }
 
     @Nullable
-    public static CacheProperties loadCacheProperties() throws IOException {
-        Path cacheDir = createTrainingCacheDir();
+    public static CacheProperties loadCacheProperties(List<TypeMarket> typeMarkets) throws IOException {
+        Path cacheDir = createTrainingCacheDir(typeMarkets);
         if (!Files.exists(cacheDir)) return null;
         Path dir = cacheDir.resolve("cacheProperties.json");
         if (!Files.exists(dir)) return null;
         CacheProperties cache = Utils.GSON.fromJson(Files.readString(dir), CacheProperties.class);
-        if (cache.symbol.isEmpty()){
+        if (cache.typeMarkets.isEmpty()){
             return null;
         }else {
             return cache;
         }
     }
 
-    public record CacheProperties(int lookback, int features, int outputs, List<Symbol> symbol, int monthData, int sizeData) {
+    public record CacheProperties(int lookback, int features, int outputs, List<TypeMarket> typeMarkets, int monthData, int sizeData) {
 
         @NotNull
         public UUID getUUID() {
-            return UUID.nameUUIDFromBytes(String.format("L: %d F: %d O: %d S: %s M: %d", lookback, features, outputs, symbol, monthData).getBytes(StandardCharsets.UTF_8));
+            return UUID.nameUUIDFromBytes(String.format("L: %d F: %d O: %d S: %s M: %d", lookback, features, outputs, typeMarkets, monthData).getBytes(StandardCharsets.UTF_8));
         }
 
         public Path getPath() {
@@ -342,12 +343,12 @@ public class IOdata {
         }
     }
 
-    public static boolean isBuiltData() throws IOException {
-        return loadCacheProperties() != null;
+    public static boolean isBuiltData(List<TypeMarket> typeMarkets) throws IOException {
+        return loadCacheProperties(typeMarkets) != null;
     }
 
-    public static TrainingData getBuiltData() throws IOException {
-        CacheProperties cacheProperties = Objects.requireNonNull(loadCacheProperties());
+    public static TrainingData getBuiltData(List<TypeMarket> typeMarkets) throws IOException {
+        CacheProperties cacheProperties = Objects.requireNonNull(loadCacheProperties(typeMarkets));
         List<Path> cacheFiles = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(Path.of(CACHE_DIR, "cache", cacheProperties.getUUID().toString()))) {
             for (Path path : stream) {

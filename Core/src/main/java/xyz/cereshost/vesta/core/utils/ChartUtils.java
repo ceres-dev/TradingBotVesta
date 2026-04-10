@@ -396,7 +396,7 @@ public class ChartUtils {
             endTime = Math.max(endTime, pred.getLast().time());
         }
         if (endTime <= startTime) {
-            endTime = startTime + 60_000L;
+            endTime = startTime + lookbackCandles.getFirst().getTimeUnit().getMilliseconds();
         }
         axis.setRange(new Date(startTime), new Date(endTime));
 

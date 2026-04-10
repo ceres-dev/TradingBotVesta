@@ -44,7 +44,6 @@ public class BackTestEngine {
         this.strategy = strategy;
         this.stats = new BackTestStats(market);
         currentPrice = market.getCandles().getFirst().getOpen();
-
     }
 
     public BackTestEngine(Market market, PredictionEngine engine) {
@@ -112,13 +111,12 @@ public class BackTestEngine {
             }
 
             // Inicia la simulaciónn de una vela de duración
-
             simulateOneTick(
                     allCandles.get(i + 1),
                     operations
             );
             operations.computeHasOpenOperation(TradingManager.OpenOperation::nextMinute);
-            operations.computeCloses();
+            operations.computeClose();
         }
         stats.getTradesComplete().addAll(extraStats);
         return new BackTestResult(
@@ -164,7 +162,7 @@ public class BackTestEngine {
         double positionSize = openOperation.getInitialMargenUSD() * openOperation.getLeverage(); // notional
         double qty = positionSize / openOperation.getEntryPrice();
 
-        double entryFee = positionSize * market.getFeedMaker();
+        double entryFee = positionSize * market.getFeedTaker();
         double exitNotional = qty * closeOperation.getExitPrice();
         double exitFee = exitNotional * market.getFeedTaker();
 
@@ -205,7 +203,7 @@ public class BackTestEngine {
             Candle candle,
             TradingManagerBackTest operations
     ) {
-        long endTime = candle.getOpenTime() + 60_000;
+        long endTime = candle.getOpenTime() + market.getTimeFrameMarket().getMilliseconds();
 
         // Obtener trades reales de este minuto
         List<Trade> trades = market.getTradesInWindow(candle.getOpenTime(), endTime);

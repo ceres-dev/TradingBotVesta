@@ -6,7 +6,7 @@ public interface CandleTemporality {
 
     long getOpenTime();
 
-    @NotNull TimeUnitMarket getTimeUnit();
+    @NotNull TimeFrameMarket getTimeUnit();
 
     default long getCloseTime() {
         return getOpenTime() + getTimeUnit().getMilliseconds();
