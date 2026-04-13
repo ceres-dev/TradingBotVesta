@@ -16,9 +16,9 @@ import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
-import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.packet.PacketHandlerServer;
-import xyz.cereshost.vesta.core.strategy.strategis.*;
+import xyz.cereshost.vesta.core.strategy.strategis.AlfaStrategy;
+import xyz.cereshost.vesta.core.strategy.strategis.ZetaStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
@@ -35,8 +35,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class Main {
 
@@ -46,11 +46,11 @@ public class Main {
     public static final HanderCommand handerCommand = new HanderCommand();
     public static final String NAME_MODEL = "VestaIA";
 
-    public static final ExecutorService EXECUTOR = Executors.newScheduledThreadPool(8);
+    public static final ScheduledExecutorService EXECUTOR = Executors.newScheduledThreadPool(8);
 
-    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.XAUUSDT, TimeFrameMarket.FIFTEEN_MINUTES);
+    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.SOLUSDC, TimeFrameMarket.ONE_HOUR);
     @NotNull public static final List<TypeMarket> SYMBOLS_TRAINING = List.of(TYPE_MARKET);
-    public static final int MAX_MONTH_TRAINING = 4;
+    public static final int MAX_MONTH_TRAINING = 12*2;
     public static final Gson GSON = new Gson();
 
     public static void main(String[] args) throws IOException, InterruptedException, ExecutionException {
@@ -71,7 +71,7 @@ public class Main {
                 market.sortd();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
                 PredictionEngine engine = new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu()));
-                showDataBackTest(new BackTestEngine(market, engine, new ZetaStrategy()).run());
+                showDataBackTest(new BackTestEngine(market, engine, new AlfaStrategy()).run());
             }
             case "trading" -> new TradingTickLoop(TYPE_MARKET, null, new ZetaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + TYPE_MARKET.symbol() +"\\trades"));
@@ -89,9 +89,10 @@ public class Main {
     }
 
     private static @NotNull Market getMarket(boolean loadTrade) {
-        return Objects.requireNonNull(IOMarket.loadMarket(
+        return Objects.requireNonNull(
+                IOMarket.loadMarket(
                     TYPE_MARKET,
-                    new LoadDataMethodLocalRange(loadTrade, 0, 90)
+                    new LoadDataMethodLocalRange(loadTrade, 0, 30)
                 )
         );
     }

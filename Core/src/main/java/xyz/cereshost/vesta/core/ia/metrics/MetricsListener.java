@@ -35,8 +35,8 @@ public class MetricsListener extends TrainingListenerAdapter {
         // Obtener los resultados
         float lossTrain = result.getTrainLoss();
         float lossValidation = result.getValidateLoss();
-        float maeTrain = result.getTrainEvaluation("ema");
-        float maeValidation = result.getValidateEvaluation("ema");
+//        float maeTrain = result.getTrainEvaluation("ema");
+//        float maeValidation = result.getValidateEvaluation("ema");
 //        float minValidation = result.getValidateEvaluation("min_diff");
 //        float closeValidation = result.getValidateEvaluation("max_diff");
         // Calucar porgreso
@@ -64,10 +64,11 @@ public class MetricsListener extends TrainingListenerAdapter {
             VestaLoss.LossReport l = customLoss.awaitNextBatchData();
             if (datasetLoss == null && datasetNormal == null) {
                 datasetNormal = ChartUtils.plot("Training Loss/MAE " + String.join(", ", symbols), "epochs",
-                        List.of(new ChartUtils.DataPlot("Loss T", List.of(Math.min(lossTrain, 50)), new Color(41, 82, 33), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
+                        List.of(
                                 new ChartUtils.DataPlot("Loss V", List.of(Math.min(lossValidation, 50)), new Color(108, 217, 91), ChartUtils.DataPlot.StyleLine.NORMAL),
-                                new ChartUtils.DataPlot("MAE T", List.of(Math.min(maeTrain, 50)), new Color(91, 63, 63), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
-                                new ChartUtils.DataPlot("MAE V", List.of(Math.min(maeValidation, 50)), Color.PINK, ChartUtils.DataPlot.StyleLine.NORMAL)
+                                new ChartUtils.DataPlot("Loss T", List.of(Math.min(lossTrain, 50)), new Color(41, 82, 33), ChartUtils.DataPlot.StyleLine.DISCONTINUA)
+//                                new ChartUtils.DataPlot("MAE T", List.of(Math.min(maeTrain, 50)), new Color(91, 63, 63), ChartUtils.DataPlot.StyleLine.DISCONTINUA),
+//                                new ChartUtils.DataPlot("MAE V", List.of(Math.min(maeValidation, 50)), Color.PINK, ChartUtils.DataPlot.StyleLine.NORMAL)
                         )
                 );
                 datasetLoss = ChartUtils.plot("Training Losses Max/Min " + String.join(", ", symbols), "epochs",
@@ -85,9 +86,9 @@ public class MetricsListener extends TrainingListenerAdapter {
                 ));
             }
             datasetNormal.getSeries("Loss T").add(count, lossTrain);
-            datasetNormal.getSeries("MAE T").add(count, maeTrain);
+//            datasetNormal.getSeries("MAE T").add(count, maeTrain);
             datasetNormal.getSeries("Loss V").add(count, lossValidation);
-            datasetNormal.getSeries("MAE V").add(count, maeValidation);
+//            datasetNormal.getSeries("MAE V").add(count, maeValidation);
             datasetLoss.getSeries("total").add(count, l.total());
 //            datasetLoss.getSeries("high").add(count, minValidation);
             datasetLoss.getSeries("Loss closes").add(count, l.closes());

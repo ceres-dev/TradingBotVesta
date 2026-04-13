@@ -30,7 +30,7 @@ import java.util.List;
 public class PredictionEngine {
 
     private static final int MODEL_OUTPUTS = 5;
-    private static final int REQUIRED_AUTOREGRESSIVE_FEATURES = 5;
+    private static final int REQUIRED_AUTOREGRESSIVE_FEATURES = BuilderData.FEATURES;
 
     private final Model model;
     private final XNormalizer xNormalizer;

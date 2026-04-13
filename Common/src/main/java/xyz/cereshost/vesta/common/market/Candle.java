@@ -16,6 +16,7 @@ public class Candle extends BaseCandle implements CandleTemporality {
     @NotNull private final TimeFrameMarket timeFrameMarket;
     @NotNull private final Volumen volumen;
     @Nullable private Candle.DepthCandle depth;
+    @Nullable private Metric metrics;
 
     public Candle(@NotNull TimeFrameMarket timeFrameMarket,
                   long openTime,
@@ -40,6 +41,7 @@ public class Candle extends BaseCandle implements CandleTemporality {
                 candle.getClose(),
                 candle.getVolumen()
         );
+        setMetrics(candle.getMetrics());
         setDepth(candle.getDepth());
     }
 

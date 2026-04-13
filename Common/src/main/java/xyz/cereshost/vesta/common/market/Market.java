@@ -20,6 +20,7 @@ public class Market {
         this.trades = new LinkedHashSet<>(10_000);
         this.depths = new LinkedHashSet<>();
         this.candles = new LinkedHashSet<>(1_000);
+        this.metrics = new LinkedHashSet<>();
     }
 
     public Market(@NotNull TypeMarket typeMarket) {
@@ -37,6 +38,8 @@ public class Market {
     private LinkedHashSet<Candle> candles;
     @Getter
     private LinkedHashSet<Depth> depths;
+    @Getter
+    private LinkedHashSet<Metric> metrics;
 
 
     public void concat(@NotNull Market market) {
@@ -46,6 +49,7 @@ public class Market {
         this.trades.addAll(market.trades);
         this.depths.addAll(market.depths);
         this.candles.addAll(market.candles);
+        this.metrics.addAll(market.metrics);
     }
 
     public synchronized void addTrade(Collection<Trade> trade) {
@@ -76,11 +80,24 @@ public class Market {
         this.candles = candle;
     }
 
+    public synchronized void addMetrics(Collection<Metric> metrics) {
+        Iterator<Metric> iterator = metrics.iterator();
+        while (iterator.hasNext()) {
+            this.metrics.add(iterator.next());
+            iterator.remove();
+        }
+    }
+
+    public synchronized void setMetrics(LinkedHashSet<Metric> metrics) {
+        this.metrics = metrics;
+    }
+
     public synchronized void sortd(){
         int chunkSize = 10_000;
         trades = sortd(trades, chunkSize, Trade::time);
         depths = sortd(depths, chunkSize, Depth::getDate);
         candles = sortd(candles, chunkSize, Candle::getOpenTime);
+        metrics = sortd(metrics, chunkSize, Metric::getOpenTime);
     }
 
     public interface TimeAccessor<T> {
@@ -123,11 +140,12 @@ public class Market {
         return sorted;
     }
 
-    @Getter private transient NavigableMap<Long, List<Trade>> tradesByMinuteCache;
-    @Getter private transient NavigableMap<Long, Depth> depthByMinuteCache;
+    @Getter private transient NavigableMap<Long, List<Trade>> tradesByTimeFrame;
+    @Getter private transient NavigableMap<Long, Depth> depthByTimeFrame;
+    @Getter private transient NavigableMap<Long, Metric> metricByTimeFrame;
 
     public void buildTradeCache() {
-        if ((tradesByMinuteCache == null || tradesByMinuteCache.isEmpty()) && !trades.isEmpty()) {
+        if ((tradesByTimeFrame == null || tradesByTimeFrame.isEmpty()) && !trades.isEmpty()) {
             final LinkedHashMap<Long, List<Trade>> map = new LinkedHashMap<>();
             Iterator<Trade> it = trades.iterator();
             while (it.hasNext()) {
@@ -137,13 +155,13 @@ public class Market {
                 map.computeIfAbsent(minute, k -> new ArrayList<>(20)).add(t);
                 it.remove();
             }
-            tradesByMinuteCache = new TreeMap<>();
-            tradesByMinuteCache.putAll(map);
+            tradesByTimeFrame = new TreeMap<>();
+            tradesByTimeFrame.putAll(map);
         }
     }
 
     public void buildDepthCache() {
-        if ((depthByMinuteCache == null || depthByMinuteCache.isEmpty()) && !depths.isEmpty()){
+        if ((depthByTimeFrame == null || depthByTimeFrame.isEmpty()) && !depths.isEmpty()){
             NavigableMap<Long, Depth> depthByMinute = new TreeMap<>();
             for (Depth d : getDepths()) {
                 // Depth llega con sello posterior al cierre de la vela; lo alineamos al minuto previo.
@@ -151,18 +169,63 @@ public class Market {
                 long minute = (Math.max(0L, shifted) / timeFrameMarket.getMilliseconds()) * timeFrameMarket.getMilliseconds();
                 depthByMinute.put(minute, d);
             }
-            depthByMinuteCache = new TreeMap<>();
-            depthByMinuteCache.putAll(depthByMinute);
+            depthByTimeFrame = new TreeMap<>();
+            depthByTimeFrame.putAll(depthByMinute);
+        }
+    }
+
+    public void buildMetricsCache() {
+        if ((metricByTimeFrame == null || metricByTimeFrame.isEmpty()) && !metrics.isEmpty()) {
+            long sourceMs = FIVE_MINUTE.getMilliseconds();
+            long targetMs = timeFrameMarket.getMilliseconds();
+
+            NavigableMap<Long, Metric> metricByFiveMinute = new TreeMap<>();
+            for (Metric metric : metrics) {
+                long aligned = (metric.getOpenTime() / sourceMs) * sourceMs;
+                metricByFiveMinute.put(aligned, copyMetricWithTime(metric, aligned));
+            }
+
+            NavigableMap<Long, Metric> targetMap = new TreeMap<>();
+            if (targetMs == sourceMs) {
+                targetMap.putAll(metricByFiveMinute);
+                metricByTimeFrame = targetMap;
+                return;
+            }
+
+            if (targetMs > sourceMs) {
+                Map<Long, MetricAccumulator> accumulators = new LinkedHashMap<>();
+                for (Map.Entry<Long, Metric> entry : metricByFiveMinute.entrySet()) {
+                    long bucket = (entry.getKey() / targetMs) * targetMs;
+                    accumulators.computeIfAbsent(bucket, ignored -> new MetricAccumulator()).add(entry.getValue());
+                }
+                for (Map.Entry<Long, MetricAccumulator> entry : accumulators.entrySet()) {
+                    targetMap.put(entry.getKey(), entry.getValue().buildAverage(entry.getKey()));
+                }
+            } else {
+                long start = metricByFiveMinute.firstKey();
+                long endExclusive = metricByFiveMinute.lastKey() + sourceMs;
+                for (long time = start; time < endExclusive; time += targetMs) {
+                    Map.Entry<Long, Metric> floor = metricByFiveMinute.floorEntry(time);
+                    if (floor == null) {
+                        continue;
+                    }
+                    if (time >= floor.getKey() + sourceMs) {
+                        continue;
+                    }
+                    targetMap.put(time, copyMetricWithTime(floor.getValue(), time));
+                }
+            }
+            metricByTimeFrame = targetMap;
         }
     }
 
     public List<Trade> getTradesInWindow(long startTime, long endTime) {
-        if (tradesByMinuteCache == null) {
+        if (tradesByTimeFrame == null) {
             throw new IllegalStateException("TradesByMinuteCache has not been initialized");
         }
         // Devuelve todos los trades que ocurrieron en ese minuto
         // subMap devuelve una vista, values() la colección, y flatMap las une
-        return tradesByMinuteCache.subMap(startTime, true, endTime, false)
+        return tradesByTimeFrame.subMap(startTime, true, endTime, false)
                 .values().stream()
                 .flatMap(List::stream)
                 .sorted(Comparator.comparingLong(Trade::time)) // Asegurar orden cronológico
@@ -226,7 +289,10 @@ public class Market {
         trades.clear();
         depths.clear();
         candles.clear();
-        if (tradesByMinuteCache != null) tradesByMinuteCache.clear();
+        metrics.clear();
+        if (tradesByTimeFrame != null) tradesByTimeFrame.clear();
+        if (depthByTimeFrame != null) depthByTimeFrame.clear();
+        if (metricByTimeFrame != null) metricByTimeFrame.clear();
     }
 
     public double getFeedTaker(){
@@ -251,5 +317,42 @@ public class Market {
 
     public double getFeedPercent(){
         return getFeed() *100;
+    }
+
+    private static @NotNull Metric copyMetricWithTime(@NotNull Metric source, long createTime) {
+        return new Metric(
+                createTime,
+                source.getSumOpenInterest(),
+                source.getSumOpenInterestValue(),
+                source.getCountTopTradesLongShortRatio(),
+                source.getCountTradesLongShortRatio()
+        );
+    }
+
+    private static final class MetricAccumulator {
+        private double sumOpenInterest;
+        private double sumOpenInterestValue;
+        private double countTopTradesLongShortRatio;
+        private double countTradesLongShortRatio;
+        private int count;
+
+        void add(@NotNull Metric metric) {
+            sumOpenInterest += metric.getSumOpenInterest();
+            sumOpenInterestValue += metric.getSumOpenInterestValue();
+            countTopTradesLongShortRatio += metric.getCountTopTradesLongShortRatio();
+            countTradesLongShortRatio += metric.getCountTradesLongShortRatio();
+            count++;
+        }
+
+        @NotNull Metric buildAverage(long createTime) {
+            int divisor = Math.max(1, count);
+            return new Metric(
+                    createTime,
+                    sumOpenInterest / divisor,
+                    sumOpenInterestValue / divisor,
+                    countTopTradesLongShortRatio / divisor,
+                    countTradesLongShortRatio / divisor
+            );
+        }
     }
 }

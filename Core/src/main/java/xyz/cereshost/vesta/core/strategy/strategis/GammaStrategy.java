@@ -57,6 +57,6 @@ public class GammaStrategy implements TradingStrategy {
 
     @Override
     public @NotNull CandlesBuilder getBuilder() {
-        return new CandlesBuilder().addEMAIndicator("fast", 30).addWMAIndicator("slow", 15);
+        return new CandlesBuilder().addEMAIndicator("fast", 35).addWMAIndicator("slow", 15);
     }
 }

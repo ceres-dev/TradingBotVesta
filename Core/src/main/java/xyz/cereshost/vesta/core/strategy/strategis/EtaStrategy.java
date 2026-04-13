@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.strategy.strategys;
+package xyz.cereshost.vesta.core.strategy.strategis;
 
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -9,58 +9,37 @@ import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
+import java.util.Random;
+
 public class EtaStrategy implements TradingStrategy {
 
     private static final int LEVERAGE = 4;
+    private boolean isUp = false;
+    private static final Random random = new Random();
 
     @Override
     public void executeStrategy(PredictionEngine.@Nullable SequenceCandlesPrediction pred, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager operations) {
-
-        boolean longSign = visibleCandles.getCandleLast().get("st") < visibleCandles.getLast().getClose() &&
-                visibleCandles.getCandleLast(1).get("st") > visibleCandles.getLast(1).getClose();
-        boolean shortSign = visibleCandles.getCandleLast().get("st") > visibleCandles.getLast().getClose() &&
-                visibleCandles.getCandleLast(1).get("st") < visibleCandles.getLast(1).getClose();
-        TradingManager.RiskLimits riskLimits = new TradingManager.RiskLimitsPercent(null, null);
-        double usd = operations.getAvailableBalance()/2;
-        operations.computeHasOpenOperation(operation -> {
-            if (longSign && operation.getDireccion().isShort()) {
-                operation.close();
-            }
-            if (shortSign && operation.getDireccion().isLong()) {
-                operation.close();
-            }
-
-        });
-        if (operations.hasOpenOperation()) return;
-        if (shortSign) {
-            operations.open(riskLimits,
-                    DireccionOperation.SHORT,
-                    usd,
+        double diff = ((visibleCandles.getCandleLast(1).get("ema") - visibleCandles.getCandleLast().get("ema"))/visibleCandles.getCandleLast().get("ema"))*100;
+        if(!operations.hasOpenOperation()){
+            operations.open(new TradingManager.RiskLimitsPercent(null, 0.4),
+                    random.nextBoolean() ? DireccionOperation.LONG : DireccionOperation.SHORT,
+                    operations.getAvailableBalance(),
                     LEVERAGE
             );
+        }else {
+            double sl = operations.getOpen().getSlPercent();
+            double mul = sl < 0 ? 1.1 : 0.6;
+            operations.getOpen().setSlPercent(Math.min(sl, sl - (diff*mul)));
         }
-        if (longSign) {
-            operations.open(riskLimits,
-                    DireccionOperation.LONG,
-                    usd,
-                    LEVERAGE
-            );
-        }
-
     }
 
     @Override
     public void closeOperation(TradingManager.CloseOperation closeOperation, TradingManager operations) {
-        TradingManager.RiskLimits riskLimits = new TradingManager.RiskLimitsPercent(null, null);
-        operations.open(riskLimits,
-                closeOperation.getDireccion().inverse(),
-                operations.getAvailableBalance()/2,
-                LEVERAGE
-        );
+        isUp = closeOperation.isProfit() == closeOperation.getDireccion().isLong();
     }
 
     @Override
     public @NotNull CandlesBuilder getBuilder(){
-        return new CandlesBuilder().addSuperTrendIndicator("st", 15, 4);
+        return new CandlesBuilder().addATRIndicator("atr", 14).addEMAIndicator("ema", 16);
     }
 }

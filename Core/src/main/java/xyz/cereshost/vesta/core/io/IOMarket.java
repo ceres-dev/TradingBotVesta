@@ -203,17 +203,29 @@ public class IOMarket {
             }else {
                 trades = new ArrayDeque<>();
             }
+            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de metrics", targetYear, targetMonth, targetDay, normalizedDayIndex);
+            Deque<Metric> metrics;
+            try {
+                File metricsFile = ensureFileCached(typeMarket, TypeData.METRICS, targetDate);
+                metrics = parseMetricsFromFile(metricsFile);
+            } catch (IOException metricsException) {
+                Vesta.info("%d/%02d/%02d (idx=%d) No se pudieron cargar metrics: %s",
+                        targetYear, targetMonth, targetDay, normalizedDayIndex, metricsException.getMessage());
+                metrics = new ArrayDeque<>();
+            }
             if (candles.isEmpty()) {
                 Vesta.info("Datos incompletos o corruptos para %s en %d/%02d/%02d (idx=%d)", symbol, targetYear, targetMonth, targetDay, normalizedDayIndex);
                 return null;
             }
             int sizeCandles = candles.size();
             int sizeTrades = trades.size();
+            int sizeMetrics = metrics.size();
             Vesta.info("%d/%02d/%02d (idx=%d) 🔒 Asegurando orden de los datos", targetYear, targetMonth, targetDay, normalizedDayIndex);
             LinkedHashSet<Candle> candlesSorted = Market.sortd(candles, 10_000, Candle::getOpenTime);
             LinkedHashSet<Trade> tradeSorted = Market.sortd(trades, 10_000, Trade::time);
+            LinkedHashSet<Metric> metricSorted = Market.sortd(metrics, 10_000, Metric::getOpenTime);
 
-            if (loadTrades){
+            if (loadTrades && !tradeSorted.isEmpty()){
                 // 3. Lógica de CORTE (Sincronización de tiempos)
                 long minTimeCandles = candlesSorted.getFirst().getOpenTime();
                 long maxTimeCandles = candlesSorted.getLast().getOpenTime();
@@ -241,11 +253,21 @@ public class IOMarket {
                 while (!tradeSorted.isEmpty() && tradeSorted.getLast().time() > commonEnd) {
                     tradeSorted.removeLast();
                 }
+                while (!metricSorted.isEmpty() && metricSorted.getFirst().getOpenTime() < commonStart) {
+                    metricSorted.removeFirst();
+                }
+                while (!metricSorted.isEmpty() && metricSorted.getLast().getOpenTime() > commonEnd) {
+                    metricSorted.removeLast();
+                }
+            } else if (loadTrades) {
+                Vesta.info("%d/%02d/%02d (idx=%d) Sin trades para ajustar ventana comun", targetYear, targetMonth, targetDay, normalizedDayIndex);
             }
 
             final Market market = new Market(symbol, timeFrameMarket);
             market.setCandles(candlesSorted);
             market.setTrade(tradeSorted);
+            market.setMetrics(metricSorted);
+            Vesta.info("Metrics cargadas para %s: %d", symbol, sizeMetrics);
 
             Vesta.info("%d/%02d/%02d (idx=%d) 🟩 Mercado cargado desde DISCO: %s (C: %d, T: %d) en %.2fs",
                     targetYear, targetMonth, targetDay, normalizedDayIndex, symbol, sizeCandles, sizeTrades, (float) (System.currentTimeMillis() - timeTotal) / 1000);
@@ -291,6 +313,7 @@ public class IOMarket {
         String baseName = switch (type){
             case TRADES -> String.format("%s-trades-%s", symbol, dateStr);
             case KLINES ->  String.format("%s-%s-%s", symbol, timeFrameMarket.getKeyName(), dateStr);
+            case METRICS -> String.format("%s-metrics-%s", symbol, dateStr);
             case DEPTH -> throw new UnsupportedOperationException();
         };
 
@@ -311,6 +334,7 @@ public class IOMarket {
         ParseSerializable<?> serializable = switch (type){
             case KLINES -> new KlinesSerializable();
             case TRADES -> new TradeSerializable();
+            case METRICS -> new MetricsSerializable();
             case DEPTH -> throw new UnsupportedOperationException();
         };
 
@@ -422,6 +446,40 @@ public class IOMarket {
         return parseFromCSVandWriteBin(file, parseCSV, parseCSV);
     }
 
+    private static Deque<Metric> parseMetricsFromFile(File file) {
+        Deque<Metric> list = new ArrayDeque<>();
+        MetricsSerializable parseCSV = new MetricsSerializable();
+
+        Deque<Metric> cached1 = parseFromBin(binFileForZip(file), parseCSV);
+        if (cached1 != null) {
+            return cached1;
+        }
+        if (!file.exists()) return list;
+        if (file.getName().endsWith(EXT_ZIP)) {
+            Deque<Metric> cached2 = parseFromBinInZip(file, parseCSV);
+            if (cached2 != null) {
+                return cached2;
+            }
+        }
+
+        return parseFromCSVandWriteBin(file, parseCSV, parseCSV);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public <T> void drainTask(Deque<FutureTask<List<T>>> tasks, Deque<T> list) {
+        try {
+            FutureTask<List<T>> task = tasks.removeFirst();
+            List<T> trades = task.get();
+            if (trades != null && !trades.isEmpty()) {
+                list.addAll(trades);
+            }
+        } catch (InterruptedException | ExecutionException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private static <T> @NotNull Deque<T> parseFromCSVandWriteBin(File file, SerializableCSV<T> SerializableCSV, SerializableBin<T> serializableBin) {
         Deque<T> list = new ArrayDeque<>();
         if (!file.exists()) return list;
@@ -489,47 +547,6 @@ public class IOMarket {
         return list;
     }
 
-    public interface SerializableBin<T> {
-        void writeMetaDataBin(DataOutput out, @NotNull T source)throws IOException;
-        void writeBin(DataOutput out, T source) throws IOException;
-        T readBin(DataInputStream in) throws IOException;
-        void readMetaDataBin(DataInputStream in) throws IOException;
-        int getMagic();
-    }
-
-    public interface SerializableCSV<T> {
-        T parseLine(String line);
-
-        default void submitBatch(Deque<FutureTask<List<T>>> tasks, List<String> batch) {
-            List<String> batchCopy = new ArrayList<>(batch);
-            FutureTask<List<T>> task = new FutureTask<>(() -> {
-                List<T> sources = new ArrayList<>(batchCopy.size());
-                for (String line : batchCopy) {
-                    T source = parseLine(line);
-                    sources.add(source);
-                }
-                return sources;
-            });
-            tasks.addLast(task);
-            VestaEngine.EXECUTOR_AUXILIAR_BUILD.execute(task);
-        }
-    }
-
-    public <T> void drainTask(Deque<FutureTask<List<T>>> tasks, Deque<T> list) {
-        try {
-            FutureTask<List<T>> task = tasks.removeFirst();
-            List<T> trades = task.get();
-            if (trades != null && !trades.isEmpty()) {
-                list.addAll(trades);
-            }
-        } catch (InterruptedException | ExecutionException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////
-
     private static <T> @Nullable Deque<T> parseFromBin(File binFile, SerializableBin<T> parseMethod) {
         File candidate = binFile;
         if (candidate.getName().endsWith(EXT_BIN_ZST)) {
@@ -548,49 +565,6 @@ public class IOMarket {
             Vesta.info("Error leyendo binario: " + e.getMessage());
             return null;
         }
-    }
-
-    private static <T> @Nullable Deque<T> readBin(@NotNull SerializableBin<T> parseMethod, @NotNull DataInputStream in) throws IOException {
-        int magic = in.readInt();
-        if (magic != parseMethod.getMagic()) {
-            return null;
-        }
-        int version = in.readInt();
-        if (version != BIN_VERSION) {
-            return null;
-        }
-        parseMethod.readMetaDataBin(in);
-        Deque<T> list = new ArrayDeque<>(5_000);
-        while (true) {
-            try {
-                list.add(parseMethod.readBin(in));
-            } catch (EOFException eof) {
-                break;
-            }
-        }
-        return list;
-    }
-
-    @Contract("_ -> new")
-    private static @NotNull DataInputStream openBinInputStream(File binFile) throws IOException {
-        InputStream in = new BufferedInputStream(new FileInputStream(binFile), (1 << 20) * BUFFER_READ_MB);
-        if (binFile.getName().endsWith(EXT_ZST)) {
-            in = new ZstdInputStream(in);
-        }
-        // Ensure mark/reset support for optional metadata reads.
-        in = new BufferedInputStream(in, 8 * 1024);
-        return new DataInputStream(in);
-    }
-
-    private static @NotNull DataOutputStream openBinOutputStream(File binFile, boolean useZstd) throws IOException {
-        OutputStream out = new BufferedOutputStream(new FileOutputStream(binFile), (1 << 20) * BUFFER_READ_MB);
-        if (useZstd) {
-            ZstdOutputStream zOut = new ZstdOutputStream(out);
-            zOut.setLevel(ZSTD_LEVEL);
-            zOut.setWorkers(Math.min(8, Runtime.getRuntime().availableProcessors()));
-            out = zOut;
-        }
-        return new DataOutputStream(out);
     }
 
     private static <T> @Nullable Deque<T> parseFromBinInZip(File zipFile, SerializableBin<T> parse) {
@@ -616,10 +590,55 @@ public class IOMarket {
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    @FunctionalInterface
-    public interface BinWriter {
-        void write(DataOutputStream out) throws IOException;
+    private static <T> @Nullable Deque<T> readBin(@NotNull SerializableBin<T> parseMethod, @NotNull DataInputStream in) throws IOException {
+        int magic = in.readInt();
+        if (magic != parseMethod.getMagic()) {
+            return null;
+        }
+        int version = in.readInt();
+        if (version != BIN_VERSION) {
+            return null;
+        }
+        parseMethod.readMetaDataBin(in);
+        Deque<T> list = new ArrayDeque<>(5_000);
+        while (true) {
+            try {
+                list.add(parseMethod.readBin(in));
+            } catch (EOFException eof) {
+                break;
+            }
+        }
+        return list;
     }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    @Contract("_ -> new")
+    private static @NotNull DataInputStream openBinInputStream(File binFile) throws IOException {
+        InputStream in = new BufferedInputStream(new FileInputStream(binFile), (1 << 20) * BUFFER_READ_MB);
+        if (binFile.getName().endsWith(EXT_ZST)) {
+            in = new ZstdInputStream(in);
+        }
+        // Ensure mark/reset support for optional metadata reads.
+        in = new BufferedInputStream(in, 8 * 1024);
+        return new DataInputStream(in);
+    }
+
+    private static @NotNull DataOutputStream openBinOutputStream(File binFile, boolean useZstd) throws IOException {
+        OutputStream out = new BufferedOutputStream(new FileOutputStream(binFile), (1 << 20) * BUFFER_READ_MB);
+        if (useZstd) {
+            ZstdOutputStream zOut = new ZstdOutputStream(out);
+            zOut.setLevel(ZSTD_LEVEL);
+            zOut.setWorkers(Math.min(8, Runtime.getRuntime().availableProcessors()));
+            out = zOut;
+        }
+        return new DataOutputStream(out);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public static void rewriteZipWithBinEntry(@NotNull File zipFile, String entryName, @NotNull BinWriter writer) throws IOException {
         File parent = zipFile.getParentFile();
@@ -683,7 +702,6 @@ public class IOMarket {
             }
         }
     }
-
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -752,12 +770,46 @@ public class IOMarket {
         }
     }
 
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    public interface SerializableBin<T> {
+        void writeMetaDataBin(DataOutput out, @NotNull T source)throws IOException;
+        void writeBin(DataOutput out, T source) throws IOException;
+        T readBin(DataInputStream in) throws IOException;
+        void readMetaDataBin(DataInputStream in) throws IOException;
+        int getMagic();
+    }
+
+    public interface SerializableCSV<T> {
+        T parseLine(String line);
+
+        default void submitBatch(Deque<FutureTask<List<T>>> tasks, List<String> batch) {
+            List<String> batchCopy = new ArrayList<>(batch);
+            FutureTask<List<T>> task = new FutureTask<>(() -> {
+                List<T> sources = new ArrayList<>(batchCopy.size());
+                for (String line : batchCopy) {
+                    T source = parseLine(line);
+                    sources.add(source);
+                }
+                return sources;
+            });
+            tasks.addLast(task);
+            VestaEngine.EXECUTOR_AUXILIAR_BUILD.execute(task);
+        }
+    }
+
+    @FunctionalInterface
+    public interface BinWriter {
+        void write(DataOutputStream out) throws IOException;
+    }
+
     private record OrderBookRaw(List<List<String>> bids, List<List<String>> asks) {}
 
     private enum TypeData{
         KLINES,
         TRADES,
-        DEPTH
+        DEPTH,
+        METRICS
     }
 }
-

@@ -303,7 +303,7 @@ public interface TradingManager extends Notifiable {
 
     @Data
     @AllArgsConstructor
-    abstract class RiskLimits{
+    abstract class RiskLimits{ // TODO: Arreglar los limites cuando es relativo
         // Si es nulo no hay limite de Take Profit
         @Nullable private Double takeProfit;
         // Si es nulo no hay limite de Stop Loss
@@ -338,80 +338,130 @@ public interface TradingManager extends Notifiable {
         private @Nullable BiFunction<Double, Boolean, Boolean> onUpdate = null;
         private final boolean isAbsolute = this instanceof RiskLimitsAbsolute;
 
+        private static double toTpPriceFromPercent(double price, double takeProfitPercent, @NotNull DireccionOperation direccion) {
+            double pct = takeProfitPercent * 0.01D;
+            return direccion == LONG ? price + (price * pct) : price - (price * pct);
+        }
+
+        private static double toSlPriceFromPercent(double price, double stopLossPercent, @NotNull DireccionOperation direccion) {
+            double pct = stopLossPercent * 0.01D;
+            return direccion == LONG ? price - (price * pct) : price + (price * pct);
+        }
+
         public void setStopLoss(Double stopLoss, double price) {
+            setStopLoss(stopLoss, price, LONG);
+        }
+
+        public void setStopLoss(Double stopLoss, double price, @NotNull DireccionOperation direccion) {
             if (onUpdate != null) {
-                if (onUpdate.apply(isAbsolute ? stopLoss : (-(stopLoss/100)*price) + price, false)) this.stopLoss = stopLoss;
+                if (onUpdate.apply(isAbsolute ? stopLoss : toSlPriceFromPercent(price, stopLoss, direccion), false)) this.stopLoss = stopLoss;
             }else this.stopLoss = stopLoss;
         }
 
         public void setTakeProfit(Double takeProfit, double price) {
+            setTakeProfit(takeProfit, price, LONG);
+        }
+
+        public void setTakeProfit(Double takeProfit, double price, @NotNull DireccionOperation direccion) {
             if (onUpdate != null) {
-                if (onUpdate.apply(isAbsolute ? takeProfit : ((takeProfit/100)*price) + price, true)) this.takeProfit = takeProfit;
+                if (onUpdate.apply(isAbsolute ? takeProfit : toTpPriceFromPercent(price, takeProfit, direccion), true)) this.takeProfit = takeProfit;
             }else this.takeProfit = takeProfit;
         }
 
         public void setTakeProfitPercent(double percent, double price) {
+            setTakeProfitPercent(percent, price, LONG);
+        }
+
+        public void setTakeProfitPercent(double percent, double price, @NotNull DireccionOperation direccion) {
             if (isAbsolute) {
-                setTakeProfit(price * (percent/100) + price, price);
-            }else setTakeProfit(percent, price);
+                setTakeProfit(toTpPriceFromPercent(price, percent, direccion), price, direccion);
+            }else setTakeProfit(percent, price, direccion);
         }
 
         public void addTakeProfitPercent(double percent, double price) {
+            addTakeProfitPercent(percent, price, LONG);
+        }
+
+        public void addTakeProfitPercent(double percent, double price, @NotNull DireccionOperation direccion) {
             if (isAbsolute) {
                 if (this.takeProfit == null){
-                    setTakeProfit(price * (percent/100) + price, price);
-                }else setTakeProfit(this.takeProfit + (price * (percent/100) + price), price);
+                    setTakeProfit(toTpPriceFromPercent(price, percent, direccion), price, direccion);
+                }else setTakeProfit(this.takeProfit + toTpPriceFromPercent(price, percent, direccion), price, direccion);
             }else {
                 if (this.takeProfit == null) {
-                    setTakeProfit(percent, price);
-                }else setTakeProfit(this.takeProfit + percent, price);
+                    setTakeProfit(percent, price, direccion);
+                }else setTakeProfit(this.takeProfit + percent, price, direccion);
             }
         }
 
         public void setStopLossPercent(double percent, double price) {
+            setStopLossPercent(percent, price, LONG);
+        }
+
+        public void setStopLossPercent(double percent, double price, @NotNull DireccionOperation direccion) {
             if (isAbsolute) {
-                setStopLoss(price * (percent/100) + price, price);
-            }else setStopLoss(percent, price);
+                setStopLoss(toSlPriceFromPercent(price, percent, direccion), price, direccion);
+            }else setStopLoss(percent, price, direccion);
         }
 
         public void addStopLossPercent(double percent, double price) {
+            addStopLossPercent(percent, price, LONG);
+        }
+
+        public void addStopLossPercent(double percent, double price, @NotNull DireccionOperation direccion) {
             if (isAbsolute) {
                 if (this.stopLoss == null){
-                    setStopLoss(price * (percent/100) + price, price);
-                }else setStopLoss(this.stopLoss + (price * (percent/100)) + price, price);
+                    setStopLoss(toSlPriceFromPercent(price, percent, direccion), price, direccion);
+                }else setStopLoss(this.stopLoss + toSlPriceFromPercent(price, percent, direccion), price, direccion);
             }else {
                 if (this.stopLoss == null) {
-                    setStopLoss(percent, price);
-                }else setStopLoss(this.stopLoss + percent, price);
+                    setStopLoss(percent, price, direccion);
+                }else setStopLoss(this.stopLoss + percent, price, direccion);
             }
         }
 
         public double getTpPercent(double price) {
+            return getTpPercent(price, LONG);
+        }
+
+        public double getTpPercent(double price, @NotNull DireccionOperation direccion) {
             Double takeProfit = getTakeProfit();
             if (takeProfit == null) return Double.NaN;
             if (!isAbsolute()) return takeProfit;
-            return ((takeProfit - price) / price) * 100D;
+            return direccion == LONG ? ((takeProfit - price) / price) * 100D : ((price - takeProfit) / price) * 100D;
         }
 
         public double getSlPercent(double price) {
+            return getSlPercent(price, LONG);
+        }
+
+        public double getSlPercent(double price, @NotNull DireccionOperation direccion) {
             Double stopLoss = getStopLoss();
             if (stopLoss == null) return Double.NaN;
             if (!isAbsolute()) return stopLoss;
-            return ((stopLoss - price) / price) * 100D;
+            return direccion == LONG ? ((price - stopLoss) / price) * 100D : ((stopLoss - price) / price) * 100D;
         }
 
         public double getTpPrice(double price){
+            return getTpPrice(price, LONG);
+        }
+
+        public double getTpPrice(double price, @NotNull DireccionOperation direccion){
             Double takeProfit = getTakeProfit();
             if (takeProfit == null) return Double.NaN;
             if (isAbsolute()) return takeProfit;
-            return price + (price * (takeProfit) * 0.01D);
+            return toTpPriceFromPercent(price, takeProfit, direccion);
         }
 
         public double getSlPrice(double price){
+            return getSlPrice(price, LONG);
+        }
+
+        public double getSlPrice(double price, @NotNull DireccionOperation direccion){
             Double stopLoss = getStopLoss();
             if (stopLoss == null) return Double.NaN;
             if (isAbsolute()) return stopLoss;
-            return price + (price * (-stopLoss) * 0.01D);
+            return toSlPriceFromPercent(price, stopLoss, direccion);
         }
     }
 
@@ -428,7 +478,6 @@ public interface TradingManager extends Notifiable {
 
         public RiskLimitsAbsolute(@Nullable Double takeProfitAbsolute, @Nullable Double stopLossAbsolute, Double price) {
             super(takeProfitAbsolute == null ? null : takeProfitAbsolute + price, stopLossAbsolute == null ? null : price - stopLossAbsolute);
-            Vesta.error("TP: " + takeProfitAbsolute + "  SL: " + stopLossAbsolute);
         }
     }
 
@@ -443,35 +492,35 @@ public interface TradingManager extends Notifiable {
         double getEntryPrice();
 
         default double getTpPercent() {
-            return getRiskLimits().getTpPercent(getEntryPrice());
+            return getRiskLimits().getTpPercent(getEntryPrice(), getDireccion());
         }
 
         default double getSlPercent() {
-            return getRiskLimits().getSlPercent(getEntryPrice());
+            return getRiskLimits().getSlPercent(getEntryPrice(), getDireccion());
         }
 
         default double getTpPrice(){
-            return getRiskLimits().getTpPrice(getEntryPrice());
+            return getRiskLimits().getTpPrice(getEntryPrice(), getDireccion());
         }
 
         default double getSlPrice(){
-            return getRiskLimits().getSlPrice(getEntryPrice());
+            return getRiskLimits().getSlPrice(getEntryPrice(), getDireccion());
         }
 
         default void setTpPercent(double tpPercent) {
-            getRiskLimits().setTakeProfitPercent(tpPercent, getEntryPrice());
+            getRiskLimits().setTakeProfitPercent(tpPercent, getEntryPrice(), getDireccion());
         }
 
         default void setSlPercent(double slPercent) {
-            getRiskLimits().setStopLossPercent(slPercent, getEntryPrice());
+            getRiskLimits().setStopLossPercent(slPercent, getEntryPrice(), getDireccion());
         }
 
         default void addTpPercent(double tpPercent) {
-            getRiskLimits().addTakeProfitPercent(tpPercent, getEntryPrice());
+            getRiskLimits().addTakeProfitPercent(tpPercent, getEntryPrice(), getDireccion());
         }
 
         default void addSlPercent(double slPercent) {
-            getRiskLimits().addStopLossPercent(slPercent, getEntryPrice());
+            getRiskLimits().addStopLossPercent(slPercent, getEntryPrice(), getDireccion());
         }
     }
 }

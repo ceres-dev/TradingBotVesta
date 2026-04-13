@@ -97,7 +97,7 @@ public class YNormalizer implements Normalizer<float[][]> {
     public float[][] inverseTransform(float[][] yNorm) {
         float[][] original = new float[yNorm.length][yNorm[0].length];
         for (int i = 0; i < yNorm.length; i++) {
-            for (int col = 0; col < yNorm[i].length; col++) {
+            for (int col = 0; col < /*yNorm[i].length*/1; col++) {
                 double v = (yNorm[i][col] * stds[col]) + means[col];
                 original[i][col] = Double.isFinite(v) ? (float) v : 0f;
             }

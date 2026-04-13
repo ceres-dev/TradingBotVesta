@@ -14,7 +14,7 @@ import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 public class ZetaStrategy implements TradingStrategy {
     // TradingView inputs:
     // point = 32, os = 1, mf = 2, anti = false
-    private static final double POINT = 32;
+    private static final double POINT = 25;
     private static final double ORDER_SIZE_BASE = 1.0;
     private static final double MARTINGALE_MULTIPLIER = 2.0;
     private static final boolean ANTI_MARTINGALE = true;
@@ -70,7 +70,7 @@ public class ZetaStrategy implements TradingStrategy {
             return;
         }
 
-        if (ema < 0.8) return;
+        if (ema < 0.7) return;
 //        if (atr < 9 || atr > 17) return;
 
         if (operations.hasOpenOperation()) {
@@ -112,7 +112,7 @@ public class ZetaStrategy implements TradingStrategy {
 
     @Override
     public @NotNull CandlesBuilder getBuilder() {
-        return new CandlesBuilder().addEMAIndicator("close_ema_low", 30).addATRIndicator("atr", 14);
+        return new CandlesBuilder().addEMAIndicator("close_ema_low", 35).addATRIndicator("atr", 14);
     }
 
     private static double getClosedPnlPercent(@NotNull TradingManager.CloseOperation closeOperation) {

@@ -46,7 +46,7 @@ public class IOdata {
     }
 
     public static Path createTrainingCacheDir(List<TypeMarket> typeMarkets) throws IOException {
-        Path dir = new CacheProperties(VestaEngine.LOOK_BACK, BuilderData.FEATURES, 5, typeMarkets, Main.MAX_MONTH_TRAINING, -1).getPath();
+        Path dir = new CacheProperties(VestaEngine.LOOK_BACK, BuilderData.FEATURES, 1, typeMarkets, Main.MAX_MONTH_TRAINING, -1).getPath();
         Files.createDirectories(dir);
         return dir;
     }

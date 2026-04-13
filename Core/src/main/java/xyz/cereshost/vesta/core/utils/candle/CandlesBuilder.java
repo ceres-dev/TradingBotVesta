@@ -8,13 +8,13 @@ import org.ta4j.core.BaseBarSeries;
 import org.ta4j.core.BaseBarSeriesBuilder;
 import org.ta4j.core.Indicator;
 import org.ta4j.core.indicators.*;
+import org.ta4j.core.indicators.adx.ADXIndicator;
 import org.ta4j.core.indicators.averages.EMAIndicator;
-import org.ta4j.core.indicators.averages.MMAIndicator;
 import org.ta4j.core.indicators.averages.SMAIndicator;
 import org.ta4j.core.indicators.averages.WMAIndicator;
 import org.ta4j.core.indicators.helpers.ClosePriceIndicator;
-import org.ta4j.core.indicators.helpers.MedianPriceIndicator;
 import org.ta4j.core.indicators.supertrend.SuperTrendIndicator;
+import org.ta4j.core.indicators.volume.OnBalanceVolumeIndicator;
 import org.ta4j.core.indicators.volume.VWAPIndicator;
 import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
@@ -22,6 +22,7 @@ import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.Depth;
 import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.common.market.Metric;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ConcurrentHashBiDictionary;
 import xyz.cereshost.vesta.core.utils.ProgressBar;
@@ -79,6 +80,53 @@ public class CandlesBuilder {
         return this;
     }
 
+    @Contract(value = "_, -> this")
+    public synchronized CandlesBuilder addOBVIndicator(String key) {
+        indicators.put(key, (data, indicators) -> new OnBalanceVolumeIndicator(data.series()));
+        return this;
+    }
+
+    @Contract(value = "_, _ -> this")
+    public synchronized CandlesBuilder addERIndicator(String key, int barCount) {
+        indicators.put(key, (data, indicators) -> new CachedIndicator<>(data.closes()) {
+            @Override
+            protected Num calculate(int index) {
+                int length = Math.min(Math.max(barCount, 1), index);
+                if (length == 0) {
+                    return DecimalNum.valueOf(0D);
+                }
+
+                double current = data.closes().getValue(index).doubleValue();
+                double previous = data.closes().getValue(index - length).doubleValue();
+                double netChange = Math.abs(current - previous);
+
+                double sumOfChanges = 0D;
+                for (int i = index - length + 1; i <= index; i++) {
+                    double c0 = data.closes().getValue(i).doubleValue();
+                    double c1 = data.closes().getValue(i - 1).doubleValue();
+                    sumOfChanges += Math.abs(c0 - c1);
+                }
+
+                if (sumOfChanges == 0D) {
+                    return DecimalNum.valueOf(0D);
+                }
+                return DecimalNum.valueOf((netChange / sumOfChanges) * 100D);
+            }
+
+            @Override
+            public int getCountOfUnstableBars() {
+                return Math.max(barCount, 1);
+            }
+        });
+        return this;
+    }
+
+    @Contract(value = "_, _, _ -> this")
+    public synchronized CandlesBuilder addADXIndicator(String key, int DXBarCount, int barCount) {
+        indicators.put(key, (data, indicators) -> new ADXIndicator(data.series(), DXBarCount, barCount));
+        return this;
+    }
+
     @Contract(value = "_, _ -> this")
     public synchronized CandlesBuilder addRSIIndicator(String key, int barCount) {
         indicators.put(key, (data, indicators) -> new RSIIndicator(data.closes(), barCount));
@@ -131,6 +179,7 @@ public class CandlesBuilder {
         }
 
         market.buildDepthCache();
+        market.buildMetricsCache();
 
         // Crea las barras de la libreria ta4j
         for (Map.Entry<Long, Candle> entry : candleByUnitTime.entrySet()) {
@@ -172,7 +221,6 @@ public class CandlesBuilder {
         List<SequenceCandles.CandleContainer> candles = new ArrayList<>();
         int index = 0;
         ProgressBar progressBar = new ProgressBar((int) ((endMinute - startMinute) / step));
-        progressBar.setEachPrint(100);
         // Crear una vez la instancia de los indicadores técnicos
         Map<String, Indicator<Num>> indicatorsInstanced = new HashMap<>();
         synchronized (indicators) {
@@ -195,8 +243,8 @@ public class CandlesBuilder {
             }
             Candle cs = candleByUnitTime.get(minute);
             if (cs != null){
-                if (market.getDepthByMinuteCache() != null){
-                    Map.Entry<Long, Depth> floor = market.getDepthByMinuteCache().floorEntry(minute);
+                if (market.getDepthByTimeFrame() != null){
+                    Map.Entry<Long, Depth> floor = market.getDepthByTimeFrame().floorEntry(minute);
                     Depth depth = floor != null ? floor.getValue() : null;
                     if (depth != null) {
                         double bidLiq, askLiq, mid , spread;
@@ -215,6 +263,14 @@ public class CandlesBuilder {
                             spread = bestAsk - bestBid;
                             cs.setDepth(new Candle.DepthCandle(bestBid, bestAsk, bidLiq, askLiq, mid, spread));
                         }
+                    }
+                }
+
+                if (market.getMetricByTimeFrame() != null){
+                    Map.Entry<Long, Metric> floor = market.getMetricByTimeFrame().floorEntry(minute);
+                    Metric metric = floor != null ? floor.getValue() : null;
+                    if (metric != null){
+                        cs.setMetrics(metric);
                     }
                 }
 

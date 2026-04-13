@@ -80,11 +80,10 @@ public class BackTestEngine {
 
 
         ProgressBar progressBar = new ProgressBar(totalSamples - 1);
-        progressBar.setEachPrint(200);
         // Loop principal
         for (int i = startIndex; i < totalSamples - 1; i++) {
             progressBar.setCurrentValue(i);
-            progressBar.print();
+            progressBar.printAsync();
             // Obtener predicción
             SequenceCandles window = allCandles.subSequence(i - lookBack, i + 1);
             PredictionEngine.SequenceCandlesPrediction prediction ;
@@ -116,7 +115,6 @@ public class BackTestEngine {
                     operations
             );
             operations.computeHasOpenOperation(TradingManager.OpenOperation::nextMinute);
-            operations.computeClose();
         }
         stats.getTradesComplete().addAll(extraStats);
         return new BackTestResult(
@@ -212,7 +210,6 @@ public class BackTestEngine {
             currentTime = candle.getOpenTime();
             return;
         }
-
         if (operations.hasOpenOperation()) {
             TradingManager.OpenOperation openOperation = operations.getOpen();
             for (Trade t : trades) {

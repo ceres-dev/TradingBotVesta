@@ -15,7 +15,6 @@ import java.util.List;
 public class TradingManagerBackTest implements TradingManager {
 
     private @Nullable BackTestOpenOperation openOperation = null;
-    private @Nullable BackTestOpenOperation openForRemoveOperation = null;
     private final ArrayList<BackTestCloseOperation> closeOperations = new ArrayList<>();
 
     @Getter
@@ -53,10 +52,7 @@ public class TradingManagerBackTest implements TradingManager {
     @Override
     public @Nullable CloseOperation close(ExitReason reason) {
         BackTestCloseOperation closeOperation = new BackTestCloseOperation(backTestEngine.getCurrentPrice(), backTestEngine.getCurrentTime(), reason, openOperation);
-        closeOperations.add(closeOperation);
-        openForRemoveOperation = openOperation;
-        openOperation = null;
-        return closeOperation;
+        return closeForEngine(closeOperation);
     }
 
     @Override
@@ -69,8 +65,11 @@ public class TradingManagerBackTest implements TradingManager {
         throw new UnsupportedOperationException("Not supported yet.");
     }
 
-    public void closeForEngine(BackTestCloseOperation backTestCloseOperation){
-        closeOperations.add(backTestCloseOperation);
+    public CloseOperation closeForEngine(BackTestCloseOperation closeOperation){
+        backTestEngine.computeClose(closeOperation, openOperation);
+        openOperation = null;
+        backTestEngine.getStrategy().closeOperation(closeOperation, this);
+        return closeOperation;
     }
 
     @Override
@@ -88,10 +87,8 @@ public class TradingManagerBackTest implements TradingManager {
         double balanceAvailable = backTestEngine.getBalance();
         if (openOperation != null) {
             balanceAvailable -= openOperation.getInitialMargenUSD();
-            return balanceAvailable;
-        }else {
-            return balanceAvailable;
         }
+        return balanceAvailable;
     }
 
     @Override
@@ -102,19 +99,6 @@ public class TradingManagerBackTest implements TradingManager {
     @Override
     public long getCurrentTime() {
         return backTestEngine.getCurrentTime();
-    }
-
-    public void computeClose() {
-        lastOpenOperation.clear();
-        for (CloseOperation closeOperation : closeOperations) {
-            BackTestOpenOperation open = openForRemoveOperation;
-            if (open != null) {
-                backTestEngine.computeClose(closeOperation, open);
-                openForRemoveOperation = null;
-            }
-            backTestEngine.getStrategy().closeOperation(closeOperation, this);
-        }
-        closeOperations.clear();
     }
 
     @Override

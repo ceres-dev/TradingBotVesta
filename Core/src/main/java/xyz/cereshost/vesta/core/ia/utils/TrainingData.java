@@ -189,7 +189,6 @@ public class TrainingData {
                     pair = IOdata.loadTrainingCache(path);
                     EngineUtils.cleanNaNValues(pair.getKey());
                     EngineUtils.cleanNaNValues(pair.getValue());
-
                     idx.getAndIncrement();
                     Vesta.info("(%d/%d) Datos cargado de disco", idx.get(), trainingList.size());
                 } catch (IOException e) {
@@ -207,8 +206,8 @@ public class TrainingData {
                 xNormalizer.partialFit(p.getKey());
                 yNormalizer.partialFit(p.getValue());
 
-                Arrays.fill(p.getKey(), null);
-                Arrays.fill(p.getValue(), null);
+//                Arrays.fill(p.getKey(), null);
+//                Arrays.fill(p.getValue(), null);
                 p = null;
                 pair = null;
             } catch (InterruptedException | ExecutionException e) {

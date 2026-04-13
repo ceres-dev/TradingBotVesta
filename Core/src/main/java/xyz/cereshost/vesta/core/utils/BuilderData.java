@@ -39,7 +39,7 @@ import static xyz.cereshost.vesta.core.ia.VestaEngine.LOOK_BACK;
 @UtilityClass
 public class BuilderData {
 
-    public final static int FEATURES = 5;
+    public final static int FEATURES = 6;
     public static final int DEFAULT_FUTURE_WINDOW = 30;
 
     public static @NotNull TrainingData buildTrainingData(@NotNull List<TypeMarket> typeMarkets, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
@@ -233,32 +233,44 @@ public class BuilderData {
         int samples = n - lookBack - 1;
 
         if (samples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
-
-        float[][][] X = new float[samples][lookBack][FEATURES];
-        float[][] y = new float[samples][5];
-
+        int validSamples = 0;
         for (int i = 0; i < samples; i++) {
-            // X
-            for (int j = 0; j < lookBack; j++) {
-                X[i][j] = extractFeatures(candles.getCandle(i + j + 1), candles.getCandle(i + j));
-            }
-            // Y
             CandleIndicators cOld = candles.getCandle(i);
             CandleIndicators cNew = candles.getCandle(i + 1);
-            float[] t = extractFeatures(cNew, cOld);
-            y[i] = t;
+            // Aquí va la logica en caso de que se requiera descartar datos
+            validSamples++;
+        }
+        if (validSamples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
+
+        float[][][] X = new float[validSamples][lookBack][FEATURES];
+        float[][] y = new float[validSamples][5];
+        int idx = 0;
+        for (int i = 0; i < samples; i++) {
+            CandleIndicators cOld = candles.getCandle(i);
+            CandleIndicators cNew = candles.getCandle(i + 1);
+            // X
+            for (int j = 0; j < lookBack; j++)
+                X[idx][j] = extractFeatures(
+                        candles.getCandle(i + j + 1),
+                        candles.getCandle(i + j)
+                );
+            // Y
+            double delta = cNew.getDiffPercent()*4;
+            y[idx] = new float[]{Math.clamp((delta > 0) ? (float) Math.log1p(delta) : (float) -Math.log1p(Math.abs(delta)), -1, 1)};
+            idx++;
         }
         return new Pair<>(X, y);
     }
 
     public static float @NotNull [] extractFeatures(@NotNull CandleIndicators curr, @NotNull CandleIndicators prev) {
-
+        if (curr.getMetrics() == null || prev.getMetrics() == null) return new float[0];
         List<Float> fList = new ArrayList<>();
         fList.add(safeDiffPercent(curr.getClose(), prev.getClose()));
         fList.add(safeDiffPercent(curr.getHigh(), prev.getHighBody()));
         fList.add(safeDiffPercent(curr.getLow(), prev.getLowBody()));
-        fList.add((float) Math.log(curr.getVolumen().quoteVolume()));
-        fList.add(safeDiffPercent(curr.get("output5"), prev.get("output5")));
+        fList.add((float) Math.log(curr.getVolumen().baseVolume()));
+        fList.add(safeDiffPercent(curr.getMetrics().getCountTopTradesLongShortRatio(), prev.getMetrics().getCountTopTradesLongShortRatio()));
+        fList.add(safeDiffPercent(curr.getMetrics().getCountTradesLongShortRatio(), prev.getMetrics().getCountTradesLongShortRatio()));
 
         float[] f = new float[fList.size()];
         for (int i = 0; i < fList.size(); i++) {
@@ -269,7 +281,7 @@ public class BuilderData {
     }
 
     public CandlesBuilder getProfierCandlesBuilder(){
-        return new CandlesBuilder().addATRIndicator("output5", 14);
+        return new CandlesBuilder();
     }
 
     public static double checkDouble(double d) throws IllegalArgumentException{
