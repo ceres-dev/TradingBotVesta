@@ -31,8 +31,12 @@ public enum TypeOrder {
         return this == LIMIT || this == TRAILING_STOP_MARKET || this == TAKE_PROFIT || this == STOP;
     }
 
-    public boolean isExit() {
-        return this == STOP_MARKET || this == STOP || this == TAKE_PROFIT_MARKET || this == TAKE_PROFIT;
+    public boolean isMarket() {
+        return this == MARKET || this == STOP_MARKET || this == TAKE_PROFIT_MARKET;
+    }
+
+    public boolean isAlgo() {
+        return this == STOP || this == TAKE_PROFIT || this == STOP_MARKET || this == TAKE_PROFIT_MARKET;
     }
 
     public boolean isTakeProfit() {

@@ -7,7 +7,7 @@ public class OperationFilled extends RuntimeException {
         super(message);
     }
 
-    public OperationFilled(TradingManager.CloseOperation closeOperation) {
+    public OperationFilled(TradingManager.ClosePosition closeOperation) {
         super(String.format("La operacion %s ya cerrada", closeOperation.getUuid()));
     }
 }

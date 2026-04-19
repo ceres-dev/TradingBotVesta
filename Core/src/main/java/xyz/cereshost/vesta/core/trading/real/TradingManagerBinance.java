@@ -2,7 +2,6 @@ package xyz.cereshost.vesta.core.trading.real;
 
 import lombok.Getter;
 import lombok.Setter;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
@@ -14,8 +13,6 @@ import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
-import xyz.cereshost.vesta.core.utils.BiDictionary;
-import xyz.cereshost.vesta.core.utils.ConcurrentHashBiDictionary;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -25,17 +22,17 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TradingManagerBinance implements TradingManager {
 
     private final BinanceApi binanceApi;
-    private int lastLeverage = 1;
-    private double lastBalance = 0;
+    private @NotNull Integer lastLeverage = 1;
+    private @NotNull Double lastBalance = 0d;
     @Setter
-    private TradingTickLoop tradingTickLoop;
+    private @NotNull TradingTickLoop tradingTickLoop;
     @Getter @Setter @NotNull
     private MediaNotification mediaNotification;
 
     // Mapa para vincular tu UUID interno con los IDs de órdenes de Binance
-    private BinanceOpenOperation openOperation = null;
-    private final ConcurrentHashMap<UUID, BinanceLimitOperation> pendingLimitOperations = new ConcurrentHashMap<>();
-    private final Market market;
+    private @Nullable BinanceOpenPosition openOperation = null;
+    private final @NotNull ConcurrentHashMap<UUID, LimitedPosition> pendingOrder = new ConcurrentHashMap<>();
+    private final @NotNull Market market;
 
     public TradingManagerBinance(@NotNull BinanceApi binanceApi, @Nullable MediaNotification mediaNotification, @NotNull Market market) {
         this.binanceApi = binanceApi;
@@ -44,234 +41,243 @@ public class TradingManagerBinance implements TradingManager {
     }
 
     @Override
-    public OpenOperation open(TradingManager.RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
+    public @NotNull Optional<OpenPosition> open(@NotNull DireccionOperation side, @NotNull Double quantity, @NotNull Integer leverage) {
         Symbol symbol = getMarket().getSymbol();
-        try {
-            CountDownLatch latch = new CountDownLatch(3);
-            tradingTickLoop.getExecutor().execute(() -> {
-                try {
-                    if (lastLeverage != leverage) binanceApi.changeLeverage(symbol, leverage);
-                    lastLeverage = leverage;
-                }finally {
-                    latch.countDown();
-                }
-            });
-            AtomicReference<Double> safeAmountUSDT = new AtomicReference<>(amountUSD);
-            tradingTickLoop.getExecutor().execute(() -> {
-                try {
-                    double balance = getAvailableBalance();
-                    if (balance <= 0) {
-                        safeAmountUSDT.set(0d);
-                        return;
-                    }
-                    double requested = Math.max(0d, safeAmountUSDT.get());
-                    safeAmountUSDT.set(Math.min(requested, balance) * 0.99);
-                }finally {
-                    latch.countDown();
-                }
-            });
-            AtomicReference<Double> currentPrice = new AtomicReference<>(0d);
-            tradingTickLoop.getExecutor().execute(() -> {
-                try {
-                    currentPrice.set(binanceApi.getTickerPrice(symbol));
-                }finally {
-                    latch.countDown();
-                }
-            });
-            latch.await();
-            if (safeAmountUSDT.get() <= 0) return null;
-
-            double quantity = (safeAmountUSDT.get() * leverage) / currentPrice.get();
-            BinanceOpenOperation op = new BinanceOpenOperation(
-                    this, riskLimits, direccion, currentPrice.get(), amountUSD, leverage
-            );
-            String colorGreen = "\u001B[32m";
-            String colorRed = "\u001B[31m";
-            String reset = "\u001B[0m";
-            String displayDireccion = direccion == DireccionOperation.LONG ? colorGreen + direccion.name() + reset : colorRed + direccion.name() + reset;
-            Vesta.info(String.format("🔓 Abriendo operacion %s, con un margen: %.3f$. " + colorRed + " TP %.2f%% (%.4f$) " + colorGreen + "SL %.2f%% (%.4f$)" + reset + " (%s)",
-                    displayDireccion, amountUSD,
-                    op.getTpPercent(), op.getTpPrice(),
-                    op.getSlPercent(), op.getSlPrice(),
-                    op.getUuid()
-            ));
-            info("Abriendo operacion **%s** con un margen: %.3f$. **TP %.2f%%** (%.4f$) **SL %.2f%%** (%.4f$)",  direccion.name(), amountUSD,
-                    op.getTpPercent(), op.getTpPrice(),
-                    op.getSlPercent(), op.getSlPrice()
-            );
-            binanceApi.placeOrder(symbol, direccion, TypeOrder.MARKET, op.getTimeInForce(), quantity, null, false, false);
-            placeProtectionOrders(symbol, op, op);
-
-            openOperation = op;
-            return op;
-        } catch (InterruptedException e) {
-            Vesta.sendErrorException("Binance Error Open Async", e);
-            return null;
-        }
-    }
-
-    @Override
-    public @Nullable LimiteOperation limit(double entryPrice, TradingManager.RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
-        Symbol symbol = getMarket().getSymbol();
-        if (!Double.isFinite(entryPrice) || entryPrice <= 0) {
-            Vesta.error("Precio de entrada invalido para orden limite en %s: %s", symbol, entryPrice);
-            return null;
-        }
-        try {
-            CountDownLatch latch = new CountDownLatch(2);
-
-            tradingTickLoop.getExecutor().execute(() -> {
-                try {
-                    if (lastLeverage != leverage) binanceApi.changeLeverage(symbol, leverage);
-                    lastLeverage = leverage;
-                } finally {
-                    latch.countDown();
-                }
-            });
-            AtomicReference<Double> safeAmountUSDT = new AtomicReference<>(amountUSD);
-            tradingTickLoop.getExecutor().execute(() -> {
-                try {
-                    double balance = getAvailableBalance();
-                    if (balance <= 0) {
-                        safeAmountUSDT.set(0d);
-                        return;
-                    }
-                    double requested = Math.max(0d, safeAmountUSDT.get());
-                    safeAmountUSDT.set(Math.min(requested, balance) * 0.99);
-                } finally {
-                    latch.countDown();
-                }
-            });
-            latch.await();
-            if (safeAmountUSDT.get() <= 0) return null;
-
-            double quantity = (safeAmountUSDT.get() * leverage) / entryPrice;
-            BinanceLimitOperation op = new BinanceLimitOperation(
-                    this, riskLimits, direccion, entryPrice, amountUSD, leverage
-            );
-            op.setTimeInForce(TimeInForce.GTX);
-
-            String colorGreen = "\u001B[32m";
-            String colorRed = "\u001B[31m";
-            String reset = "\u001B[0m";
-            String displayDireccion = direccion == DireccionOperation.LONG ? colorGreen + direccion.name() + reset : colorRed + direccion.name() + reset;
-            Vesta.info(String.format("Enviando orden LIMITE POST-ONLY %s: %.4f$ (margen %.3f$) TP %.2f%% SL %.2f%% (%s)",
-                    displayDireccion, entryPrice, amountUSD,
-                    riskLimits.getTpPercent(entryPrice), riskLimits.getSlPercent(entryPrice),
-                    op.getUuid()
-            ));
-            info("Enviando orden LIMITE POST-ONLY **%s**: %.4f$ (margen %.3f$)", direccion.name(), entryPrice, amountUSD);
-
-            long entryOrderId = binanceApi.placeOrder(
-                    symbol,
-                    direccion,
-                    TypeOrder.LIMIT,
-                    op.getTimeInForce(),
+        Double currentPrice = getCurrentPrice();
+        Optional<Double> quantityLeverageCoin = configSetupPreEntry(leverage, currentPrice, quantity);
+        if (quantityLeverageCoin.isPresent()){
+            Long orderId = binanceApi.placeOrder(symbol,
+                    side,
+                    TypeOrder.MARKET,
+                    null,
                     quantity,
-                    entryPrice,
+                    currentPrice,
                     false,
                     false
             );
-            op.setOrderId(entryOrderId);
-            placeProtectionOrders(symbol, op, op);
-            pendingLimitOperations.put(op.getUuid(), op);
-            return op;
-        } catch (InterruptedException e) {
-            Vesta.sendErrorException("Binance Error Limit Async", e);
-            return null;
+            BinanceOpenPosition op = new BinanceOpenPosition(
+                    this,
+                    orderId,
+                    side,
+                    currentPrice,
+                    quantityLeverageCoin.get(),
+                    leverage,
+                    null
+            );
+            openOperation = op;
+            return Optional.of(op);
+        }else {
+            return Optional.empty();
         }
     }
 
     @Override
-    public CloseOperation close(ExitReason reason) {
-        BinanceOpenOperation op = openOperation;
-        if (op == null) return null;
-
+    public @NotNull Optional<TradingManager.Order> limit(@NotNull DireccionOperation side,
+                                                         @NotNull Double trigger,
+                                                         @NotNull Double quantity,
+                                                         @NotNull Integer leverage,
+                                                         @NotNull TypeOrder typeOrder,
+                                                         @NotNull TimeInForce timeInForce
+    ) {
         Symbol symbol = getMarket().getSymbol();
-        try {
-            CountDownLatch latch = new CountDownLatch(2);
-            Vesta.info("🔒 Cerrando operacion: %s por %s", op.getUuid(), reason);
-            info("Cerrando operacion: %s por %s", op.getUuid(), reason);
-
-            // 1. Cancelar SL y TP pendientes
-            tradingTickLoop.getExecutor().execute(() -> {
-                binanceApi.cancelOrder(symbol, op.getSlBinanceId(), op.isSlIsAlgo());
-                latch.countDown();
-            });
-            tradingTickLoop.getExecutor().execute(() -> {
-                binanceApi.cancelOrder(symbol, op.getTpBinanceId(), op.isTpIsAlgo());
-                latch.countDown();
-            });
-            latch.await();
-            // 2. Cerrar posición (Market opuesto)
-            // Usamos closePosition=true para cerrar cualquier remanente con seguridad
-
-            double quantity = (op.getInitialMargenUSD() * op.getLeverage()) / op.getEntryPrice();
-
-            tradingTickLoop.getExecutor().execute(() ->
-                    binanceApi.placeOrder(
-                            symbol,
-                            op.getDireccion().inverse(),
-                            TypeOrder.MARKET,
-                            op.getTimeInForce(),
-                            quantity,
-                            null,
-                            true,
-                            false
-                    )
+        if (!Double.isFinite(trigger) || trigger <= 0) {
+            Vesta.error("Precio de entrada invalido para orden limite en %s: %s", symbol, trigger);
+            return Optional.empty();
+        }
+        Optional<Double> quantityLeverageCoin = configSetupPreEntry(leverage, trigger, quantity);
+        if (quantityLeverageCoin.isPresent()){
+            Long orderId = binanceApi.placeOrder(
+                    symbol,
+                    side,
+                    typeOrder,
+                    timeInForce,
+                    quantityLeverageCoin.get(),
+                    trigger,
+                    false,
+                    false
             );
-
-            // 3. Registrar cierre
-            double exitPrice = binanceApi.getTickerPrice(symbol);
-            BinanceCloseOperation closeOp = new BinanceCloseOperation(
-                    exitPrice, System.currentTimeMillis(), reason, op
+            BinanceOrder op = new BinanceOrder(
+                    this,
+                    orderId,
+                    side,
+                    trigger,
+                    quantity,
+                    leverage,
+                    typeOrder,
+                    timeInForce
             );
-
-            openOperation = null;
-            return closeOp;
-        } catch (InterruptedException e) {
-            Vesta.sendErrorException("Binance Error Open Async", e);
-            return null;
+            pendingOrder.put(op.getUuid(), op);
+            return Optional.of(op);
+        }else {
+            return Optional.empty();
         }
     }
 
     @Override
-    public void cancelLimit(LimiteOperation limiteOperation) {
-        if (limiteOperation == null) {
-            return;
+    public @NotNull Optional<OrderAlgo> limitAlgo(@NotNull DireccionOperation side,
+                                                  @NotNull TypeOrder type,
+                                                  @NotNull Double trigger,
+                                                  @Nullable Integer leverage,
+                                                  @Nullable Double quantity,
+                                                  @NotNull TimeInForce timeInForce,
+                                                  @NotNull Boolean reduceOnly
+    ) {
+        Symbol symbol = getMarket().getSymbol();
+        Optional<Double> quantityLeverageCoin;
+
+        if (type.isLimit()){
+            if (leverage == null) return Optional.empty();
+            if (quantity == null) return Optional.empty();
+            quantityLeverageCoin = configSetupPreEntry(leverage, trigger, quantity);
+        }else {
+            quantityLeverageCoin = Optional.empty();
         }
-        BinanceLimitOperation pending = pendingLimitOperations.remove(limiteOperation.getUuid());
+
+        Long orderId = binanceApi.placeAlgoOrder(symbol,
+                side,
+                type,
+                timeInForce,
+                quantityLeverageCoin.orElse(null),
+                trigger,
+                reduceOnly
+        );
+        BinanceOrderAlgo op = new BinanceOrderAlgo(
+                this,
+                orderId,
+                side,
+                trigger,
+                quantity,
+                leverage,
+                reduceOnly,
+                type,
+                timeInForce
+        );
+        return Optional.of(op);
+    }
+
+    @Override
+    public @NotNull Optional<ClosePosition> close(ExitReason reason) {
+        if (openOperation == null) return Optional.empty();
+        @NotNull BinanceOpenPosition op = openOperation;
+        Symbol symbol = getMarket().getSymbol();
+
+        cancelAllOrderAlgo();
+
+        double quantityLeverageCoin = (op.getQuantity() * op.getLeverage()) / op.getEntryPrice();
+        binanceApi.placeOrder(
+                symbol,
+                op.getDireccion().inverse(),
+                TypeOrder.MARKET,
+                null,
+                quantityLeverageCoin,
+                null,
+                true,
+                false
+        );
+
+        BinanceClosePosition closeOp = new BinanceClosePosition(
+                binanceApi.getTickerPrice(symbol),
+                System.currentTimeMillis(),
+                reason,
+                op
+        );
+        return Optional.of(closeOp);
+    }
+
+    @Override
+    public void cancelOrder(@NotNull UUID uuid) {
+        LimitedPosition pending = pendingOrder.remove(uuid);
         if (pending == null) {
             return;
         }
-        Symbol symbol = getMarket().getSymbol();
-        binanceApi.cancelOrder(symbol, pending.getOrderId(), false);
-        Vesta.info("Orden LIMIT cancelada: %s (%s)", pending.getUuid(), pending.getOrderId());
-        info("Orden LIMIT cancelada: %s", pending.getUuid());
+        Symbol symbol = market.getSymbol();
+        if (pending instanceof BinanceObject binanceObject) {
+            binanceApi.cancelOrder(symbol, binanceObject.getOrderId(), pending.getTypeOrder().isAlgo());
+        }else {
+            throw new IllegalStateException("Un objeto no se pudo castear correctamente como BinanceObject");
+        }
+    }
+
+    public void cancelAllOrder() {
+        List<BinanceObject> uuidsForRemover = pendingOrder.values().stream().filter(order ->
+                order instanceof Order
+        ).map(order ->
+                (BinanceObject) order
+        ).toList();
+        uuidsForRemover.forEach((order) ->
+                binanceApi.cancelOrder(market.getSymbol(), order.getOrderId(), false)
+        );
     }
 
     @Override
-    public int limitsSize() {
-        return pendingLimitOperations.size();
+    public void cancelAllOrderAlgo() {
+        List<BinanceObject> uuidsForRemover = pendingOrder.values().stream().filter(order ->
+                order instanceof OrderAlgo
+        ).map(order ->
+                (BinanceObject) order
+        ).toList();
+        uuidsForRemover.forEach((orderAlgo) -> {
+            binanceApi.cancelOrder(market.getSymbol(), orderAlgo.getOrderId(), true);
+        });
     }
 
     @Override
-    public @Nullable OpenOperation getOpen() {
-        return openOperation;
+    public @NotNull Integer pendingOrderSize() {
+        return pendingOrder.size();
     }
 
     @Override
-    public @NotNull List<LimiteOperation> getLimites() {
-        return new ArrayList<>(pendingLimitOperations.values());
+    public @NotNull Optional<TradingManager.OpenPosition> getOpenPosition() {
+        return Optional.ofNullable(openOperation);
+    }
+
+    @Override // READ ONLY
+    public @NotNull List<Order> getOrder() {
+        return pendingOrder.values().stream().filter(order ->
+                order instanceof Order
+        ).map(order ->
+                (Order) order
+        ).toList();
+    }
+
+    @Override // READ ONLY
+    public @NotNull List<OrderAlgo> getLimitAlgos() {
+        return pendingOrder.values().stream().filter(order ->
+                order instanceof OrderAlgo
+        ).map(order ->
+                (OrderAlgo) order
+        ).toList();
+    }
+
+    @Override // READ ONLY
+    public @NotNull Optional<TradingManager.OrderAlgo> getTakeProfit() {
+        return pendingOrder.values().stream().filter(order ->
+                order instanceof OrderAlgo
+        ).map(order ->
+                (OrderAlgo) order
+        ).filter(order ->
+                order.getTypeOrder().isTakeProfit()
+        ).findAny();
+    }
+
+    @Override // READ ONLY
+    public @NotNull Optional<OrderAlgo> getStopLoss() {
+        return pendingOrder.values().stream().filter(order ->
+                order instanceof OrderAlgo
+        ).map(order ->
+                (OrderAlgo) order
+        ).filter(order ->
+                order.getTypeOrder().isTakeProfit()
+        ).findAny();
     }
 
     @Override
-    public Market getMarket() {
+    public @NotNull Market getMarket() {
         return market;
     }
 
     @Override
-    public double getAvailableBalance() {
+    public @NotNull Double getAvailableBalance() {
         if (lastBalance == 0) {
             lastBalance = binanceApi.getBalance(market.getSymbol());
         }
@@ -280,7 +286,7 @@ public class TradingManagerBinance implements TradingManager {
     }
 
     @Override
-    public double getCurrentPrice() {
+    public @NotNull Double getCurrentPrice() {
         return binanceApi.getTickerPrice(getMarket().getSymbol());
     }
 
@@ -294,32 +300,6 @@ public class TradingManagerBinance implements TradingManager {
         Vesta.info("📃 " + log);
     }
 
-    private void placeProtectionOrders(@NotNull Symbol symbol, @NotNull RiskLimitsBinance op, MargenContainer margen) {
-        DireccionOperation direccionInverse = op.getDireccion().inverse();
-        double slPrice = op.getSlPrice();
-        if (!Double.isNaN(slPrice)) {
-            System.err.println(slPrice); // Debug
-            tradingTickLoop.getExecutor().execute(() -> {
-                long slOrderId = binanceApi.placeAlgoOrder(
-                        symbol, direccionInverse, op.getRiskLimits().isLimit() ? TypeOrder.STOP : TypeOrder.STOP_MARKET, op.getTimeInForce(), (margen.getLeverage() * margen.getInitialMargenUSD())/op.getEntryPrice(), slPrice, true
-                );
-                op.setSlBinanceId(slOrderId);
-                op.setSlIsAlgo(true);
-            });
-        }
-        double tpPrice = op.getTpPrice();
-        if (!Double.isNaN(tpPrice)) {
-            System.err.println(tpPrice);
-            tradingTickLoop.getExecutor().execute(() -> {
-                long tpOrderId = binanceApi.placeAlgoOrder(
-                        symbol, direccionInverse, op.getRiskLimits().isLimit() ? TypeOrder.TAKE_PROFIT : TypeOrder.TAKE_PROFIT_MARKET, op.getTimeInForce(), (margen.getLeverage() * margen.getInitialMargenUSD())/op.getEntryPrice(), tpPrice, true
-                );
-                op.setTpBinanceId(tpOrderId);
-                op.setTpIsAlgo(true);
-            });
-        }
-    }
-
     public void signContract(){
         binanceApi.sendSignedRequest("POST", "/fapi/v1/stock/contract", new TreeMap<>());
     }
@@ -327,206 +307,190 @@ public class TradingManagerBinance implements TradingManager {
     public synchronized void sync(){
         List<BinanceApi.OrderData> orders = binanceApi.getAllOrders(market.getSymbol());
         BinanceApi.PositionData position = binanceApi.getPosition(market.getSymbol());
-        if (position == null){
-            for (BinanceApi.OrderData order : orders) {
-                if (order.type().isExit()){
-                    binanceApi.cancelOrder(market.getSymbol(), order.orderID(), order.isAlgoOrder());
-                }
-            }
-            openOperation = null;
-        }else {
-            if (openOperation == null) {
-                BinanceApi.OrderData TPLong = null, TPShort = null, SLLong = null, SLShort = null;
-                for (BinanceApi.OrderData order : orders) {
-                    if (order.type().isStopLoss()){
-                        if (order.direccionOperation().isLong()) SLLong = order;
-                        else SLShort = order;
-                    }
-                    if (order.type().isTakeProfit()){
-                        if (order.direccionOperation().isLong()) TPLong = order;
-                        else TPShort = order;
-                    }
-                }
-                RiskLimits riskLimits;
-                if (position.direccionOperation().isLong()) {
-                    riskLimits = new RiskLimitsAbsolute(TPLong != null ? TPLong.triggerPrice() : null, SLLong != null ? SLLong.triggerPrice() : null);
-                }else {
-                    riskLimits = new RiskLimitsAbsolute(TPShort != null ? TPShort.triggerPrice() : null, SLShort != null ? SLShort.triggerPrice() : null);
-                }
-                openOperation = new BinanceOpenOperation(this, riskLimits, position.direccionOperation(), position.entryPrice(), position.margen(), position.leverage());
-            }else {
-                for (BinanceApi.OrderData order : orders) {
-                    if (!order.isAlgoOrder()) continue;
-
-                    TypeOrder typeOrder = order.type();
-
-//                    RiskLimits riskLimits = openOperation.getRiskLimits();
-//                    if (typeOrder.isTakeProfit()){
-//                        openOperation.setTpBinanceId(order.orderID());
-//                        if (riskLimits.isAbsolute()){
-//                            riskLimits.setTakeProfit(order.triggerPrice(), price);
-//                        }else {
-//                            riskLimits.setTakeProfit(((order.triggerPrice() - openOperation.getEntryPrice())/openOperation.getEntryPrice())*100, price);
-//                        }
+//        if (position == null){
+//            for (BinanceApi.OrderData order : orders) {
+//                if (order.type().isExit()){
+//                    binanceApi.cancelOrder(market.getSymbol(), order.orderID(), order.isAlgoOrder());
+//                }
+//            }
+//            openOperation = null;
+//        }else {
+//            if (openOperation == null) {
+//                BinanceApi.OrderData TPLong = null, TPShort = null, SLLong = null, SLShort = null;
+//                for (BinanceApi.OrderData order : orders) {
+//                    if (order.type().isStopLoss()){
+//                        if (order.direccionOperation().isLong()) SLLong = order;
+//                        else SLShort = order;
 //                    }
-//                    if (typeOrder.isStopLoss()){
-//                        openOperation.setSlBinanceId(order.orderID());
-//                        if (riskLimits.isAbsolute()){
-//                            riskLimits.setStopLoss(order.triggerPrice(), "");
-//                        }else {
-//                            riskLimits.setStopLoss(((order.triggerPrice() - openOperation.getEntryPrice())/openOperation.getEntryPrice())*100, price);
-//                        }
+//                    if (order.type().isTakeProfit()){
+//                        if (order.direccionOperation().isLong()) TPLong = order;
+//                        else TPShort = order;
 //                    }
-                }
-            }
-        }
-
-        BiDictionary<UUID, Long> dictionary = new ConcurrentHashBiDictionary<>();
-        for (BinanceLimitOperation limit : pendingLimitOperations.values()) {
-            dictionary.add(limit.getUuid(), limit.getOrderId());
-        }
-        for (BinanceApi.OrderData order : orders) {
-            if (order.type().equals(TypeOrder.LIMIT)) {
-                UUID uuid = dictionary.removeRight(order.orderID());
-                if (uuid == null){
-                    BinanceLimitOperation limit = new BinanceLimitOperation(this,
-                            new RiskLimitsAbsolute(null, null),
-                            order.direccionOperation(), order.price(), order.quantity(), lastLeverage);
-                    pendingLimitOperations.put(limit.getUuid(), limit);
-                }else {
-                    pendingLimitOperations.get(uuid).setEntryPrice(order.price());
-                }
-            }
-        }
-        for (BiDictionary.Entry<UUID, Long> entry : dictionary.getAll()){
-            pendingLimitOperations.remove(entry.left());
-        }
+//                }
+//                RiskLimits riskLimits;
+//                if (position.direccionOperation().isLong()) {
+//                    riskLimits = new RiskLimitsAbsolute(TPLong != null ? TPLong.triggerPrice() : null, SLLong != null ? SLLong.triggerPrice() : null);
+//                }else {
+//                    riskLimits = new RiskLimitsAbsolute(TPShort != null ? TPShort.triggerPrice() : null, SLShort != null ? SLShort.triggerPrice() : null);
+//                }
+//                openOperation = new BinanceOpenPosition(this, ,position.direccionOperation(), position.entryPrice(), position.margen(), position.leverage());
+//            }else {
+//                for (BinanceApi.OrderData order : orders) {
+//                    if (!order.isAlgoOrder()) continue;
+//
+//                    TypeOrder typeOrder = order.type();
+//
+////                    RiskLimits riskLimits = openOperation.getRiskLimits();
+////                    if (typeOrder.isTakeProfit()){
+////                        openOperation.setTpBinanceId(order.orderID());
+////                        if (riskLimits.isAbsolute()){
+////                            riskLimits.setTakeProfit(order.triggerPrice(), price);
+////                        }else {
+////                            riskLimits.setTakeProfit(((order.triggerPrice() - openOperation.getEntryPrice())/openOperation.getEntryPrice())*100, price);
+////                        }
+////                    }
+////                    if (typeOrder.isStopLoss()){
+////                        openOperation.setSlBinanceId(order.orderID());
+////                        if (riskLimits.isAbsolute()){
+////                            riskLimits.setStopLoss(order.triggerPrice(), "");
+////                        }else {
+////                            riskLimits.setStopLoss(((order.triggerPrice() - openOperation.getEntryPrice())/openOperation.getEntryPrice())*100, price);
+////                        }
+////                    }
+//                }
+//            }
+//        }
+//
+//        BiDictionary<UUID, Long> dictionary = new ConcurrentHashBiDictionary<>();
+//        for (BinanceOrder limit : pendingOrder.values()) {
+//            dictionary.add(limit.getUuid(), limit.getOrderId());
+//        }
+//        for (BinanceApi.OrderData order : orders) {
+//            if (order.type().equals(TypeOrder.LIMIT)) {
+//                UUID uuid = dictionary.removeRight(order.orderID());
+//                if (uuid == null){
+//                    BinanceOrder limit = new BinanceOrder(this,
+//                            order.orderID(),
+//                            order.direccionOperation(),
+//                            order.price(),
+//                            order.quantity(),
+//                            lastLeverage,
+//                            order.type(),
+//                            order.timeInForce()
+//                    );
+//                    pendingOrder.put(limit.getUuid(), limit);
+//                }else {
+//                    pendingOrder.get(uuid).setEntryPrice(order.price());
+//                }
+//            }
+//        }
+//        for (BiDictionary.Entry<UUID, Long> entry : dictionary.getAll()){
+//            pendingOrder.remove(entry.left());
+//        }
     }
 
-    @Getter
-    @Setter
-    public static class BinanceOpenOperation extends OpenOperation implements RiskLimitsBinance, MargenContainer {
-        private final TradingManagerBinance tradingBinance;
-
-        private long tpBinanceId;
-        private long slBinanceId;
-        private boolean tpIsAlgo;
-        private boolean slIsAlgo;
-
-        private BinanceOpenOperation(TradingManagerBinance binance, TradingManager.RiskLimits riskLimits, DireccionOperation direccion, double entryPrice, double amountUSDT, int leverage) {
-            super(binance, riskLimits, direccion, entryPrice, amountUSDT, leverage);
-            this.tradingBinance = binance;
-            riskLimits.setOnUpdate(this::updateProtectionOrder);
-        }
-
-        private boolean updateProtectionOrder(double newPercent, boolean isTpOrder) {
-            if (!Double.isFinite(newPercent)) {
-                Vesta.warning("Valor inválido para %s en %s: %s",
-                        isTpOrder ? "TP" : "SL", getUuid(), newPercent);
-                return false;
-            }
-
-            if (tradingBinance.openOperation == null) {
-                Vesta.warning("No se puede actualizar %s: operación %s no está activa",
-                        isTpOrder ? "TP" : "SL", getUuid());
-                return false;
-            }
-            Symbol symbol = tradingBinance.getMarket().getSymbol();
-
-            long oldOrderId = isTpOrder ? getTpBinanceId() : getSlBinanceId();
-            boolean oldIsAlgo = isTpOrder ? isTpIsAlgo() : isSlIsAlgo();
-//            double triggerPrice = isTpOrder ? getTpPrice() : getSlPrice();
-
+    private @NotNull Optional<Double> configSetupPreEntry(@NotNull Integer leverage, @NotNull Double price, @NotNull Double quantity){
+        CountDownLatch latch = new CountDownLatch(2);
+        tradingTickLoop.getExecutor().execute(() -> {
             try {
-                tradingBinance.binanceApi.cancelOrder(symbol, oldOrderId, oldIsAlgo);
-                long newOrderId = tradingBinance.binanceApi.placeAlgoOrder(
-                        symbol, getDireccion().inverse(), isTpOrder ? TypeOrder.TAKE_PROFIT : TypeOrder.STOP, getTimeInForce(), (initialMargenUSD * leverage)/entryPrice, newPercent, true
-                );
-
-                if (isTpOrder) {
-                    setTpBinanceId(newOrderId);
-                    setTpIsAlgo(true);
-                } else {
-                    setSlBinanceId(newOrderId);
-                    setSlIsAlgo(true);
-                }
-                return true;
-            } catch (Exception e) {
-                Vesta.sendErrorException("Binance Error Update " + (isTpOrder ? "TP" : "SL"), e);
-                if (isTpOrder) {
-                    setTpBinanceId(oldOrderId);
-                    setTpIsAlgo(oldIsAlgo);
-                } else {
-                    setSlBinanceId(oldOrderId);
-                    setSlIsAlgo(oldIsAlgo);
-                }
-                return false;
+                if (!lastLeverage.equals(leverage)) binanceApi.changeLeverage(market.getSymbol(), leverage);
+                lastLeverage = leverage;
+            }finally {
+                latch.countDown();
             }
+        });
+        AtomicReference<Double> safeAmount = new AtomicReference<>(quantity);
+        tradingTickLoop.getExecutor().execute(() -> {
+            try {
+                double balance = getAvailableBalance();
+                if (balance <= 0) {
+                    safeAmount.set(0d);
+                    return;
+                }
+                double requested = Math.max(0d, safeAmount.get());
+                safeAmount.set(Math.min(requested, balance) * 0.99);
+            } finally {
+                latch.countDown();
+            }
+        });
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Vesta.sendWaringException("error al pausar el hilo para configurar el setup", e);
+            return Optional.empty();
         }
+        return Optional.ofNullable((safeAmount.get() * leverage) / price);
     }
 
-    public static class BinanceCloseOperation extends CloseOperation {
+    @Getter
+    @Setter
+    public static class BinanceOpenPosition extends OpenPosition implements BinanceObject {
+        private final @NotNull Long orderId;
 
-        public BinanceCloseOperation(@NotNull BinanceOpenOperation op, @NotNull ExitReason reason) {
-            super((reason.toString().contains("STOP")) ? op.getSlPrice() : op.getTpPrice(),
-                    System.currentTimeMillis(),
-                    reason,
-                    op
-            );
-        }
-
-        public BinanceCloseOperation(double exitPrice, long exitTime, ExitReason reason, OpenOperation openOperation) {
-            super(exitPrice, exitTime, reason, openOperation);
+        private BinanceOpenPosition(@NotNull TradingManagerBinance binance,
+                                    @NotNull Long orderId,
+                                    @NotNull DireccionOperation direccion,
+                                    @NotNull Double entryPrice,
+                                    @NotNull Double quantity,
+                                    @NotNull Integer leverage,
+                                    @Nullable Order order
+        ) {
+            super(binance, direccion, entryPrice, quantity, leverage, order);
+            this.orderId = orderId;
         }
     }
 
     @Getter
     @Setter
-    public static class BinanceLimitOperation extends LimiteOperation implements RiskLimitsBinance, MargenContainer {
-        private long orderId;
+    public static class BinanceOrder extends Order implements BinanceObject {
+        private final @NotNull Long orderId;
 
-        private long tpBinanceId;
-        private long slBinanceId;
-        private boolean tpIsAlgo;
-        private boolean slIsAlgo;
+        public BinanceOrder(@NotNull TradingManagerBinance tradingManager,
+                            @NotNull Long orderId,
+                            @NotNull DireccionOperation direccion,
+                            @NotNull Double entryPrice,
+                            @NotNull Double quantity,
+                            @NotNull Integer leverage,
+                            @NotNull TypeOrder typeOrder,
+                            @Nullable TimeInForce timeInForce
+        ) {
+            super(tradingManager, direccion, entryPrice, quantity, leverage, typeOrder, timeInForce);
+            this.orderId = orderId;
+        }
+    }
+    @Getter
+    @Setter
+    public static class BinanceOrderAlgo extends OrderAlgo implements BinanceObject {
+        private final @NotNull Long orderId;
 
-        public BinanceLimitOperation(TradingManagerBinance binance, TradingManager.RiskLimits riskLimits, DireccionOperation direccion, double entryPrice, double amountUSDT, int leverage) {
-            super(binance, riskLimits, direccion, entryPrice, amountUSDT, leverage);
+        public BinanceOrderAlgo(@NotNull TradingManager tradingManager,
+                            @NotNull Long orderId,
+                            @NotNull DireccionOperation direccion,
+                            @NotNull Double triggerPrice,
+                            @Nullable Double quantity,
+                            @Nullable Integer leverage,
+                            @NotNull Boolean reduceOnly,
+                            @NotNull TypeOrder typeOrder,
+                            @Nullable TimeInForce timeInForce
+        ) {
+            super(tradingManager, direccion, triggerPrice, quantity, leverage, reduceOnly, typeOrder, timeInForce);
+            this.orderId = orderId;
         }
     }
 
-    private interface RiskLimitsBinance extends RiskLimiterContainer {
+    public static class BinanceClosePosition extends ClosePosition {
 
-        @Contract(pure = true)
-        long getTpBinanceId();
-
-        void setTpBinanceId(long tpBinanceId);
-
-        @Contract(pure = true)
-        long getSlBinanceId();
-
-        void setSlBinanceId(long slBinanceId);
-
-        @Contract(pure = true)
-        boolean isTpIsAlgo();
-
-        void setTpIsAlgo(boolean tpIsAlgo);
-
-        @Contract(pure = true)
-        boolean isSlIsAlgo();
-
-        void setSlIsAlgo(boolean slIsAlgo);
-
-        @Contract(pure = true)
-        TimeInForce getTimeInForce();
+        public BinanceClosePosition(@NotNull Double exitPrice,
+                                    @NotNull Long exitTime,
+                                    @NotNull ExitReason reason,
+                                    @NotNull OpenPosition openPosition
+        ) {
+            super(exitPrice, exitTime, reason, openPosition);
+        }
     }
 
-    private interface MargenContainer {
-        @Contract(pure = true)
-        double getInitialMargenUSD();
-
-        @Contract(pure = true)
-        int getLeverage();
+    public interface BinanceObject{
+        @NotNull Long getOrderId();
     }
 
 }

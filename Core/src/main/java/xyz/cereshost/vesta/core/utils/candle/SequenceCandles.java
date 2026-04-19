@@ -92,7 +92,7 @@ public class SequenceCandles implements List<SequenceCandles.CandleContainer> {
     /**
      * Está clase está diseñada contener {@link Candle} y {@code double[]} pensado en la optimización de la ram
      * <p>
-     * No está pensado para un uso en {@link xyz.cereshost.vesta.core.strategy.TradingStrategy TradingStrategy} ni en
+     * No está pensado para un uso en {@link TradingStrategySimple TradingStrategy} ni en
      * gráficas, solo para guardar el OHLCV y los indicadores técnicos, en caso de utilización de indicadores usa {@link CandleIndicators}.
      * </p>
      *

@@ -47,12 +47,12 @@ import java.util.concurrent.*;
 
 public class VestaEngine {
 
-    public static final int LOOK_BACK = 45;
-    public static final int SHORT_LOOK_BACK = 5;
+    public static final int LOOK_BACK = 48;
+    public static final int SHORT_LOOK_BACK = 4;
     public static final int AUXILIAR_EPOCH = 1;
-    public static final int BACH_SIZE = 8;
+    public static final int BACH_SIZE = 4;
     public static final int SPLIT_DATA = 1;
-    public static final int EPOCH = SPLIT_DATA * 50;
+    public static final int EPOCH = SPLIT_DATA * 70;
 
     @Getter @Setter
     private static NDManager rootManager;
@@ -124,7 +124,7 @@ public class VestaEngine {
                             .optLearningRateTracker(Tracker.cosine()
                                     .setBaseValue(.000_1f)
                                     .optFinalValue(.000_001f)
-                                    .setMaxUpdates((int) (maxUpdates*.75f))
+                                    .setMaxUpdates((int) (maxUpdates*.5f))
                                     .build())
                             .optWeightDecays(0)
                             .build())
@@ -331,7 +331,7 @@ public class VestaEngine {
         block.add(TemporalTransformerBlock.builder()
                         .setModelDim(2*32)
                         .setNumHeads(2)
-                        .setFeedForwardDim(1024)
+                        .setFeedForwardDim(1024*2)
                         .setDropoutRate(0)
                         .setAttentionProbsDropoutProb(.05f)
                         .setMaxSequenceLength(VestaEngine.SHORT_LOOK_BACK)
@@ -353,7 +353,7 @@ public class VestaEngine {
     private static SequentialBlock buildLSTMSummaryBlock() {
         SequentialBlock block = new SequentialBlock();
         block.add(TemporalTransformerBlock.builder()
-                        .setModelDim(8*(128))
+                        .setModelDim(8*(64))
                         .setNumHeads(8)
                         .setFeedForwardDim(1024)
                         .setDropoutRate(0)

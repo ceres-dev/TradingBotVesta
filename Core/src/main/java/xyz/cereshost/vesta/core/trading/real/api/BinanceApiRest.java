@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.exception.BinanceApiRequestException;
@@ -22,10 +23,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.function.Consumer;
 
 /**
@@ -61,14 +59,14 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
-    public long placeOrder(Symbol symbol,
-                           DireccionOperation side,
-                           TypeOrder type,
-                           TimeInForce timeInForce,
-                           Double quantity,
-                           Double price,
-                           boolean reduceOnly,
-                           boolean closePosition
+    public Long placeOrder(@NotNull Symbol symbol,
+                           @NotNull DireccionOperation side,
+                           @NotNull TypeOrder type,
+                           @Nullable TimeInForce timeInForce,
+                           @NotNull Double quantityLeverageCoin,
+                           @Nullable Double price,
+                           @NotNull Boolean reduceOnly,
+                           @NotNull Boolean closePosition
     ) {
         // Para órdenes no condicionales (MARKET, LIMIT), seguir usando el endpoint tradicional
         if (!type.isValidValue(null, price)) throw new IllegalArgumentException();
@@ -76,54 +74,55 @@ public final class BinanceApiRest implements BinanceApi {
         params.put("symbol", symbol.name());
         params.put("side", side.getSide());
         params.put("type", type.name());
-        params.put("quantity", formatQuantity(symbol.name(), quantity));
+        params.put("quantity", formatQuantity(symbol.name(), quantityLeverageCoin));
         params.put("closePosition", String.valueOf(closePosition));
         if (type.isLimit()) {
+            if (timeInForce == null) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
+            if (price == null) throw new IllegalArgumentException("Se requiere Price para ordenes Limites");
+
             params.put("timeInForce", timeInForce.name());
             params.put("price", formatPrice(symbol.name(), price));
+
         }
         if (reduceOnly) params.put("reduceOnly", "true");
-        //        if (type.isExit()) params.put("stopPrice", formatPrice(typeMarkets, stopPrice));
-
-//        Vesta.info("Enviando orden REST: " + type + " " + side +
-//                " Qty:" + (quantity != null ? quantity : "null") +
-//                " Price:" + (price != null ? price : "null") +
-//                " Stop:" + stopPrice +
-//                " reduceOnly:" + reduceOnly +
-//                " closePosition:" + closePosition);
 
         JsonNode root = sendSignedRequest("POST", "/fapi/v1/order", params);
         return root.get("orderId").asLong();
     }
 
     @Override
-    public long placeAlgoOrder(Symbol symbol,
-                               DireccionOperation side,
-                               TypeOrder type,
-                               TimeInForce timeInForce,
-                               Double quantity,
-                               Double stopPrice,
-                               boolean reduceOnly
+    public Long placeAlgoOrder(@NotNull Symbol symbol,
+                               @NotNull DireccionOperation side,
+                               @NotNull TypeOrder type,
+                               @Nullable TimeInForce timeInForce,
+                               @Nullable Double quantity,
+                               @NotNull Double stopPrice,
+                               @NotNull Boolean reduceOnly
     ) {
 //        if (!type.isValidValue(stopPrice, stopPrice)) throw new IllegalArgumentException();
         TreeMap<String, String> params = new TreeMap<>();
         params.put("algoType", "CONDITIONAL");          // Obligatorio para órdenes condicionales
         params.put("symbol", symbol.name());
         params.put("side", side.getSide());
-        params.put("type", type.name());                       // STOP_MARKET, TAKE_PROFIT_MARKET
-        if (type.isLimit()) params.put("timeInForce", timeInForce.name());         // Recomendado para condicionales
-
-        // Si se quiere cerrar la posición completa, se usa closePosition y NO se envía quantity
-        if (type.isAllowClosePosition()) {
-            params.put("closePosition", "true");
-        } else if (quantity != null) {
-            params.put("quantity", formatQuantity(symbol.name(), quantity));
+        params.put("type", type.name());
+        params.put("price", formatPrice(symbol.name(), stopPrice));
+        if (type.isAlgo()) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
+        if (type.isLimit()) {
+            if (timeInForce == null) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
+            params.put("timeInForce", timeInForce.name());
             if (reduceOnly) params.put("reduceOnly", "true");
         }
+        if (type.isAllowClosePosition()) {
+            params.put("closePosition", "true");
+        }else {
+            if (quantity == null) throw new IllegalArgumentException("Se requiere quantity para ordenes Limites");
+            params.put("quantity", formatQuantity(symbol.name(), quantity));
+        }
+
+        // Si se quiere cerrar la posición completa, se usa closePosition y NO se envía quantity
 
         // Precio de activación (obligatorio para STOP_MARKET/TAKE_PROFIT_MARKET)
         params.put("triggerPrice", formatPrice(symbol.name(), stopPrice));
-        if (type.isLimit()) params.put("price", formatPrice(symbol.name(), stopPrice));
         // WorkingType (opcional, pero recomendado)
         params.put("workingType", "MARK_PRICE");
 
@@ -133,7 +132,7 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
-    public void cancelOrder(Symbol symbol, long orderId, boolean isAlgoOrder) {
+    public void cancelOrder(@NotNull Symbol symbol, @NotNull Long orderId, @NotNull Boolean isAlgoOrder) {
         try {
             if (orderId == 0) return;
             TreeMap<String, String> params = new TreeMap<>();

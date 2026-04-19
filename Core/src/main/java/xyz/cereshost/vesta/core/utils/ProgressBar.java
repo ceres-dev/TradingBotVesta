@@ -51,7 +51,7 @@ public class ProgressBar {
         executor.execute(this::print);
         executor.schedule(() -> {
             allowPrint = true;
-        }, 250, TimeUnit.MILLISECONDS);
+        }, 100, TimeUnit.MILLISECONDS);
     }
 
 

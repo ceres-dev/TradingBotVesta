@@ -29,6 +29,7 @@ import java.net.URL;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
@@ -209,14 +210,14 @@ public final class TradingTickLoop implements Notifiable {
 
         Vesta.info("💰 Precio del %s: %.2f", typeMarket.symbol(), allCandles.getCandleLast().getClose());
 
-        PredictionEngine.SequenceCandlesPrediction result;
+        Optional<PredictionEngine.SequenceCandlesPrediction> result;
         int endExclusive = allCandles.size() - 1;
         SequenceCandles visible = allCandles.subSequence(lookBack, endExclusive);
 
-        if (engine != null) result = engine.predictNextPriceDetail(visible);
-        else result = null;
+        if (engine != null) result = Optional.of(engine.predictNextPriceDetail(visible));
+        else result = Optional.empty();
 
-        manager.computeHasOpenOperation(TradingManager.OpenOperation::nextMinute);
+        manager.getOpenPosition().ifPresent(TradingManager.OpenPosition::nextStep);
         strategy.executeStrategy(result, allCandles, manager);
     }
 
@@ -273,41 +274,19 @@ public final class TradingTickLoop implements Notifiable {
             return;
         }
         Symbol symbol = typeMarket.symbol();
-        if (manager.hasOpenOperation()){
+        Optional<TradingManager.OpenPosition> openPosition = manager.getOpenPosition();
+        if (openPosition.isPresent()) {
             updateStatusType(StatusType.TRADING);
-            int longs = 0;
-            int shorts = 0;
-            if (manager.getOpen().isUpDireccion()) {
-                longs++;
-            }else {
-                shorts++;
-            }
-            if (longs == 1 && shorts == 0) {
+            TradingManager.OpenPosition open = openPosition.get();
+            if (open.isUpDireccion()){
                 updateStatus("Operando Long en %s", symbol);
-                return;
-            }
-            if (longs > 1 && shorts == 0) {
-                updateStatus("Operando %d Longs en %s", longs, symbol);
-                return;
-            }
-            if (longs == 0 && shorts == 1) {
+            }else {
                 updateStatus("Operando Short en %s", symbol);
-                return;
             }
-            if (longs == 0 && shorts > 1) {
-                updateStatus("Operando %d Shorts en %s", longs, symbol);
-                return;
-            }
-            if (longs == 1 && shorts == 1) {
-                updateStatus("Operando Long y Short en %s", symbol);
-                return;
-            }
-            updateStatus("Operando: %d L y %d S en ", longs, shorts, shorts);
         }else {
             updateStatusType(StatusType.WAITING);
             updateStatus("Esperando el momento...");
         }
-
     }
 
     public void stop(Exception e){

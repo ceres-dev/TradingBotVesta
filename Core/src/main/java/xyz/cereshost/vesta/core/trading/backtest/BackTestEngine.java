@@ -1,29 +1,21 @@
 package xyz.cereshost.vesta.core.trading.backtest;
 
-import lombok.Data;
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
-import lombok.Setter;
+import lombok.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Trade;
+import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
-import xyz.cereshost.vesta.core.strategy.StrategyConfig;
-import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
-import xyz.cereshost.vesta.core.strategy.strategis.DefaultStrategy;
-import xyz.cereshost.vesta.core.strategy.TradingStrategy;
+import xyz.cereshost.vesta.core.io.IOMarket;
+import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
+import xyz.cereshost.vesta.core.strategy.*;
+import xyz.cereshost.vesta.core.strategy.candles.ExecutorCandles;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
 import xyz.cereshost.vesta.core.utils.ProgressBar;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 @Getter
 public class BackTestEngine {
@@ -31,35 +23,40 @@ public class BackTestEngine {
     private final BackTestStats stats;
     private final List<CompleteTrade> extraStats = new ArrayList<>();
     @NotNull private final TradingManagerBackTest operations = new TradingManagerBackTest(this);
-    @NotNull private final Market market;
+    @NotNull private final Market marketMaster;
     @NotNull private final TradingStrategy strategy;
     @Nullable private final PredictionEngine engine;
     private double balance = 6;
     private double currentPrice;
     private long currentTime;
+    @Getter(AccessLevel.NONE)
+    private double lastPrice;
 
-    public BackTestEngine(@NotNull Market market, @Nullable PredictionEngine engine, @NotNull TradingStrategy strategy) {
-        this.market = market;
+    public BackTestEngine(int to, int from, @Nullable PredictionEngine engine, @NotNull TradingStrategy strategy) {
+        this.marketMaster = IOMarket.loadMarket(
+                strategy.getMarketMaster(),
+                new LoadDataMethodLocalRange(true, to, from)
+        );
         this.engine = engine;
         this.strategy = strategy;
-        this.stats = new BackTestStats(market);
-        currentPrice = market.getCandles().getFirst().getOpen();
+        this.stats = new BackTestStats(marketMaster);
+        currentPrice = marketMaster.getCandles().getFirst().getOpen();
     }
 
-    public BackTestEngine(Market market, PredictionEngine engine) {
-        this(market, engine, new DefaultStrategy());
+    public BackTestEngine(@Nullable PredictionEngine engine, @NotNull TradingStrategy strategy) {
+        this(0, 30, engine, strategy);
     }
 
     public BackTestResult run() {
-        market.sortd();
-        SequenceCandles allCandles = strategy.getBuilder().build(market);
-        ChartUtils.showCandleChart("Mercado", allCandles, market.getSymbol());
+        marketMaster.sortd();
+
+        SequenceCandles allCandles = strategy.getBuilder().build(marketMaster);
+        ChartUtils.showCandleChart("Mercado", allCandles, marketMaster.getSymbol());
         return run(allCandles);
     }
 
     public BackTestResult run(SequenceCandles allCandles){
-
-        market.buildTradeCache();
+        marketMaster.buildTradeCache();
 
         @NotNull
         final StrategyConfig config;
@@ -72,10 +69,8 @@ public class BackTestEngine {
         int totalSamples = allCandles.size();
         int lookBack = engine == null ? config.getLookBack() : engine.getLookBack();
 
-        // Empezamos donde tenemos datos suficientes
         int startIndex = lookBack + 1;
 
-        // Variables de estado
         double initialBalance = balance;
 
 
@@ -84,38 +79,34 @@ public class BackTestEngine {
         for (int i = startIndex; i < totalSamples - 1; i++) {
             progressBar.setCurrentValue(i);
             progressBar.printAsync();
-            // Obtener predicción
+
             SequenceCandles window = allCandles.subSequence(i - lookBack, i + 1);
-            PredictionEngine.SequenceCandlesPrediction prediction ;
+            Optional<PredictionEngine.SequenceCandlesPrediction> prediction;
             if (engine != null && config.getHowUseIA() != null && config.getHowUseIA().useModelIA()) {
-                prediction = engine.predictNextPriceDetail(window, config.getFuturePredict());
-//                stats.getAllTrades().add(new InCompleteTrade(currentPrice, prediction.getTpPrice(), prediction.getSlPrice(), currentTime));
+                prediction = Optional.of(engine.predictNextPriceDetail(window, config.getFuturePredict()));
             }else {
-                prediction = null;
+                prediction = Optional.empty();
             }
 
             // Consultar estrategia
             strategy.executeStrategy(prediction, window, operations);
 
-            if (operations.getLastOpenOperation().isEmpty())stats.nothing++;
-            for (TradingManagerBackTest.BackTestOpenOperation setup : operations.getLastOpenOperation()){
-                if (setup != null) {
-                    if (setup.getDireccion() != DireccionOperation.NEUTRAL) {
-                        switch (setup.getDireccion()) {
-                            case LONG -> stats.longs++;
-                            case SHORT -> stats.shorts++;
-                        }
-                    } else stats.nothing++;
-                } else stats.nothing++;
+            ExecutorCandles executorCandles;
+            if (strategy instanceof TradingStrategyExecutor executor) {
+                executorCandles = executor.getExecutorCandles(operations);
+            }else {
+                executorCandles = ExecutorCandles.empty();
             }
 
             // Inicia la simulaciónn de una vela de duración
             simulateOneTick(
                     allCandles.get(i + 1),
-                    operations
+                    operations,
+                    executorCandles
             );
-            operations.computeHasOpenOperation(TradingManager.OpenOperation::nextMinute);
+            operations.getOpenPosition().ifPresent(TradingManager.OpenPosition::nextStep);
         }
+
         stats.getTradesComplete().addAll(extraStats);
         return new BackTestResult(
                 initialBalance, balance, balance - initialBalance, stats.getRoi(),
@@ -124,137 +115,127 @@ public class BackTestEngine {
         );
     }
 
-    public void computeClose(TradingManager.@NotNull CloseOperation closeOperation, TradingManager.OpenOperation openOperation) {
-        if (closeOperation.getReason() == TradingManager.ExitReason.NO_DATA_ERROR) {
-            return;
-        }
+    public void computeClose(@NotNull Double currentPrice,
+                             @NotNull TradingManager.OpenPosition openPosition,
+                             @NotNull Boolean exitIsMaker
+    ){
 
-        // D. Calcular PnL Real (con fees)
-        // Fee se cobra al entrar (sobre entry) y al salir (sobre exit)
-        double netPnL = getNetPnL(closeOperation, openOperation);
-
-        double pnlPercent = netPnL / openOperation.getInitialMargenUSD(); // sobre margen
+        double netPnL = getNetPnL(currentPrice, openPosition, exitIsMaker);
+        double pnlPercent = netPnL / openPosition.getQuantity();
 
         balance += netPnL;
-        if (balance < 0) balance = 0; // Quiebra
-//        Vesta.info(openOperation.getDireccion().name() + " " + closeOperation.getReason().name());
-//        LockSupport.parkNanos((long) 3e+9);
+        if (balance < 0) balance = 0;
 
-        // F. Registrar estadísticas
-        TradeResult resultObj = new TradeResult(netPnL, pnlPercent, closeOperation.getExitPrice(), closeOperation.getReason(), closeOperation.getEntryTime(), closeOperation.getExitTime());
-        stats.addComplenteTrade(resultObj, balance);
-        extraStats.add(new CompleteTrade(
-                openOperation.getRiskLimits(), closeOperation.getReason(), openOperation.getDireccion(),
-                openOperation.getEntryPrice(),
-                closeOperation.getExitPrice(),
-                closeOperation.getEntryTime(),
-                closeOperation.getExitTime(),
-                netPnL,
-                (float) balance,
-                (float) (openOperation.getTpPercent() / openOperation.getSlPercent()),
-                (float) pnlPercent
-        ));
+//        TradeResult resultObj = new TradeResult(
+//                netPnL,
+//                pnlPercent,
+//                closeOperation.getExitPrice(),
+//                closeOperation.getReason(),
+//                closeOperation.getEntryTime(),
+//                closeOperation.getExitTime()
+//        );
+//        stats.addComplenteTrade(resultObj, balance);
+//        extraStats.add(new CompleteTrade(
+//                ,
+//                closeOperation.getReason(),
+//                openPosition.getDireccion(),
+//                openPosition.getEntryPrice(),
+//                closeOperation.getExitPrice(),
+//                closeOperation.getEntryTime(),
+//                closeOperation.getExitTime(),
+//                netPnL,
+//                (float) balance,
+//                (float) (openPosition.getTpPercent() / openPosition.getSlPercent()),
+//                (float) pnlPercent
+//        ));
     }
 
-    private double getNetPnL(TradingManager.@NotNull CloseOperation closeOperation, TradingManager.OpenOperation openOperation) {
-        double positionSize = openOperation.getInitialMargenUSD() * openOperation.getLeverage(); // notional
-        double qty = positionSize / openOperation.getEntryPrice();
+    private double getNetPnL(@NotNull Double currentPrice,
+                             @NotNull TradingManager.OpenPosition openPosition,
+                             @NotNull Boolean exitIsMaker
+    ) {
+        double positionSize = openPosition.getQuantity() * openPosition.getLeverage();
+        double qty = positionSize / openPosition.getEntryPrice();
 
-        double entryFee = positionSize * market.getFeedTaker();
-        double exitNotional = qty * closeOperation.getExitPrice();
-        double exitFee = exitNotional * market.getFeedTaker();
+        double entryFee = positionSize * (openPosition.getOrder() != null ? marketMaster.getFeedMaker() : marketMaster.getFeedTaker());
+        double exitNotional = qty * currentPrice;
+        double exitFee = exitNotional * (exitIsMaker ? marketMaster.getFeedMaker() : marketMaster.getFeedTaker());
 
-        double grossPnL = getGrossPnL(closeOperation, openOperation, qty);
-
+        double grossPnL = getGrossPnL(currentPrice, openPosition, qty);
         return grossPnL - entryFee - exitFee;
     }
 
-    /**
-     * Redondeo conservador a 2 decimales:
-     * positivo -> hacia abajo, negativo -> mas negativo.
-     */
-    private static double roundPnlAgainst(double pnl) {
-        return BigDecimal.valueOf(pnl)
-                .setScale(2, RoundingMode.FLOOR)
-                .doubleValue();
-    }
+//    private static double roundPnlAgainst(double pnl) {
+//        return BigDecimal.valueOf(pnl)
+//                .setScale(2, RoundingMode.FLOOR)
+//                .doubleValue();
+//    }
 
-    private static double getGrossPnL(TradingManager.@NotNull CloseOperation closeOperation, TradingManager.OpenOperation openOperation, double qty) {
-        double grossPnL;
-        if (openOperation.getDireccion() == DireccionOperation.LONG) {
-            // LONG
-            grossPnL = (closeOperation.getExitPrice() - openOperation.getEntryPrice()) * qty;
-        } else if (openOperation.getDireccion() == DireccionOperation.SHORT) {
-            // SHORT
-            grossPnL = (openOperation.getEntryPrice() - closeOperation.getExitPrice()) * qty;
-        } else {
-            // NEUTRAL
-            grossPnL = 0;
-        }
-        return grossPnL;
-    }
-
-    /**
-     * Simula la vida de un trade a través del tiempo (velas) y trades (ticks).
-     */
-    private void simulateOneTick(
-            Candle candle,
-            TradingManagerBackTest operations
+    private static double getGrossPnL(@NotNull Double currentPrice,
+                                      @NotNull TradingManager.OpenPosition openPosition,
+                                      @NotNull Double qty
     ) {
-        long endTime = candle.getOpenTime() + market.getTimeFrameMarket().getMilliseconds();
+        if (openPosition.getDireccion() == DireccionOperation.LONG) {
+            return (currentPrice - openPosition.getEntryPrice()) * qty;
+        }
+        if (openPosition.getDireccion() == DireccionOperation.SHORT) {
+            return (openPosition.getEntryPrice() - currentPrice) * qty;
+        }
+        return 0;
+    }
 
-        // Obtener trades reales de este minuto
-        List<Trade> trades = market.getTradesInWindow(candle.getOpenTime(), endTime);
+    /**
+     * Simula la vida del trade usando el mercado de 1 minuto.
+     */
+    private void simulateOneTick(@NotNull Candle candle, @NotNull TradingManagerBackTest manager, @NotNull ExecutorCandles executorCandles) {
+        List<Trade> trades = marketMaster.getTradesInWindow(candle.getOpenTime(), candle.getCloseTime());
         if (trades.isEmpty()) {
             currentPrice = candle.getClose();
             currentTime = candle.getOpenTime();
             return;
         }
-        if (operations.hasOpenOperation()) {
-            TradingManager.OpenOperation openOperation = operations.getOpen();
-            for (Trade t : trades) {
-                currentPrice = t.price();
-                currentTime = t.time();
-                double price = t.price();
-                ((TradingManagerBackTest.BackTestOpenOperation) openOperation).setLastExitPrices(price);
-                boolean computeLimit = false;
-                switch (openOperation.getDireccion()) {
-                    case LONG -> {
-                        if (price >= openOperation.getTpPrice()) {
-                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.LONG_TAKE_PROFIT, openOperation));
-                            computeLimit = true;
-                            break;
-
+        Optional<TradingManager.OpenPosition> optional = manager.getOpenPosition();
+        for (Trade trade : trades) {
+            currentPrice = trade.price();
+            currentTime = trade.time();
+            if (optional.isPresent()){
+                for (TradingManager.OrderAlgo orderAlgo : manager.getLimitAlgos()){
+                    if (orderAlgo.satisfaceCondicion((currentPrice))) {
+                        if (orderAlgo.getTypeOrder().isAllowClosePosition()) {
+                            computeClose(currentPrice, optional.get(), orderAlgo.getTypeOrder().isLimit());
+                            manager.closeForEngine(
+                                    new TradingManagerBackTest.BackTestClosePosition(currentPrice,
+                                            currentTime,
+                                            TradingManager.ExitReason.LONG_STOP_LOSS,
+                                            optional.get()
+                                    )
+                            );
+                        }else {
+                            throw new UnsupportedOperationException("Not supported yet.");
                         }
-                        if (price <= openOperation.getSlPrice()) {
-                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.LONG_STOP_LOSS, openOperation));
-                            computeLimit = true;
-                        }
-                    }
-                    case SHORT -> {
-                        if (price <= openOperation.getTpPrice()) {
-                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.SHORT_TAKE_PROFIT, openOperation));
-                            computeLimit = true;
-                            break;
-                        }
-                        if (price >= openOperation.getSlPrice()) {
-                            operations.closeForEngine(new TradingManagerBackTest.BackTestCloseOperation(price, t.time(), TradingManager.ExitReason.SHORT_STOP_LOSS, openOperation));
-                            computeLimit = true;
-                        }
-
                     }
                 }
-                if (computeLimit) break;
+            }else {
+                manager.cancelAllOrderAlgo();
             }
-        } else {
-            currentPrice = candle.getClose();
-            currentTime = trades.getLast().time();
+            for (TradingManager.Order order : manager.getOrder()){
+                if ((currentPrice >= order.getTriggerPrice() && lastPrice <= order.getTriggerPrice()) ||
+                        (currentPrice <= order.getTriggerPrice() && lastPrice >= order.getTriggerPrice())
+                ){
+                    TradingManagerBackTest.BackTestOpenPosition o = new TradingManagerBackTest.BackTestOpenPosition(manager,
+                            currentPrice,
+                            order.getDireccion(),
+                            order.getQuantity(),
+                            order.getLeverage(),
+                            order
+                    );
+                    manager.setOpenOperation(o);
+                }
+            }
+            executorCandles.executeStack(manager);
+            lastPrice = currentPrice;
         }
     }
-
-    /**
-     * Telemetría y Datos de resultados del backTest
-     */
 
     @Getter
     @Setter
@@ -326,9 +307,6 @@ public class BackTestEngine {
             return roi/count;
         }
 
-
-        // Para calcular Hold Time promedio
-
         public double getHoldAvg(){
             long totalHoldTimeMillis = 0;
             for (TradeResult tr : trades) totalHoldTimeMillis += (tr.exitTime - tr.entryTime);
@@ -362,7 +340,7 @@ public class BackTestEngine {
         public void addComplenteTrade(TradeResult result, double currentBalance) {
             trades.add(result);
             if (totalTrades == 0) {
-                initialBalance = currentBalance - result.pnl; // Reconstruir inicial
+                initialBalance = currentBalance - result.pnl;
                 peakBalance = initialBalance;
             }
 
@@ -371,12 +349,11 @@ public class BackTestEngine {
 
             if (result.reason == TradingManager.ExitReason.TIMEOUT) timeouts++;
 
-            // Drawdown calculation
             if (currentBalance > peakBalance) {
                 peakBalance = currentBalance;
                 currentDrawdown = 0;
             } else {
-                double dd = (peakBalance - currentBalance) / peakBalance; // 0.10 = 10%
+                double dd = (peakBalance - currentBalance) / peakBalance;
                 if (dd > maxDrawdownPercent) {
                     maxDrawdownPercent = dd;
                 }
@@ -488,7 +465,6 @@ public class BackTestEngine {
         private final DireccionOperation direccion;
     }
 
-    // Mantener compatibilidad con tu código existente
     public record BackTestResult(
             double initialBalance,
             double finalBalance,

@@ -97,6 +97,7 @@ public class IOMarket {
                         market.concat(m);
                     }catch (InterruptedException | ExecutionException e){
                         Vesta.sendWaringException("error al obtener los datos en el loop", e);
+                        e.printStackTrace();
                     }
                 }
                 market.sortd();
@@ -225,43 +226,43 @@ public class IOMarket {
             LinkedHashSet<Trade> tradeSorted = Market.sortd(trades, 10_000, Trade::time);
             LinkedHashSet<Metric> metricSorted = Market.sortd(metrics, 10_000, Metric::getOpenTime);
 
-            if (loadTrades && !tradeSorted.isEmpty()){
+//            if (loadTrades && !tradeSorted.isEmpty()) {
                 // 3. Lógica de CORTE (Sincronización de tiempos)
-                long minTimeCandles = candlesSorted.getFirst().getOpenTime();
-                long maxTimeCandles = candlesSorted.getLast().getOpenTime();
+//                long minTimeCandles = candlesSorted.getFirst().getOpenTime();
+//                long maxTimeCandles = candlesSorted.getLast().getOpenTime();
+//
+//                long minTimeTrades = tradeSorted.getFirst().time();
+//                long maxTimeTrades = tradeSorted.getLast().time();
+//
+//                long commonStart = Math.max(minTimeCandles, minTimeTrades);
+//                long commonEnd = Math.min(maxTimeCandles, maxTimeTrades);
 
-                long minTimeTrades = tradeSorted.getFirst().time();
-                long maxTimeTrades = tradeSorted.getLast().time();
-
-                long commonStart = Math.max(minTimeCandles, minTimeTrades);
-                long commonEnd = Math.min(maxTimeCandles, maxTimeTrades);
-
-                Vesta.info("%d/%02d/%02d (idx=%d) ✂️ Ajustando %s a ventana comun: %d - %d", targetYear, targetMonth, targetDay, normalizedDayIndex, symbol, commonStart, commonEnd);
+//                Vesta.info("%d/%02d/%02d (idx=%d) ✂️ Ajustando %s a ventana comun: %d - %d", targetYear, targetMonth, targetDay, normalizedDayIndex, symbol, commonStart, commonEnd);
                 // borrar por inicio
-                while (!candlesSorted.isEmpty() && candlesSorted.getFirst().getOpenTime() < commonStart) {
-                    candlesSorted.removeFirst();
-                }
-                // borrar por final
-                while (!candlesSorted.isEmpty() && candlesSorted.getLast().getOpenTime() > commonEnd) {
-                    candlesSorted.removeLast();
-                }
+//                while (!candlesSorted.isEmpty() && candlesSorted.getFirst().getOpenTime() < commonStart) {
+//                    candlesSorted.removeFirst();
+//                }
+//                // borrar por final
+//                while (!candlesSorted.isEmpty() && candlesSorted.getLast().getOpenTime() > commonEnd) {
+//                    candlesSorted.removeLast();
+//                }
 
                 // mismo para trades
-                while (!tradeSorted.isEmpty() && tradeSorted.getFirst().time() < commonStart) {
-                    tradeSorted.removeFirst();
-                }
-                while (!tradeSorted.isEmpty() && tradeSorted.getLast().time() > commonEnd) {
-                    tradeSorted.removeLast();
-                }
-                while (!metricSorted.isEmpty() && metricSorted.getFirst().getOpenTime() < commonStart) {
-                    metricSorted.removeFirst();
-                }
-                while (!metricSorted.isEmpty() && metricSorted.getLast().getOpenTime() > commonEnd) {
-                    metricSorted.removeLast();
-                }
-            } else if (loadTrades) {
-                Vesta.info("%d/%02d/%02d (idx=%d) Sin trades para ajustar ventana comun", targetYear, targetMonth, targetDay, normalizedDayIndex);
-            }
+//                while (!tradeSorted.isEmpty() && tradeSorted.getFirst().time() < commonStart) {
+//                    tradeSorted.removeFirst();
+//                }
+//                while (!tradeSorted.isEmpty() && tradeSorted.getLast().time() > commonEnd) {
+//                    tradeSorted.removeLast();
+//                }
+//                while (!metricSorted.isEmpty() && metricSorted.getFirst().getOpenTime() < commonStart) {
+//                    metricSorted.removeFirst();
+//                }
+//                while (!metricSorted.isEmpty() && metricSorted.getLast().getOpenTime() > commonEnd) {
+//                    metricSorted.removeLast();
+//                }
+//            } else if (loadTrades) {
+//                Vesta.info("%d/%02d/%02d (idx=%d) Sin trades para ajustar ventana comun", targetYear, targetMonth, targetDay, normalizedDayIndex);
+//            }
 
             final Market market = new Market(symbol, timeFrameMarket);
             market.setCandles(candlesSorted);

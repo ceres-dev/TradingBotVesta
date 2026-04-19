@@ -39,7 +39,6 @@ import static xyz.cereshost.vesta.core.ia.VestaEngine.LOOK_BACK;
 @UtilityClass
 public class BuilderData {
 
-    public final static int FEATURES = 6;
     public static final int DEFAULT_FUTURE_WINDOW = 30;
 
     public static @NotNull TrainingData buildTrainingData(@NotNull List<TypeMarket> typeMarkets, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
@@ -262,6 +261,8 @@ public class BuilderData {
         return new Pair<>(X, y);
     }
 
+    public final static int FEATURES = 8;
+
     public static float @NotNull [] extractFeatures(@NotNull CandleIndicators curr, @NotNull CandleIndicators prev) {
         if (curr.getMetrics() == null || prev.getMetrics() == null) return new float[0];
         List<Float> fList = new ArrayList<>();
@@ -271,6 +272,8 @@ public class BuilderData {
         fList.add((float) Math.log(curr.getVolumen().baseVolume()));
         fList.add(safeDiffPercent(curr.getMetrics().getCountTopTradesLongShortRatio(), prev.getMetrics().getCountTopTradesLongShortRatio()));
         fList.add(safeDiffPercent(curr.getMetrics().getCountTradesLongShortRatio(), prev.getMetrics().getCountTradesLongShortRatio()));
+        fList.add(safeDiffPercent(curr.getMetrics().getSumOpenInterest(), prev.getMetrics().getSumOpenInterest()));
+        fList.add(safeDiffPercent(curr.get("obv"), prev.get("obv")));
 
         float[] f = new float[fList.size()];
         for (int i = 0; i < fList.size(); i++) {
@@ -281,7 +284,7 @@ public class BuilderData {
     }
 
     public CandlesBuilder getProfierCandlesBuilder(){
-        return new CandlesBuilder();
+        return new CandlesBuilder().addOBVIndicator("obv");
     }
 
     public static double checkDouble(double d) throws IllegalArgumentException{

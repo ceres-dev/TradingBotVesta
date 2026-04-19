@@ -18,7 +18,6 @@ import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
 import xyz.cereshost.vesta.core.packet.PacketHandlerServer;
 import xyz.cereshost.vesta.core.strategy.strategis.AlfaStrategy;
-import xyz.cereshost.vesta.core.strategy.strategis.ZetaStrategy;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
@@ -71,9 +70,9 @@ public class Main {
                 market.sortd();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
                 PredictionEngine engine = new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu()));
-                showDataBackTest(new BackTestEngine(market, engine, new AlfaStrategy()).run());
+                showDataBackTest(new BackTestEngine(engine, new AlfaStrategy()).run());
             }
-            case "trading" -> new TradingTickLoop(TYPE_MARKET, null, new ZetaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop(TYPE_MARKET, null, new AlfaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + TYPE_MARKET.symbol() +"\\trades"));
             case "diagnose" -> {
                 Market market = getMarket(false);

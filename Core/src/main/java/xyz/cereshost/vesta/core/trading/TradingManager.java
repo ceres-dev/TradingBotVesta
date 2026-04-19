@@ -7,58 +7,136 @@ import lombok.experimental.Delegate;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
 
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
 import java.util.function.BiFunction;
-import java.util.function.Consumer;
 
 import static xyz.cereshost.vesta.core.trading.DireccionOperation.LONG;
 
 public interface TradingManager extends Notifiable {
 
-    @Nullable OpenOperation open(RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
-
     /**
      * Abre una operacion en futuros perpetuos
      *
-     * @param tpPercent porcentaje para él limite Take Profit
-     * @param slPercent porcentaje para él limite Stop Loss
      * @param direccion Si la operación es Short/Venta o una operación Larga/Compra
-     * @param amountUSD Cantidad de USDT/USDC a operar
+     * @param quantity Cantidad de USDT/USDC a operar
      * @param leverage  La cantidad de apaleamiento
      * @return la nueva instancia de la operación
      */
-    default @Nullable OpenOperation open(double tpPercent, double slPercent, @NotNull DireccionOperation direccion, double amountUSD, int leverage) {
-        return open(new RiskLimitsPercent(tpPercent, slPercent), direccion, amountUSD, leverage);
+    @NotNull Optional<TradingManager.OpenPosition> open(@NotNull DireccionOperation direccion,
+                                               @NotNull Double quantity,
+                                               @NotNull Integer leverage
+    );
+
+    @NotNull Optional<Order> limit(@NotNull DireccionOperation side,
+                                   @NotNull Double trigger,
+                                   @NotNull Double quantity,
+                                   @NotNull Integer leverage,
+                                   @NotNull TypeOrder typeOrder,
+                                   @NotNull TimeInForce timeInForce
+    );
+
+    default Optional<Order> limit(@NotNull DireccionOperation side,
+                                  @NotNull Double trigger,
+                                  @NotNull Double quantity,
+                                  @NotNull Integer leverage,
+                                  @NotNull TypeOrder typeOrder
+    ){
+        return limit(side, trigger, quantity, leverage, typeOrder, TimeInForce.GTE_GTC);
     }
 
-    @Nullable LimiteOperation limit(double entryPrice, RiskLimits riskLimits, @NotNull DireccionOperation direccion, double amountUSD, int leverage);
+    default Optional<Order> limit(@NotNull DireccionOperation side,
+                                  @NotNull Double trigger,
+                                  @NotNull Double quantity,
+                                  @NotNull Integer leverage,
+                                  @NotNull TimeInForce timeInForce
+    ){
+        return limit(side, trigger, quantity, leverage, TypeOrder.MARKET, timeInForce);
+    }
+
+    default Optional<Order> limit(@NotNull DireccionOperation side,
+                                  @NotNull Double trigger,
+                                  @NotNull Double quantity,
+                                  @NotNull Integer leverage
+    ){
+        return limit(side, trigger, quantity, leverage, TypeOrder.MARKET, TimeInForce.GTE_GTC);
+    }
+
+    @NotNull Optional<OrderAlgo> limitAlgo(@NotNull DireccionOperation side,
+                                           @NotNull TypeOrder type,
+                                           @NotNull Double stopPrice,
+                                           @Nullable Integer leverage,
+                                           @Nullable Double quantity,
+                                           @NotNull TimeInForce timeInForce,
+                                           @NotNull Boolean reduceOnly
+    );
+
+    default @NotNull Optional<OrderAlgo> limitAlgo(@NotNull DireccionOperation side,
+                                                   @NotNull TypeOrder type,
+                                                   @NotNull Double stopPrice,
+                                                   @Nullable Integer leverage,
+                                                   @Nullable Double quantity,
+                                                   @NotNull Boolean reduceOnly
+    ){
+        return limitAlgo(side, type, stopPrice, leverage, quantity, TimeInForce.GTE_GTC, reduceOnly);
+    }
+
+    default @NotNull Optional<OrderAlgo> limitAlgo(@NotNull DireccionOperation side,
+                                                   @NotNull TypeOrder type,
+                                                   @NotNull Double stopPrice,
+                                                   @Nullable Integer leverage,
+                                                   @Nullable Double quantity
+    ){
+        return limitAlgo(side, type, stopPrice, leverage, quantity, true);
+    }
+
+    default @NotNull Optional<OrderAlgo> limitAlgo(@NotNull DireccionOperation side,
+                                                   @NotNull TypeOrder type,
+                                                   @NotNull Double stopPrice
+    ){
+        return limitAlgo(side, type, stopPrice, null, null, TimeInForce.GTE_GTC, true);
+    }
+
+    default @NotNull Optional<OrderAlgo> limitAlgo(@NotNull DireccionOperation side,
+                                                   @NotNull TypeOrder type,
+                                                   @NotNull Double stopPrice,
+                                                   @NotNull TimeInForce timeInForce
+    ){
+        return limitAlgo(side, type, stopPrice, null, null, timeInForce, true);
+    }
+
 
     /**
      * Cierras una Operación previamente Abierta
      *
      * @param reason Razón de la salida
      */
-    @Nullable CloseOperation close(ExitReason reason);
+    @NotNull Optional<TradingManager.ClosePosition> close(ExitReason reason);
 
-    void cancelLimit(LimiteOperation limiteOperation);
+    void cancelOrder(UUID uuid);
 
-    int limitsSize();
+    void cancelAllOrder();
 
-    OpenOperation getOpen();
+    void cancelAllOrderAlgo();
 
-    @NotNull List<LimiteOperation> getLimites();
+    @NotNull Integer pendingOrderSize();
 
-    Market getMarket();
+    @NotNull Optional<OpenPosition> getOpenPosition();
 
-    double getAvailableBalance();
+    @NotNull List<Order> getOrder();
+
+    @NotNull List<OrderAlgo> getLimitAlgos();
+
+    @NotNull Optional<TradingManager.OrderAlgo> getTakeProfit();
+
+    @NotNull Optional<TradingManager.OrderAlgo> getStopLoss();
+
+    @NotNull Market getMarket();
+
+    @NotNull Double getAvailableBalance();
 
     /**
      * Obtienes el preio actual del mercado
@@ -66,7 +144,7 @@ public interface TradingManager extends Notifiable {
      * @return el precio absoluto actual
      */
 
-    double getCurrentPrice();
+    @NotNull Double getCurrentPrice();
 
     /**
      * La hora actual (En el backtest se usa la hora del propio backtest)
@@ -79,37 +157,29 @@ public interface TradingManager extends Notifiable {
     default void log(String s) {
     }
 
-    default boolean hasOpenOperation() {
-        return getOpen() != null;
-    }
-
-    default void computeHasOpenOperation(Consumer<OpenOperation> consumer) {
-        if (hasOpenOperation()) consumer.accept(getOpen());
-    }
-
     @Data
     @EqualsAndHashCode(callSuper = true)
-    abstract class CloseOperation extends OpenOperation {
+    abstract class ClosePosition extends OpenPosition {
 
         private final double exitPrice;
         private final long exitTime;
         private final ExitReason reason;
 
         @Delegate
-        private final OpenOperation openOperation;
+        private final OpenPosition openPosition;
 
-        public CloseOperation(double exitPrice, long exitTime, ExitReason reason, OpenOperation openOperation) {
-            super(openOperation.getTradingManager(),
-                    openOperation.getRiskLimits(),
-                    openOperation.getDireccion(),
-                    openOperation.getEntryPrice(),
-                    openOperation.getInitialMargenUSD(),
-                    openOperation.getLeverage()
+        public ClosePosition(double exitPrice, long exitTime, ExitReason reason, OpenPosition openPosition) {
+            super(openPosition.getTradingManager(),
+                    openPosition.getDireccion(),
+                    openPosition.getEntryPrice(),
+                    openPosition.getQuantity(),
+                    openPosition.getLeverage(),
+                    openPosition.getOrder()
             );
             this.exitPrice = exitPrice;
             this.exitTime = exitTime;
             this.reason = reason;
-            this.openOperation = openOperation;
+            this.openPosition = openPosition;
         }
 
         /* Methods que implica una modificación a la operación */
@@ -124,24 +194,33 @@ public interface TradingManager extends Notifiable {
         }
 
         @Override
-        public void nextMinute() {
+        public void nextStep() {
             throw new OperationFilled(this);
         }
     }
 
     @EqualsAndHashCode(callSuper = true)
     @Data
-    abstract class OpenOperation extends LimiteOperation implements RiskLimiterContainer {
-        private final long entryTime;
+    abstract class OpenPosition extends PossiblePosition {
+
+        private final @NotNull Long entryTime;
+        private final @Nullable Order order;
+
         /**
          * Lista de banderas para identificar una operación
          */
         public final Set<String> flags = new HashSet<>();
 
-        // Ojo el TP y SL en Porcentajes ABS sin apalancar
-        public OpenOperation(@NotNull TradingManager tradingManager, RiskLimits riskLimits, @NotNull DireccionOperation direccion, double entryPrice, double amountUSDT, int leverage) {
-            super(tradingManager, riskLimits, direccion, entryPrice, amountUSDT, leverage);
+        public OpenPosition(@NotNull TradingManager tradingManager,
+                            @NotNull DireccionOperation direccion,
+                            @NotNull Double entryPrice,
+                            @NotNull Double quantity,
+                            @NotNull Integer leverage,
+                            @Nullable Order order
+        ) {
+            super(tradingManager, direccion, entryPrice, quantity, leverage);
             this.entryTime = tradingManager.getCurrentTime();
+            this.order = order;
         }
 
         public void close(ExitReason reason) {
@@ -154,8 +233,8 @@ public interface TradingManager extends Notifiable {
 
         @Override
         @Contract(value = "_ -> fail")
-        public void setEntryPrice(double entryPrice) {
-            throw new OperationFilled("No se puede cambiar el precio de entrada en una posición ya abierta");
+        public void setEntryPrice(@NotNull Double entryTime){
+            throw new UnsupportedOperationException();
         }
 
         /**
@@ -201,58 +280,156 @@ public interface TradingManager extends Notifiable {
          * @return true si está abierto y modificable false en caso contrario
          */
         public boolean isOpen() {
-            return !(this instanceof CloseOperation);
+            return !(this instanceof ClosePosition);
         }
 
         /**
-         * La cantidad de minutos que lleva abierto una operación
+         * La cantidad de velas que lleva abierto una operación
          */
-        private int minutesOpen = 0;
+        private int candlesOpen = 0;
 
         /**
          * Suma 1+ a la cantidad de minutos que lleva abierto la operación
          */
-        public void nextMinute() {
-            minutesOpen++;
-        }
-
-        @Override
-        public void setTimeInForce(TimeInForce timeInForce) {
-            throw new UnsupportedOperationException();
+        public void nextStep() {
+            candlesOpen++;
         }
     }
 
     @Data
-    abstract class LimiteOperation implements RiskLimiterContainer {
+    @EqualsAndHashCode(callSuper = true)
+    abstract class OrderAlgo extends MarketObject implements LimitedPosition {
 
-        protected final UUID uuid = UUID.randomUUID();
+        @NotNull protected TypeOrder TypeOrder;
+        @Nullable protected TimeInForce timeInForce;
+        @NotNull protected Double triggerPrice;
+        @Nullable protected Double quantity;
+        @Nullable protected Integer leverage;
+        @NotNull protected Boolean reduceOnly;
 
-        protected final @NotNull TradingManager tradingManager;
-        protected final @NotNull RiskLimits originalRisklimits;
-        protected final @NotNull DireccionOperation direccion;
-        protected double entryPrice;
-        protected final double initialMargenUSD;
-        protected final int leverage;
-
-        public LimiteOperation(@NotNull TradingManager tradingManager,
-                               @NotNull RiskLimits originalRisklimits,
-                               @NotNull DireccionOperation direccion,
-                               double entryPrice, double amountUSDT, int leverage
+        public OrderAlgo(@NotNull TradingManager tradingManager,
+                         @NotNull DireccionOperation direccion,
+                         @NotNull Double triggerPrice,
+                         @Nullable Double quantity,
+                         @Nullable Integer leverage,
+                         @NotNull Boolean reduceOnly,
+                         @NotNull TypeOrder typeOrder,
+                         @Nullable TimeInForce timeInForce
         ) {
-            this.tradingManager = tradingManager;
-            this.originalRisklimits = originalRisklimits;
-            this.direccion = direccion;
-            this.entryPrice = entryPrice;
-            this.initialMargenUSD = amountUSDT;
+            super(tradingManager, direccion);
+            this.TypeOrder = typeOrder;
+            this.triggerPrice = triggerPrice;
+            this.quantity = quantity;
             this.leverage = leverage;
-
-            this.riskLimits = originalRisklimits;
+            this.reduceOnly = reduceOnly;
+            this.timeInForce = timeInForce;
         }
 
-        protected @NotNull RiskLimits riskLimits;
+        public boolean satisfaceCondicion(Double currentPrice) {
+            switch (direccion){
+                case LONG -> {
+                    if (getTypeOrder().isTakeProfit()){
+                        return currentPrice >= triggerPrice;
+                    }
+                    if (getTypeOrder().isStopLoss()){
+                        return currentPrice <= triggerPrice;
+                    }
+                    throw new IllegalArgumentException("Tipo de orden invalido limite Algo: " + getTypeOrder());
+                }
+                case SHORT -> {
+                    if (getTypeOrder().isStopLoss()){
+                        return currentPrice >= triggerPrice;
+                    }
+                    if (getTypeOrder().isTakeProfit()){
+                        return currentPrice <= triggerPrice;
+                    }
+                    throw new IllegalArgumentException("Tipo de orden invalido para limite Algo: " + getTypeOrder());
+                }
+                default -> throw new UnsupportedOperationException();
+            }
+        }
 
-        @NotNull
-        protected TimeInForce timeInForce = TimeInForce.GTC;
+    }
+
+    @Data
+    @EqualsAndHashCode(callSuper = true)
+    abstract class Order extends PossiblePosition implements LimitedPosition {
+
+        @NotNull protected TypeOrder typeOrder;
+        @Nullable protected TimeInForce timeInForce;
+        @NotNull protected Double triggerPrice;
+
+        public Order(@NotNull TradingManager tradingManager,
+                     @NotNull DireccionOperation direccion,
+                     @NotNull Double entryPrice,
+                     @NotNull Double quantity,
+                     @NotNull Integer leverage,
+                     @NotNull TypeOrder typeOrder,
+                     @Nullable TimeInForce timeInForce
+        ) {
+            super(tradingManager, direccion, entryPrice, quantity, leverage);
+            this.typeOrder = typeOrder;
+            this.timeInForce = timeInForce;
+        }
+
+        @Override
+        public @NotNull Double getTriggerPrice(){
+            return entryPrice;
+        }
+
+        @Override
+        public void setTriggerPrice(@NotNull Double triggerPrice){
+            entryPrice = triggerPrice;
+        }
+    }
+
+    @Data
+    @EqualsAndHashCode(callSuper = true)
+    abstract class PossiblePosition extends MarketObject{
+
+        @NotNull protected Double entryPrice;
+        @NotNull protected final Double quantity;
+        @NotNull protected final Integer leverage;
+
+        public PossiblePosition(@NotNull TradingManager tradingManager,
+                                @NotNull DireccionOperation direccion,
+                                @NotNull Double entryPrice,
+                                @NotNull Double quantity,
+                                @NotNull Integer leverage
+        ) {
+            super(tradingManager, direccion);
+            this.entryPrice = entryPrice;
+            this.quantity = quantity;
+            this.leverage = leverage;
+        }
+
+        public @NotNull Double getQuantityLeverage(){
+            return quantity * leverage;
+        }
+    }
+
+    @Data
+    abstract class MarketObject{
+        protected final UUID uuid = UUID.randomUUID();
+        protected final @NotNull TradingManager tradingManager;
+        protected final @NotNull DireccionOperation direccion;
+    }
+
+    interface LimitedPosition {
+        @Contract(pure = true)
+        @NotNull Double getTriggerPrice();
+        void setTriggerPrice(@NotNull Double triggerPrice);
+
+        @Contract(pure = true)
+        @Nullable TimeInForce  getTimeInForce();
+        void setTimeInForce(@Nullable TimeInForce timeInForce);
+
+        @Contract(pure = true)
+        @NotNull TypeOrder getTypeOrder();
+        void setTypeOrder(@NotNull TypeOrder timeInForce);
+
+        @Contract(pure = true)
+        @Nullable Double getQuantity();
     }
 
     /**

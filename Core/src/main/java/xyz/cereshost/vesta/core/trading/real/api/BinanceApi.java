@@ -20,27 +20,26 @@ import java.util.function.Consumer;
 
 public interface BinanceApi extends Notifiable {
 
-    long placeAlgoOrder(Symbol symbol,
-                        DireccionOperation direccion,
-                        TypeOrder type,
-                        TimeInForce timeInForce,
-                        Double quantity,
-                        Double stopPrice,
-                        boolean reduceOnly
+    Long placeAlgoOrder(@NotNull Symbol symbol,
+                        @NotNull DireccionOperation side,
+                        @NotNull TypeOrder type,
+                        @Nullable TimeInForce timeInForce,
+                        @Nullable Double quantity,
+                        @NotNull Double stopPrice,
+                        @NotNull Boolean reduceOnly
     );
 
-
-    long placeOrder(Symbol symbol,
-                    DireccionOperation direccion,
-                    TypeOrder type,
-                    TimeInForce timeInForce,
-                    Double quantity,
-                    Double stopPrice,
-                    boolean reduceOnly,
-                    boolean closePosition
+    Long placeOrder(@NotNull Symbol symbol,
+                    @NotNull DireccionOperation side,
+                    @NotNull TypeOrder type,
+                    @Nullable TimeInForce timeInForce,
+                    @NotNull Double quantityLeverageCoin,
+                    @Nullable Double trigger,
+                    @NotNull Boolean reduceOnly,
+                    @NotNull Boolean closePosition
     );
 
-    void cancelOrder(Symbol symbol, long orderId, boolean isAlgoOrder);
+    void cancelOrder(@NotNull Symbol symbol, @NotNull Long orderId, @NotNull Boolean isAlgoOrder);
 
     void closeAll(Symbol symbol);
 
@@ -108,7 +107,7 @@ public interface BinanceApi extends Notifiable {
             Double triggerPrice,
             Double quantity,
             Boolean isAlgoOrder,
-            TimeInForce timeInForce,
+            TimeInForce  timeInForce,
             TypeOrder type,
             DireccionOperation direccionOperation
     ) {}
