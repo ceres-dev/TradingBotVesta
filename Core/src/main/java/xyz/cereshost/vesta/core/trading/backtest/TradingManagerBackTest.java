@@ -29,12 +29,12 @@ public class TradingManagerBackTest implements TradingManager {
     }
 
     @Override
-    public @NotNull Optional<TradingManager.OpenPosition> getOpenPosition() {
+    public @NotNull Optional<OpenPosition> getOpenPosition() {
         return Optional.ofNullable(openOperation);
     }
 
     @Override
-    public @NotNull Optional<TradingManager.OpenPosition> open(@NotNull DireccionOperation direccion, @NotNull Double quantity, @NotNull Integer leverage) {
+    public @NotNull Optional<OpenPosition> open(@NotNull DireccionOperation direccion, @NotNull Double quantity, @NotNull Integer leverage) {
         // Lo minimo para invertir en Binance
 
         if (quantity * leverage < 5) return Optional.empty();
@@ -84,7 +84,7 @@ public class TradingManagerBackTest implements TradingManager {
     }
 
     @Override
-    public @NotNull Optional<TradingManager.ClosePosition> close(ExitReason reason) {
+    public @NotNull Optional<ClosePosition> close(ExitReason reason) {
         if (openOperation == null) return Optional.empty();
         BackTestClosePosition closeOperation = new BackTestClosePosition(backTestEngine.getCurrentPrice(),
                 backTestEngine.getCurrentTime(),
@@ -133,8 +133,8 @@ public class TradingManagerBackTest implements TradingManager {
         uuidsForRemover.forEach(this::cancelOrder);
     }
 
-    public Optional<TradingManager.ClosePosition> closeForEngine(@NotNull BackTestClosePosition closeOperation,
-                                                                 @NotNull TradingTelemetry.TradePerformance performance
+    public Optional<ClosePosition> closeForEngine(@NotNull BackTestClosePosition closeOperation,
+                                                  @NotNull TradingTelemetry.TradePerformance performance
     ){
         List<OrderAlgo> activeOrderAlgos = getLimitAlgos();
         openOperation = null;
@@ -175,25 +175,41 @@ public class TradingManagerBackTest implements TradingManager {
         openForEngine(o);
     }
 
-    public void openForEngine(@Nullable TradingManagerBackTest.BackTestOpenPosition openOperation) {
-        this.openOperation = openOperation;
-        if (openOperation == null) {
+    public void openForEngine(@Nullable TradingManagerBackTest.BackTestOpenPosition openPosition) {
+        this.openOperation = openPosition;
+        if (openPosition == null) {
             return;
         }
-        Order sourceOrder = openOperation.getOrder();
+        LimitedPosition sourceOrder = openPosition.getOrder();
         if (sourceOrder != null) {
-            pendingOrder.remove(sourceOrder.getUuid());
-            if (telemetry != null) {
-                telemetry.recordOrderFilled(
-                        sourceOrder,
-                        openOperation.getUuid(),
-                        openOperation.getTriggerPrice(),
-                        openOperation.getEntryTime()
-                );
+            switch (sourceOrder){
+                case Order order -> {
+                    pendingOrder.remove(order.getUuid());
+                    if (telemetry != null) {
+                        telemetry.recordOrderFilled(
+                                order,
+                                openPosition.getUuid(),
+                                openPosition.getTriggerPrice(),
+                                openPosition.getEntryTime()
+                        );
+                    }
+                }
+                case OrderAlgo orderAlgo -> {
+                    pendingOrder.remove(orderAlgo.getUuid());
+                    if (telemetry != null) {
+                        telemetry.recordOrderAlgoFilled(
+                                orderAlgo,
+                                openPosition.getUuid(),
+                                openPosition.getTriggerPrice(),
+                                openPosition.getEntryTime()
+                        );
+                    }
+                }
+                default -> throw new IllegalStateException("Unexpected value: " + sourceOrder);
             }
         }
         if (telemetry != null) {
-            telemetry.recordPositionOpened(openOperation);
+            telemetry.recordPositionOpened(openPosition);
         }
     }
 
@@ -227,7 +243,7 @@ public class TradingManagerBackTest implements TradingManager {
     }
 
     @Override
-    public @NotNull Optional<TradingManager.OrderAlgo> getTakeProfit() {
+    public @NotNull Optional<OrderAlgo> getTakeProfit() {
         return pendingOrder.values().stream().filter(order ->
                 order instanceof OrderAlgo
         ).map(order ->

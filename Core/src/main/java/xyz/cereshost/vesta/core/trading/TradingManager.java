@@ -10,7 +10,9 @@ import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
+import xyz.cereshost.vesta.core.trading.real.TradingManagerBinance;
 import xyz.cereshost.vesta.core.utils.Copyable;
+import xyz.cereshost.vesta.core.utils.Identifiable;
 
 import java.util.*;
 import java.util.function.BiFunction;
@@ -415,6 +417,11 @@ public interface TradingManager extends Notifiable {
         }
 
         @Override
+        public @NotNull Boolean isAlgo(){
+            return false;
+        }
+
+        @Override
         public void cancel() {
             tradingManager.cancelOrder(this.uuid);
         }
@@ -451,6 +458,11 @@ public interface TradingManager extends Notifiable {
                     order.typeOrder,
                     order.timeInForce
             );
+        }
+
+        @Override
+        public @NotNull Boolean isAlgo(){
+            return true;
         }
 
         @Override
@@ -495,13 +507,13 @@ public interface TradingManager extends Notifiable {
     }
 
     @Data
-    abstract class MarketObject<T extends MarketObject<T>> implements Copyable<T> {
+    abstract class MarketObject<T extends MarketObject<T>> implements Copyable<T>, Identifiable {
         protected final UUID uuid = UUID.randomUUID();
         protected final @NotNull TradingManager tradingManager;
         protected final @NotNull DireccionOperation direccion;
     }
 
-    interface LimitedPosition {
+    interface LimitedPosition extends Identifiable {
         @Contract(pure = true)
         @NotNull Double getTriggerPrice();
         void setTriggerPrice(@NotNull Double triggerPrice);
@@ -514,6 +526,9 @@ public interface TradingManager extends Notifiable {
 
         @Contract(pure = true)
         @Nullable Double getQuantity();
+
+        @Contract(pure = true)
+        @NotNull Boolean isAlgo();
 
         void cancel();
     }
