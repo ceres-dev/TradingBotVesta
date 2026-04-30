@@ -10,7 +10,6 @@ import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.common.market.TypeMarket;
-import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.TrainingData;
 import xyz.cereshost.vesta.core.io.IOMarket;
@@ -40,11 +39,17 @@ import static xyz.cereshost.vesta.core.ia.VestaEngine.LOOK_BACK;
 public class BuilderData {
 
     public static final int DEFAULT_FUTURE_WINDOW = 30;
+    public static final int TREND_LABEL_WINDOW = 15;
+    public static final int OUTPUTS = 1;
+    public static final String TREND_EFFICIENCY_KEY = "trend_er_15";
 
     public static @NotNull TrainingData buildTrainingData(@NotNull List<TypeMarket> typeMarkets, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
         List<PairCache> cacheEntries = new ArrayList<>();
         long time = System.currentTimeMillis();
         List<CompletableFuture<Object>> waitingCacheSave = new ArrayList<>();
+
+
+        ProgressBar progressBar = new ProgressBar(maxMonth * typeMarkets.size());
         for (TypeMarket typeMarket : typeMarkets) {
             final Symbol symbol = typeMarket.symbol();
             try {
@@ -61,6 +66,7 @@ public class BuilderData {
                 AtomicInteger totalDays = new AtomicInteger();
                 AtomicInteger doneDays = new AtomicInteger();
                 List<CompletableFuture<MonthMarketCache>> futures = new ArrayList<>();
+
                 for (int month = maxMonth + offset; month > offset; month--) {
                     final int currentMonth = month;
                     YearMonth targetMonth = IOMarket.resolveMonthFromIndex(currentMonth);
@@ -69,34 +75,26 @@ public class BuilderData {
                     CompletableFuture<MonthMarketCache> future = CompletableFuture.supplyAsync(() -> {
                         try {
                             System.gc();
-                            Vesta.info("(idx:%d) Comenzado carga de datos", currentMonth);
-
                             SequenceCandles candlesThisMonth = CandlesBuilder.empty();
                             for (int day = 1; day <= daysInMonth; day++) {
                                 LocalDate date = targetMonth.atDay(day);
                                 int dayIndex = IOMarket.resolveDayIndex(date);
-                                Vesta.info("(idx:%d) ⬆️ Cargando dia %s", currentMonth, date);
                                 Market market = IOMarket.loadMarket(typeMarket, new LoadDataMethodLocalIndex(false, dayIndex));
                                 if (market == null) {
                                     Vesta.warning("(idx:%d) Mercado vacio para %s", currentMonth, date);
                                     continue;
                                 }
-                                Vesta.info("(idx:%d) 📊 Convirtiendo velas (dia %s, C:%d)", currentMonth, date, market.getCandles().size());
                                 SequenceCandles candlesDay = candlesBuilder.build(market);
                                 market.clear();
                                 if (!candlesDay.isEmpty()) {
                                     candlesThisMonth.addAll(candlesDay);
                                 }
                                 doneDays.getAndIncrement();
-                                Vesta.info("(idx:%d) (%d/%d) (%d/%d) ✅ Dia cargado", currentMonth, day, daysInMonth, doneDays.get(), totalDays.get());
                             }
                             if (candlesThisMonth.size() <= LOOK_BACK + 2) {
                                 Vesta.warning("(idx:%d) insuficiente historial: " + candlesThisMonth.size() + " velas", currentMonth);
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
-
-                            Vesta.info("(idx:%d) 📦 Exportando Pair (C:%d)", currentMonth, candlesThisMonth.size());
-
                             Pair<float[][][], float[][]> pair = BuilderData.buildPair(candlesThisMonth, LOOK_BACK);
                             AtomicReference<float[][][]> Xraw = new AtomicReference<>(pair.getKey());
                             AtomicReference<float[][]> yraw = new AtomicReference<>(pair.getValue());
@@ -114,7 +112,6 @@ public class BuilderData {
                             }
                             pair = null;
                             // Guarda el resultado del pair
-                            Vesta.info("(idx:%d) 💿 Guardando resultado del Pair", currentMonth);
                             MonthMarketCache cache = new MonthMarketCache(samples, seqLen, features, yCols, candlesThisMonth, true);
                             waitingCacheSave.add(CompletableFuture.supplyAsync(() -> {
                                 try {
@@ -151,9 +148,8 @@ public class BuilderData {
                             if (result.samples > 0) {
                                 // Añadir objeto que indica que se guardó caché del pair
                                 cacheEntries.add(result);
-                                Vesta.info("(%d/%d) ✅ procesado: %d muestras (%s)", month, maxMonth, result.samples, symbol);
-                            }else {
-                                Vesta.warning("(%d/%d) ⚠️ No hay datos (%s)", month, maxMonth, symbol);
+                                progressBar.increaseValue();
+                                progressBar.printAsync();
                             }
                         }
                     } catch (InterruptedException | ExecutionException e) {
@@ -171,7 +167,7 @@ public class BuilderData {
         }
 
         Vesta.info("💤 Esperando que termine de escribir en disco");
-        for (CompletableFuture<Object>  future : waitingCacheSave) {
+        for (CompletableFuture<Object> future : waitingCacheSave) {
             try {
                 future.get();
             } catch (InterruptedException | ExecutionException e) {
@@ -229,7 +225,7 @@ public class BuilderData {
     @Contract("_, _-> new")
     public static @NotNull Pair<float[][][], float[][]> buildPair(@NotNull SequenceCandles candles, int lookBack) {
         int n = candles.size();
-        int samples = n - lookBack - 1;
+        int samples = n - lookBack - TREND_LABEL_WINDOW;
 
         if (samples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
         int validSamples = 0;
@@ -242,38 +238,41 @@ public class BuilderData {
         if (validSamples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
 
         float[][][] X = new float[validSamples][lookBack][FEATURES];
-        float[][] y = new float[validSamples][5];
+        float[][] y = new float[validSamples][OUTPUTS];
         int idx = 0;
         for (int i = 0; i < samples; i++) {
             CandleIndicators cOld = candles.getCandle(i);
             CandleIndicators cNew = candles.getCandle(i + 1);
             // X
             for (int j = 0; j < lookBack; j++)
-                X[idx][j] = extractFeatures(
+                X[idx][j] = buildTrendInputs(
                         candles.getCandle(i + j + 1),
                         candles.getCandle(i + j)
                 );
             // Y
-            double delta = cNew.getDiffPercent()*4;
+            double delta = cNew.getDiffPercent()*3;
             y[idx] = new float[]{Math.clamp((delta > 0) ? (float) Math.log1p(delta) : (float) -Math.log1p(Math.abs(delta)), -1, 1)};
+//            y[idx] = buildTrendOutputs(candles, i + lookBack, TREND_LABEL_WINDOW);
             idx++;
         }
         return new Pair<>(X, y);
     }
 
+    public static int count = 0;
+
     public final static int FEATURES = 8;
 
-    public static float @NotNull [] extractFeatures(@NotNull CandleIndicators curr, @NotNull CandleIndicators prev) {
+    public static float @NotNull [] buildTrendInputs(@NotNull CandleIndicators curr, @NotNull CandleIndicators prev) {
         if (curr.getMetrics() == null || prev.getMetrics() == null) return new float[0];
         List<Float> fList = new ArrayList<>();
         fList.add(safeDiffPercent(curr.getClose(), prev.getClose()));
         fList.add(safeDiffPercent(curr.getHigh(), prev.getHighBody()));
         fList.add(safeDiffPercent(curr.getLow(), prev.getLowBody()));
-        fList.add((float) Math.log(curr.getVolumen().baseVolume()));
+        fList.add(safeDiffPercent(curr.getVolumen().baseVolume(), prev.getVolumen().baseVolume()));
         fList.add(safeDiffPercent(curr.getMetrics().getCountTopTradesLongShortRatio(), prev.getMetrics().getCountTopTradesLongShortRatio()));
         fList.add(safeDiffPercent(curr.getMetrics().getCountTradesLongShortRatio(), prev.getMetrics().getCountTradesLongShortRatio()));
         fList.add(safeDiffPercent(curr.getMetrics().getSumOpenInterest(), prev.getMetrics().getSumOpenInterest()));
-        fList.add(safeDiffPercent(curr.get("obv"), prev.get("obv")));
+        fList.add(clamp01(safeDiv(curr.get(TREND_EFFICIENCY_KEY), 100D)));
 
         float[] f = new float[fList.size()];
         for (int i = 0; i < fList.size(); i++) {
@@ -284,7 +283,8 @@ public class BuilderData {
     }
 
     public CandlesBuilder getProfierCandlesBuilder(){
-        return new CandlesBuilder().addOBVIndicator("obv");
+        return new CandlesBuilder()
+                .addERIndicator(TREND_EFFICIENCY_KEY, TREND_LABEL_WINDOW);
     }
 
     public static double checkDouble(double d) throws IllegalArgumentException{
@@ -326,6 +326,77 @@ public class BuilderData {
 
     private static float safeFloat(double value) {
         return Double.isFinite(value) ? (float) value : 0f;
+    }
+
+    private static boolean hasValidFeatureWindow(@NotNull SequenceCandles candles, int startIndex, int lookBack) {
+        for (int j = 0; j < lookBack; j++) {
+            CandleIndicators curr = candles.getCandle(startIndex + j + 1);
+            CandleIndicators prev = candles.getCandle(startIndex + j);
+            if (curr.getMetrics() == null || prev.getMetrics() == null) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static float @NotNull [] buildTrendOutputs(@NotNull SequenceCandles candles, int anchorIndex, int futureWindow) {
+        if (anchorIndex < 0 || anchorIndex + futureWindow >= candles.size()) {
+            return new float[0];
+        }
+
+        double anchorClose = candles.getCandle(anchorIndex).getClose();
+        if (!Double.isFinite(anchorClose) || anchorClose <= 0D) {
+            return new float[]{0f, 0f};
+        }
+
+        int upMoves = 0;
+        int downMoves = 0;
+        double previousClose = anchorClose;
+        double pathMovement = 0D;
+
+        for (int step = 1; step <= futureWindow; step++) {
+            double close = candles.getCandle(anchorIndex + step).getClose();
+            if (!Double.isFinite(close) || close <= 0D) {
+                return new float[]{0f, 0f};
+            }
+
+            double delta = close - previousClose;
+            if (delta > 0D) {
+                upMoves++;
+            } else if (delta < 0D) {
+                downMoves++;
+            }
+            pathMovement += Math.abs(delta);
+            previousClose = close;
+        }
+
+        double netChangeRatio = (previousClose - anchorClose) / anchorClose;
+        if (Math.abs(netChangeRatio) < SAFE_EPS || pathMovement < SAFE_EPS) {
+            return new float[]{0f, 0f};
+        }
+
+        double efficiency = clamp01(Math.abs(previousClose - anchorClose) / pathMovement);
+        double dominantRatio = Math.max(upMoves, downMoves) / (double) futureWindow;
+        double consistency = clamp01((dominantRatio - 0.55D) / 0.45D);
+        double magnitude = 1D - Math.exp(-Math.abs(netChangeRatio) * 60D);
+        float score = clamp01(efficiency * consistency * magnitude);
+
+        if (score < 0.02f) {
+            return new float[]{0f, 0f};
+        }
+        if (netChangeRatio > 0D && upMoves > downMoves) {
+            count++;
+            return new float[]{score, 0f};
+        }
+        if (netChangeRatio < 0D && downMoves > upMoves) {
+            count++;
+            return new float[]{0f, score};
+        }
+        return new float[]{0f, 0f};
+    }
+
+    private static float clamp01(double value) {
+        return safeFloat(Math.max(0D, Math.min(1D, value)));
     }
 }
 

@@ -1,6 +1,7 @@
 package xyz.cereshost.vesta.core.strategy.candles;
 
 import org.jetbrains.annotations.Contract;
+import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
 import java.util.Optional;
@@ -29,7 +30,8 @@ public interface ExecutorCandles {
 
     void executeStack(TradingManager tradingManager);
 
-    static ExecutorCandles empty() {
+    @Contract(value = " -> new", pure = true)
+    static @NotNull ExecutorCandles empty() {
         return new ExecutorCandles(){
             @Override
             public ExecutorCandles pause(long milliseconds) {

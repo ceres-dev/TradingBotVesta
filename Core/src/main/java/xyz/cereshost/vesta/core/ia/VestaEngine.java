@@ -47,12 +47,12 @@ import java.util.concurrent.*;
 
 public class VestaEngine {
 
-    public static final int LOOK_BACK = 48;
-    public static final int SHORT_LOOK_BACK = 4;
+    public static final int LOOK_BACK = 60;
+    public static final int SHORT_LOOK_BACK = 5;
     public static final int AUXILIAR_EPOCH = 1;
     public static final int BACH_SIZE = 4;
     public static final int SPLIT_DATA = 1;
-    public static final int EPOCH = SPLIT_DATA * 70;
+    public static final int EPOCH = SPLIT_DATA * 200;
 
     @Getter @Setter
     private static NDManager rootManager;
@@ -122,9 +122,9 @@ public class VestaEngine {
             TrainingConfig config = new DefaultTrainingConfig(new VestaLoss())
                     .optOptimizer(Optimizer.adamW()
                             .optLearningRateTracker(Tracker.cosine()
-                                    .setBaseValue(.000_1f)
-                                    .optFinalValue(.000_001f)
-                                    .setMaxUpdates((int) (maxUpdates*.5f))
+                                    .setBaseValue( .000_0001f)
+                                    .optFinalValue(.000_00001f)
+                                    .setMaxUpdates(70_000)
                                     .build())
                             .optWeightDecays(0)
                             .build())
@@ -237,8 +237,6 @@ public class VestaEngine {
 //            return new TrainingTestsResults(evaluate, simResult);
         }
     }
-    public record TrainingTestsResults(EngineUtils.ResultsEvaluate evaluate, BackTestEngine.BackTestResult backtest) {}
-
     @SuppressWarnings("DuplicatedCode")
     public static @NotNull SequentialBlock getSequentialBlock() {
         SequentialBlock mainBlock = new SequentialBlock();
@@ -290,10 +288,16 @@ public class VestaEngine {
         return new SequentialBlock()
                 .add(Linear.builder().setUnits(1024*2).build())
                 .add(Linear.builder().setUnits(1024*2).build())
+                .add(Linear.builder().setUnits(1024*2).build())
+                .add(Linear.builder().setUnits(1024*2).build())
                 .add(Linear.builder().setUnits(1024).build())
                 .add(Linear.builder().setUnits(1024).build())
                 .add(Linear.builder().setUnits(1024).build())
-                .add(Linear.builder().setUnits(1024).build())
+                .add(Linear.builder().setUnits(512).build())
+                .add(Linear.builder().setUnits(512).build())
+                .add(Linear.builder().setUnits(512).build())
+                .add(Linear.builder().setUnits(512).build())
+                .add(Linear.builder().setUnits(512).build())
                 .add(Linear.builder().setUnits(1).build());
     }
 
@@ -331,9 +335,9 @@ public class VestaEngine {
         block.add(TemporalTransformerBlock.builder()
                         .setModelDim(2*32)
                         .setNumHeads(2)
-                        .setFeedForwardDim(1024*2)
-                        .setDropoutRate(0)
-                        .setAttentionProbsDropoutProb(.05f)
+                        .setFeedForwardDim(1024)
+                        .setDropoutRate(0.1f)
+                        .setAttentionProbsDropoutProb(.1f)
                         .setMaxSequenceLength(VestaEngine.SHORT_LOOK_BACK)
                         .build())
                 .add(new LambdaBlock(ndArrays -> {
@@ -353,11 +357,11 @@ public class VestaEngine {
     private static SequentialBlock buildLSTMSummaryBlock() {
         SequentialBlock block = new SequentialBlock();
         block.add(TemporalTransformerBlock.builder()
-                        .setModelDim(8*(64))
+                        .setModelDim(8*(48))
                         .setNumHeads(8)
                         .setFeedForwardDim(1024)
-                        .setDropoutRate(0)
-                        .setAttentionProbsDropoutProb(.05f)
+                        .setDropoutRate(0.1f)
+                        .setAttentionProbsDropoutProb(.1f)
                         .setMaxSequenceLength(VestaEngine.LOOK_BACK)
                         .build())
                 .add(new LambdaBlock(ndArrays -> {
@@ -380,7 +384,7 @@ public class VestaEngine {
 //        Arrays.fill(pairNormalize.getValue(), null);
 //        Arrays.fill(pairNormalize.getKey(), null);
 //        System.err.println(Arrays.deepToString(pairNormalize.getValue()));
-        int i = (countEpoch/100)*2;
+        int i = (countEpoch/500)*2;
         return new ChunkDataset(X_train, y_train, new ArrayDataset.Builder()
                 .setData(X_train)
                 .optLabels(y_train)

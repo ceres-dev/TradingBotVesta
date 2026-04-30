@@ -17,6 +17,14 @@ public abstract class BaseCandle{
         return Math.abs(getDiffPercent());
     }
 
+    public double getDiffPrice(){
+        return (close - open);
+    }
+
+    public double getDiffPriceAbs(){
+        return Math.abs(getDiffPrice());
+    }
+
     public boolean isBullish(){
         return close > open;
     }

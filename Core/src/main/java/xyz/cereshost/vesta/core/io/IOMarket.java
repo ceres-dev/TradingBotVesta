@@ -193,10 +193,10 @@ public class IOMarket {
 
         try {
             long timeTotal = System.currentTimeMillis();
-            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de klines", targetYear, targetMonth, targetDay, normalizedDayIndex);
+//            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de klines", targetYear, targetMonth, targetDay, normalizedDayIndex);
             File klineFile = ensureFileCached(typeMarket, TypeData.KLINES, targetDate);
             Deque<Candle> candles = parseKlinesFromFile(klineFile);
-            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de trades", targetYear, targetMonth, targetDay, normalizedDayIndex);
+//            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de trades", targetYear, targetMonth, targetDay, normalizedDayIndex);
             Deque<Trade> trades;
             if (loadTrades){
                 File tradeFile = ensureFileCached(typeMarket, TypeData.TRADES, targetDate);
@@ -204,7 +204,7 @@ public class IOMarket {
             }else {
                 trades = new ArrayDeque<>();
             }
-            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de metrics", targetYear, targetMonth, targetDay, normalizedDayIndex);
+//            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de metrics", targetYear, targetMonth, targetDay, normalizedDayIndex);
             Deque<Metric> metrics;
             try {
                 File metricsFile = ensureFileCached(typeMarket, TypeData.METRICS, targetDate);
@@ -221,7 +221,7 @@ public class IOMarket {
             int sizeCandles = candles.size();
             int sizeTrades = trades.size();
             int sizeMetrics = metrics.size();
-            Vesta.info("%d/%02d/%02d (idx=%d) 🔒 Asegurando orden de los datos", targetYear, targetMonth, targetDay, normalizedDayIndex);
+//            Vesta.info("%d/%02d/%02d (idx=%d) 🔒 Asegurando orden de los datos", targetYear, targetMonth, targetDay, normalizedDayIndex);
             LinkedHashSet<Candle> candlesSorted = Market.sortd(candles, 10_000, Candle::getOpenTime);
             LinkedHashSet<Trade> tradeSorted = Market.sortd(trades, 10_000, Trade::time);
             LinkedHashSet<Metric> metricSorted = Market.sortd(metrics, 10_000, Metric::getOpenTime);
@@ -268,10 +268,10 @@ public class IOMarket {
             market.setCandles(candlesSorted);
             market.setTrade(tradeSorted);
             market.setMetrics(metricSorted);
-            Vesta.info("Metrics cargadas para %s: %d", symbol, sizeMetrics);
+//            Vesta.info("Metrics cargadas para %s: %d", symbol, sizeMetrics);
 
-            Vesta.info("%d/%02d/%02d (idx=%d) 🟩 Mercado cargado desde DISCO: %s (C: %d, T: %d) en %.2fs",
-                    targetYear, targetMonth, targetDay, normalizedDayIndex, symbol, sizeCandles, sizeTrades, (float) (System.currentTimeMillis() - timeTotal) / 1000);
+//            Vesta.info("%d/%02d/%02d (idx=%d) 🟩 Mercado cargado desde DISCO: %s (C: %d, T: %d) en %.2fs",
+//                    targetYear, targetMonth, targetDay, normalizedDayIndex, symbol, sizeCandles, sizeTrades, (float) (System.currentTimeMillis() - timeTotal) / 1000);
             return market;
         }catch (IOException e){
             Vesta.sendWaringException("error al cargar los datos de forma local", e);

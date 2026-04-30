@@ -181,23 +181,23 @@ public class TrainingData {
 
         AtomicInteger idx = new AtomicInteger();
         Queue<CompletableFuture<Pair<float[][][], float[][]>>> pairFutures = new LinkedList<>();
+
         for (Path path : trainingList) {
             pairFutures.add(CompletableFuture.supplyAsync(() -> {
                 Pair<float[][][], float[][]> pair;
                 try {
-
                     pair = IOdata.loadTrainingCache(path);
                     EngineUtils.cleanNaNValues(pair.getKey());
                     EngineUtils.cleanNaNValues(pair.getValue());
                     idx.getAndIncrement();
                     Vesta.info("(%d/%d) Datos cargado de disco", idx.get(), trainingList.size());
                 } catch (IOException e) {
+                    Vesta.sendWaringException("error al crear cargar los datos" , e);
                     throw new RuntimeException(e);
                 }
                 return pair;
             }, VestaEngine.EXECUTOR_READ_CACHE_BUILD));
         }
-
         for (int i = 0; i < trainingList.size(); i++) {
             CompletableFuture<Pair<float[][][], float[][]>> pair = pairFutures.poll();
             try {
@@ -211,7 +211,7 @@ public class TrainingData {
                 p = null;
                 pair = null;
             } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
+                Vesta.sendWaringException("error al crear la normalizacion" , e);
             }
 
         }
@@ -301,6 +301,7 @@ public class TrainingData {
             throw new IllegalStateException("ModeData is null");
         }
 
+        // Si queda algo del split se usa t0do hasta que esté vació
         if (!splitQueue.isEmpty()) {
             return splitQueue.pollFirst();
         }
@@ -335,8 +336,11 @@ public class TrainingData {
         }
 
         if (splitParts <= 1) {
+            // En caso de que no tenga que hacer split se retorna todos los datos
             return result;
         }else {
+            // Una vez que tenga el resultado lo divide y guarde las partes del Piar dividas y retornar una parte de
+            // esta division
             List<Pair<float[][][], float[][]>> splits = new ArrayList<>(splitParts);
             for (int i = 0; i < splitParts; i++) {
                 splits.add(EngineUtils.getSingleSplitWithLabels(result, splitParts, i));

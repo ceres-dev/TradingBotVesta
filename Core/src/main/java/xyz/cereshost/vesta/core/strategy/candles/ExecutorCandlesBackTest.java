@@ -2,6 +2,7 @@ package xyz.cereshost.vesta.core.strategy.candles;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.Setter;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 
 import java.util.ArrayList;
@@ -13,12 +14,15 @@ import java.util.function.Function;
 public class ExecutorCandlesBackTest implements ExecutorCandles {
 
     private final ArrayList<Stack<?>> candles = new ArrayList<>();
+    private TradingManager tradingManager;
 
-    private long currentTime;
+    public ExecutorCandlesBackTest(TradingManager tradingManager) {
+        this.tradingManager = tradingManager;
+    }
 
     @Override
     public ExecutorCandles pause(long milliseconds) {
-        candles.add(new StackPause(milliseconds));
+        candles.add(new StackPause(milliseconds + tradingManager.getCurrentTime()));
         return this;
     }
 
@@ -65,6 +69,7 @@ public class ExecutorCandlesBackTest implements ExecutorCandles {
         }
         boolean isBreak = false;
         for (int i = 0; i < candles.size(); ) {
+            if (isDied || isBreak) break;
             switch (candles.get(i)){
                 case StackPause stackPause ->  {
                     if (pause(tradingManager.getCurrentTime(), stackPause.getObject())) {
@@ -89,11 +94,11 @@ public class ExecutorCandlesBackTest implements ExecutorCandles {
                 }
                 default -> throw new IllegalStateException("Unexpected value: " + candles.get(i));
             }
-            if (isDied || isBreak) break;
         }
     }
 
     public boolean pause(long currentTime, long startInTime){
+
         return currentTime >= startInTime;
     }
 

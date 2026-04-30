@@ -27,8 +27,7 @@ import java.util.*;
 import java.util.function.Consumer;
 
 /**
- * ApiRest de Binance
- * <a href="https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-api-information">...</a>
+ * <a href="https://developers.binance.com/docs/binance-spot-api-docs/rest-api/general-api-information">ApiRest de Binance</a>
  */
 
 @Getter
@@ -57,6 +56,49 @@ public final class BinanceApiRest implements BinanceApi {
         this.secretKey = secretKey;
         this.baseUrl = isTestNet ? "https://testnet.binancefuture.com" : "https://fapi.binance.com";
     }
+
+    @Override
+    public Long placeAlgoOrder(@NotNull Symbol symbol,
+                               @NotNull DireccionOperation side,
+                               @NotNull TypeOrder type,
+                               @Nullable TimeInForce timeInForce,
+                               @Nullable Double quantity,
+                               @NotNull Double stopPrice,
+                               @NotNull Boolean reduceOnly,
+                               @NotNull Boolean closePosition
+    ) {
+//        if (!type.isValidValue(stopPrice, stopPrice)) throw new IllegalArgumentException();
+        TreeMap<String, String> params = new TreeMap<>();
+        params.put("algoType", "CONDITIONAL");          // Obligatorio para órdenes condicionales
+        params.put("symbol", symbol.name());
+        params.put("side", side.getSide());
+        params.put("type", type.name());
+        params.put("price", formatPrice(symbol.name(), stopPrice));
+        if (type.isAlgo()) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
+        if (type.isLimit()) {
+            if (timeInForce == null) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
+            params.put("timeInForce", timeInForce.name());
+            if (reduceOnly) params.put("reduceOnly", "true");
+        }
+        if (closePosition) {
+            params.put("closePosition", "true");
+        }else {
+            if (quantity == null) throw new IllegalArgumentException("Se requiere quantity para ordenes Limites");
+            params.put("quantity", formatQuantity(symbol.name(), quantity));
+        }
+
+        // Si se quiere cerrar la posición completa, se usa closePosition y NO se envía quantity
+
+        // Precio de activación (obligatorio para STOP_MARKET/TAKE_PROFIT_MARKET)
+        params.put("triggerPrice", formatPrice(symbol.name(), stopPrice));
+        // WorkingType (opcional, pero recomendado)
+        params.put("workingType", "MARK_PRICE");
+
+        // Usar el endpoint de órdenes algorítmicas
+        JsonNode root = sendSignedRequest("POST", "/fapi/v1/algoOrder", params);
+        return root.get("algoId").asLong();
+    }
+
 
     @Override
     public Long placeOrder(@NotNull Symbol symbol,
@@ -89,48 +131,6 @@ public final class BinanceApiRest implements BinanceApi {
         JsonNode root = sendSignedRequest("POST", "/fapi/v1/order", params);
         return root.get("orderId").asLong();
     }
-
-    @Override
-    public Long placeAlgoOrder(@NotNull Symbol symbol,
-                               @NotNull DireccionOperation side,
-                               @NotNull TypeOrder type,
-                               @Nullable TimeInForce timeInForce,
-                               @Nullable Double quantity,
-                               @NotNull Double stopPrice,
-                               @NotNull Boolean reduceOnly
-    ) {
-//        if (!type.isValidValue(stopPrice, stopPrice)) throw new IllegalArgumentException();
-        TreeMap<String, String> params = new TreeMap<>();
-        params.put("algoType", "CONDITIONAL");          // Obligatorio para órdenes condicionales
-        params.put("symbol", symbol.name());
-        params.put("side", side.getSide());
-        params.put("type", type.name());
-        params.put("price", formatPrice(symbol.name(), stopPrice));
-        if (type.isAlgo()) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
-        if (type.isLimit()) {
-            if (timeInForce == null) throw new IllegalArgumentException("Se requiere TimeInForce para ordenes Limites");
-            params.put("timeInForce", timeInForce.name());
-            if (reduceOnly) params.put("reduceOnly", "true");
-        }
-        if (type.isAllowClosePosition()) {
-            params.put("closePosition", "true");
-        }else {
-            if (quantity == null) throw new IllegalArgumentException("Se requiere quantity para ordenes Limites");
-            params.put("quantity", formatQuantity(symbol.name(), quantity));
-        }
-
-        // Si se quiere cerrar la posición completa, se usa closePosition y NO se envía quantity
-
-        // Precio de activación (obligatorio para STOP_MARKET/TAKE_PROFIT_MARKET)
-        params.put("triggerPrice", formatPrice(symbol.name(), stopPrice));
-        // WorkingType (opcional, pero recomendado)
-        params.put("workingType", "MARK_PRICE");
-
-        // Usar el endpoint de órdenes algorítmicas
-        JsonNode root = sendSignedRequest("POST", "/fapi/v1/algoOrder", params);
-        return root.get("algoId").asLong();
-    }
-
     @Override
     public void cancelOrder(@NotNull Symbol symbol, @NotNull Long orderId, @NotNull Boolean isAlgoOrder) {
         try {

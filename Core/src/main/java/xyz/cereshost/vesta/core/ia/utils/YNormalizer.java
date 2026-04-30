@@ -1,5 +1,7 @@
 package xyz.cereshost.vesta.core.ia.utils;
 
+import java.util.List;
+
 /**
  * Normalizador para Y:
  * - Y shape esperado: [samples][N]
@@ -8,6 +10,8 @@ package xyz.cereshost.vesta.core.ia.utils;
  * - inverseTransform(yNorm): revierte z-score
  */
 public class YNormalizer implements Normalizer<float[][]> {
+
+    private List<Integer> skip = List.of(1);
 
     private float[] means;
     private float[] stds;
@@ -80,28 +84,32 @@ public class YNormalizer implements Normalizer<float[][]> {
 
     @Override
     public float[][] transform(float[][] y) {
-        if (means == null || stds == null) throw new IllegalStateException("Normalizador no ajustado");
-        float[][] normalized = new float[y.length][numOutputs];
-        for (int i = 0; i < y.length; i++) {
-            for (int col = 0; col < numOutputs; col++) {
-                float raw = y[i][col];
-                if (!Float.isFinite(raw)) raw = 0f;
-                float z = (float) ((raw - means[col]) / stds[col]);
-                normalized[i][col] = Float.isFinite(z) ? z : 0f;
-            }
-        }
-        return normalized;
+//        if (means == null || stds == null) throw new IllegalStateException("Normalizador no ajustado");
+//        float[][] normalized = new float[y.length][numOutputs];
+//        for (int i = 0; i < y.length; i++) {
+//            for (int col = 0; col < numOutputs; col++) {
+//                float raw = y[i][col];
+//                if (!Float.isFinite(raw)) raw = 0f;
+//                float z = (float) ((raw - means[col]) / stds[col]);
+//                normalized[i][col] = Float.isFinite(z) ? z : 0f;
+//            }
+//        }
+        return y;
     }
 
     @Override
     public float[][] inverseTransform(float[][] yNorm) {
-        float[][] original = new float[yNorm.length][yNorm[0].length];
-        for (int i = 0; i < yNorm.length; i++) {
-            for (int col = 0; col < /*yNorm[i].length*/1; col++) {
-                double v = (yNorm[i][col] * stds[col]) + means[col];
-                original[i][col] = Double.isFinite(v) ? (float) v : 0f;
-            }
-        }
-        return original;
+//        float[][] original = new float[yNorm.length][yNorm[0].length];
+//        for (int i = 0; i < yNorm.length; i++) {
+//            for (int col = 0; col < yNorm[i].length; col++) {
+//                if (col >= numOutputs || col >= means.length || col >= stds.length) {
+//                    original[i][col] = Float.isFinite(yNorm[i][col]) ? yNorm[i][col] : 0f;
+//                    continue;
+//                }
+//                double v = (yNorm[i][col] * stds[col]) + means[col];
+//                original[i][col] = Double.isFinite(v) ? (float) v : 0f;
+//            }
+//        }
+        return yNorm;
     }
 }

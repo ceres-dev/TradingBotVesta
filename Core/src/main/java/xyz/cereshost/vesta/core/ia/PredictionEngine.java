@@ -124,7 +124,7 @@ public class PredictionEngine {
         // Construir entrada inicial
         float[][][] X = new float[1][Math.toIntExact(lookBack)][Math.toIntExact(features - 2)];
         for (int j = 0; j < lookBack; j++) {
-            X[0][j] = BuilderData.extractFeatures(subList.getCandle(j + 1), subList.getCandle(j));
+            X[0][j] = BuilderData.buildTrendInputs(subList.getCandle(j + 1), subList.getCandle(j));
         }
 
         if (X[0][0].length < REQUIRED_AUTOREGRESSIVE_FEATURES) {

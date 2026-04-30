@@ -8,10 +8,7 @@ import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.common.market.Symbol;
 import xyz.cereshost.vesta.core.message.MediaNotification;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.trading.TimeInForce;
-import xyz.cereshost.vesta.core.trading.TradingManager;
-import xyz.cereshost.vesta.core.trading.TypeOrder;
+import xyz.cereshost.vesta.core.trading.*;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 
 import java.util.*;
@@ -21,9 +18,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class TradingManagerBinance implements TradingManager {
 
-    private final BinanceApi binanceApi;
+    private @NotNull final BinanceApi binanceApi;
     private @NotNull Integer lastLeverage = 1;
     private @NotNull Double lastBalance = 0d;
+    @Setter
+    private @Nullable TradingTelemetry telemetry;
     @Setter
     private @NotNull TradingTickLoop tradingTickLoop;
     @Getter @Setter @NotNull
@@ -139,7 +138,8 @@ public class TradingManagerBinance implements TradingManager {
                 timeInForce,
                 quantityLeverageCoin.orElse(null),
                 trigger,
-                reduceOnly
+                reduceOnly,
+                type.isAllowClosePosition()
         );
         BinanceOrderAlgo op = new BinanceOrderAlgo(
                 this,
@@ -163,7 +163,7 @@ public class TradingManagerBinance implements TradingManager {
 
         cancelAllOrderAlgo();
 
-        double quantityLeverageCoin = (op.getQuantity() * op.getLeverage()) / op.getEntryPrice();
+        double quantityLeverageCoin = (op.getQuantity() * op.getLeverage()) / op.getTriggerPrice();
         binanceApi.placeOrder(
                 symbol,
                 op.getDireccion().inverse(),
@@ -269,6 +269,11 @@ public class TradingManagerBinance implements TradingManager {
         ).filter(order ->
                 order.getTypeOrder().isTakeProfit()
         ).findAny();
+    }
+
+    @Override
+    public @NotNull Optional<TradingTelemetry> getTelemetry() {
+        return Optional.ofNullable(telemetry);
     }
 
     @Override
@@ -438,12 +443,22 @@ public class TradingManagerBinance implements TradingManager {
             super(binance, direccion, entryPrice, quantity, leverage, order);
             this.orderId = orderId;
         }
+
+        private BinanceOpenPosition(@NotNull BinanceOpenPosition binanceOpenPosition) {
+            super(binanceOpenPosition);
+            this.orderId = binanceOpenPosition.orderId;
+        }
+
+        @Override
+        public @NotNull OpenPosition copy() {
+            return new BinanceOpenPosition(this);
+        }
     }
 
     @Getter
     @Setter
     public static class BinanceOrder extends Order implements BinanceObject {
-        private final @NotNull Long orderId;
+        private @NotNull Long orderId;
 
         public BinanceOrder(@NotNull TradingManagerBinance tradingManager,
                             @NotNull Long orderId,
@@ -457,13 +472,71 @@ public class TradingManagerBinance implements TradingManager {
             super(tradingManager, direccion, entryPrice, quantity, leverage, typeOrder, timeInForce);
             this.orderId = orderId;
         }
+
+        public BinanceOrder(@NotNull BinanceOrder binanceOrder) {
+            super(binanceOrder);
+            this.orderId = binanceOrder.orderId;
+        }
+
+        @Override
+        public void setTriggerPrice(@NotNull Double triggerPrice) {
+            TradingManagerBinance binance = (TradingManagerBinance) tradingManager;
+            binance.binanceApi.cancelOrder(binance.getMarket().getSymbol(), orderId, false);
+            orderId = binance.binanceApi.placeOrder(binance.getMarket().getSymbol(),
+                    direccion,
+                    typeOrder,
+                    timeInForce,
+                    quantity,
+                    triggerPrice,
+                    true,
+                    typeOrder.isAllowClosePosition()
+            );
+            this.triggerPrice = triggerPrice;
+        }
+
+        @Override
+        public void setTimeInForce(@Nullable TimeInForce timeInForce) {
+            TradingManagerBinance binance = (TradingManagerBinance) tradingManager;
+            binance.binanceApi.cancelOrder(binance.getMarket().getSymbol(), orderId, false);
+            orderId = binance.binanceApi.placeOrder(binance.getMarket().getSymbol(),
+                    direccion,
+                    typeOrder,
+                    timeInForce,
+                    quantity,
+                    triggerPrice,
+                    true,
+                    typeOrder.isAllowClosePosition()
+            );
+            this.timeInForce = timeInForce;
+        }
+
+        @Override
+        public void setTypeOrder(@NotNull TypeOrder typeOrder) {
+            TradingManagerBinance binance = (TradingManagerBinance) tradingManager;
+            binance.binanceApi.cancelOrder(binance.getMarket().getSymbol(), orderId, false);
+            orderId = binance.binanceApi.placeOrder(binance.getMarket().getSymbol(),
+                    direccion,
+                    typeOrder,
+                    timeInForce,
+                    quantity,
+                    triggerPrice,
+                    true,
+                    typeOrder.isAllowClosePosition()
+            );
+            this.typeOrder = typeOrder;
+        }
+
+        @Override
+        public @NotNull Order copy() {
+            return new BinanceOrder(this);
+        }
     }
     @Getter
     @Setter
     public static class BinanceOrderAlgo extends OrderAlgo implements BinanceObject {
-        private final @NotNull Long orderId;
+        private @NotNull Long orderId;
 
-        public BinanceOrderAlgo(@NotNull TradingManager tradingManager,
+        private BinanceOrderAlgo(@NotNull TradingManager tradingManager,
                             @NotNull Long orderId,
                             @NotNull DireccionOperation direccion,
                             @NotNull Double triggerPrice,
@@ -476,6 +549,64 @@ public class TradingManagerBinance implements TradingManager {
             super(tradingManager, direccion, triggerPrice, quantity, leverage, reduceOnly, typeOrder, timeInForce);
             this.orderId = orderId;
         }
+
+        private BinanceOrderAlgo(@NotNull BinanceOrderAlgo binanceOrderAlgo){
+            super(binanceOrderAlgo);
+            this.orderId = binanceOrderAlgo.orderId;
+        }
+
+        @Override
+        public void setTriggerPrice(@NotNull Double triggerPrice) {
+            TradingManagerBinance binance = (TradingManagerBinance) tradingManager;
+            binance.binanceApi.cancelOrder(binance.getMarket().getSymbol(), orderId, true);
+            orderId = binance.binanceApi.placeAlgoOrder(binance.getMarket().getSymbol(),
+                    direccion,
+                    typeOrder,
+                    timeInForce,
+                    quantity,
+                    triggerPrice,
+                    reduceOnly,
+                    typeOrder.isAllowClosePosition()
+            );
+            this.triggerPrice = triggerPrice;
+        }
+
+        @Override
+        public void setTimeInForce(@Nullable TimeInForce timeInForce) {
+            TradingManagerBinance binance = (TradingManagerBinance) tradingManager;
+            binance.binanceApi.cancelOrder(binance.getMarket().getSymbol(), orderId, true);
+            orderId = binance.binanceApi.placeAlgoOrder(binance.getMarket().getSymbol(),
+                    direccion,
+                    typeOrder,
+                    timeInForce,
+                    quantity,
+                    triggerPrice,
+                    reduceOnly,
+                    typeOrder.isAllowClosePosition()
+            );
+            this.timeInForce = timeInForce;
+        }
+
+        @Override
+        public void setTypeOrder(@NotNull TypeOrder typeOrder) {
+            TradingManagerBinance binance = (TradingManagerBinance) tradingManager;
+            binance.binanceApi.cancelOrder(binance.getMarket().getSymbol(), orderId, true);
+            orderId = binance.binanceApi.placeAlgoOrder(binance.getMarket().getSymbol(),
+                    direccion,
+                    typeOrder,
+                    timeInForce,
+                    quantity,
+                    triggerPrice,
+                    reduceOnly,
+                    typeOrder.isAllowClosePosition()
+            );
+            this.typeOrder = typeOrder;
+        }
+
+        @Override
+        public @NotNull OrderAlgo copy() {
+            return new BinanceOrderAlgo(this);
+        }
     }
 
     public static class BinanceClosePosition extends ClosePosition {
@@ -486,6 +617,15 @@ public class TradingManagerBinance implements TradingManager {
                                     @NotNull OpenPosition openPosition
         ) {
             super(exitPrice, exitTime, reason, openPosition);
+        }
+
+        public BinanceClosePosition(@NotNull BinanceClosePosition binanceClosePosition) {
+            super(binanceClosePosition);
+        }
+
+        @Override
+        public @NotNull ClosePosition copy() {
+            return new BinanceClosePosition(this);
         }
     }
 

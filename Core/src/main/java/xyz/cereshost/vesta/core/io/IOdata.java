@@ -46,7 +46,7 @@ public class IOdata {
     }
 
     public static Path createTrainingCacheDir(List<TypeMarket> typeMarkets) throws IOException {
-        Path dir = new CacheProperties(VestaEngine.LOOK_BACK, BuilderData.FEATURES, 1, typeMarkets, Main.MAX_MONTH_TRAINING, -1).getPath();
+        Path dir = new CacheProperties(VestaEngine.LOOK_BACK, BuilderData.FEATURES, BuilderData.OUTPUTS, typeMarkets, Main.MAX_MONTH_TRAINING, -1).getPath();
         Files.createDirectories(dir);
         return dir;
     }
@@ -70,7 +70,6 @@ public class IOdata {
             DataOutputStream out = new DataOutputStream(zipOut);
             writeTrainingCache(X, y, out);
             out.flush();
-            Vesta.info("(idx:%d) 📀 Resultado guardado en: %s", month, dir);
             zipOut.closeEntry();
             }
         } else {
@@ -80,7 +79,6 @@ public class IOdata {
             ))) {
                 writeTrainingCache(X, y, out);
                 out.flush();
-                Vesta.info("(idx:%d) 📀 Resultado guardado en: %s", month, dir);
             }
         }
         return file;
@@ -100,9 +98,14 @@ public class IOdata {
         out.writeInt(ySamples);
         out.writeInt(yCols);
 
+        if (xSamples == 0 || yCols == 0) {
+            return;
+        }
+
         for (float[][] seq : X) {
             for (int j = 0; j < seqLen; j++) {
                 float[] row = seq[j];
+                if (row.length == 0) break;
                 for (int k = 0; k < features; k++) {
                     out.writeFloat(row[k]);
                 }
@@ -110,6 +113,7 @@ public class IOdata {
         }
 
         for (float[] row : y) {
+            if (row.length == 0) break;
             for (int j = 0; j < yCols; j++) {
                 out.writeFloat(row[j]);
             }
@@ -157,22 +161,28 @@ public class IOdata {
         float[][][] X = new float[xSamples][seqLen][features];
         float[][] y = new float[ySamples][yCols];
 
-        for (int i = 0; i < xSamples; i++) {
-            float[][] seq = X[i];
-            for (int j = 0; j < seqLen; j++) {
-                float[] row = seq[j];
-                for (int k = 0; k < features; k++) {
-                    row[k] = in.readFloat();
-                }
-            }
+        if (xSamples == 0 ||  seqLen == 0 || features == 0 || ySamples == 0 || yCols == 0) {
+            return new Pair<>(X, y);
         }
 
-        for (int i = 0; i < ySamples; i++) {
-            float[] row = y[i];
-            for (int j = 0; j < yCols; j++) {
-                row[j] = in.readFloat();
+        try {
+            for (int i = 0; i < xSamples; i++) {
+                float[][] seq = X[i];
+                for (int j = 0; j < seqLen; j++) {
+                    float[] row = seq[j];
+                    for (int k = 0; k < features; k++) {
+                        row[k] = in.readFloat();
+                    }
+                }
             }
-        }
+
+            for (int i = 0; i < ySamples; i++) {
+                float[] row = y[i];
+                for (int j = 0; j < yCols; j++) {
+                    row[j] = in.readFloat();
+                }
+            }
+        } catch (EOFException ignored) {}
         return new Pair<>(X, y);
     }
 

@@ -24,10 +24,21 @@ public interface BinanceApi extends Notifiable {
                         @NotNull DireccionOperation side,
                         @NotNull TypeOrder type,
                         @Nullable TimeInForce timeInForce,
-                        @Nullable Double quantity,
-                        @NotNull Double stopPrice,
-                        @NotNull Boolean reduceOnly
+                        @Nullable Double quantityLeverageCoin,
+                        @NotNull Double trigger,
+                        @NotNull Boolean reduceOnly,
+                        @NotNull Boolean closePosition
     );
+
+    default Long placeAlgoOrder(@NotNull Symbol symbol,
+                                @NotNull DireccionOperation side,
+                                @NotNull TypeOrder type,
+                                @Nullable TimeInForce timeInForce,
+                                @Nullable Double quantityLeverageCoin,
+                                @NotNull Double trigger
+    ){
+        return placeAlgoOrder(symbol, side, type, timeInForce, quantityLeverageCoin, trigger, true, type.isAllowClosePosition());
+    }
 
     Long placeOrder(@NotNull Symbol symbol,
                     @NotNull DireccionOperation side,
@@ -38,6 +49,16 @@ public interface BinanceApi extends Notifiable {
                     @NotNull Boolean reduceOnly,
                     @NotNull Boolean closePosition
     );
+
+    default Long placeOrder(@NotNull Symbol symbol,
+                            @NotNull DireccionOperation side,
+                            @NotNull TypeOrder type,
+                            @Nullable TimeInForce timeInForce,
+                            @NotNull Double quantityLeverageCoin,
+                            @Nullable Double trigger
+    ){
+        return placeOrder(symbol, side, type, timeInForce, quantityLeverageCoin, trigger, true, type.isAllowClosePosition());
+    }
 
     void cancelOrder(@NotNull Symbol symbol, @NotNull Long orderId, @NotNull Boolean isAlgoOrder);
 
@@ -81,7 +102,7 @@ public interface BinanceApi extends Notifiable {
         return hex.toString();
     }
 
-    default String formatQuantity(@NotNull String symbol, double qty) {
+    default String formatQuantity(@NotNull String symbol, @NotNull Double qty) {
         if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.3f", qty);
         if (symbol.startsWith("ETH")) return String.format(Locale.US, "%.2f", qty);
         if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.1f", qty);
@@ -92,7 +113,7 @@ public interface BinanceApi extends Notifiable {
         return String.format(Locale.US, "%.0f", qty); // Default int
     }
 
-    default String formatPrice(@NotNull String symbol, double price) {
+    default String formatPrice(@NotNull String symbol, @NotNull Double price) {
         if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.1f", price);
         if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.4f", price);
         if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", price);
@@ -107,7 +128,7 @@ public interface BinanceApi extends Notifiable {
             Double triggerPrice,
             Double quantity,
             Boolean isAlgoOrder,
-            TimeInForce  timeInForce,
+            TimeInForce timeInForce,
             TypeOrder type,
             DireccionOperation direccionOperation
     ) {}

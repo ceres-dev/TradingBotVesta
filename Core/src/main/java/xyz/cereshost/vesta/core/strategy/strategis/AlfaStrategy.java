@@ -10,26 +10,30 @@ import xyz.cereshost.vesta.core.strategy.candles.ExecutorCandles;
 import xyz.cereshost.vesta.core.strategy.candles.ExecutorCandlesBackTest;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
+import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.utils.BuilderData;
+import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
 import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-public class AlfaStrategy implements TradingStrategy, TradingStrategyConfigurable, TradingStrategyExecutor {
+public class AlfaStrategy implements TradingStrategy, TradingStrategyConfigurable {
 
     @Override
-    public void executeStrategy(@NotNull Optional<PredictionEngine.SequenceCandlesPrediction> optional, @NotNull SequenceCandles visibleCandles, @NotNull TradingManager operations) {
-//        if (operations.hasOpenOperation()) {
-//            operations.close(TradingManager.ExitReason.STRATEGY);
-//        }
-        if (optional.isPresent()) {
-            PredictionEngine.SequenceCandlesPrediction pred = optional.get();
-            if (Math.abs(pred.getFirst().getClose()) > 0.8f)
-                operations.open(DireccionOperation.parse(pred.getFirst().getClose()), operations.getAvailableBalance() / 2, 4);
+    public void executeStrategy(@NotNull Optional<PredictionEngine.SequenceCandlesPrediction> optional,
+                                @NotNull SequenceCandles visibleCandles,
+                                @NotNull TradingManager manager
+    ) {
+        if (manager.getOpenPosition().isPresent()) {
+            manager.close(TradingManager.ExitReason.STRATEGY);
         }
-
+        optional.ifPresent(predictedCandles -> manager.open(DireccionOperation.parse(predictedCandles.getLast().getClose()),
+                        manager.getAvailableBalance() / 2,
+                        4
+                )
+        );
     }
 
     @Override
@@ -48,9 +52,8 @@ public class AlfaStrategy implements TradingStrategy, TradingStrategyConfigurabl
     }
 
 
-    @Override
     public @NotNull ExecutorCandles getExecutorCandles(@NotNull TradingManager tradingManager) {
-        return new ExecutorCandlesBackTest().setStep("init")
+        return new ExecutorCandlesBackTest(tradingManager).setStep("init")
                 .pause(TimeUnit.MINUTES.toMillis(1))
                 .executeReturnStep((manager) -> {
             if (manager.getOpenPosition().isPresent()){

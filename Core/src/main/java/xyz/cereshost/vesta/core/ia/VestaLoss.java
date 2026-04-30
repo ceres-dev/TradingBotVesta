@@ -2,9 +2,7 @@ package xyz.cereshost.vesta.core.ia;
 
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDList;
-import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.index.NDIndex;
-import ai.djl.nn.Activation;
 import ai.djl.training.loss.Loss;
 import lombok.SneakyThrows;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
@@ -37,92 +35,53 @@ public class VestaLoss extends Loss {
         NDArray yTrue = target.singletonOrThrow();
 
         // 1. Cálculos vectorizados rápidos (GPU)
-        NDList trueParts = yTrue.split(new long[]{1}, 1);
-        NDList predParts = yPred.split(new long[]{1, 2, 3, 4}, 1);
+//        NDList trueParts = yTrue.split(new long[]{1, 2}, 1);
+//        NDList predParts = yPred.split(new long[]{1, 2, 3, 4}, 1);
 
-        NDArray lossCloses = computeDistance(trueParts.get(0), predParts.get(0));
-//        NDArray lossHigh = computeDistance(trueParts.get(1), predParts.get(1));
+        NDArray lossCloses = computeError(yTrue.get(":, 0"), yPred.get(":, 0"));
+//        NDArray lossHigh = computeDistance(yTrue.get(":, 1"),yPred.get(":, 1"));
 //        NDArray lossLow = computeDistance(trueParts.get(2), predParts.get(2));
 //        NDArray lossVolumen = computeDistance(trueParts.get(3), predParts.get(3));
 //        NDArray lossMAE = computeDistance(trueParts.get(4), predParts.get(4));
 
-        NDArray totalLoss = lossCloses;//.add(lossHigh).add(lossLow).add(lossVolumen).add(lossMAE);
+        NDArray totalLoss = lossCloses;//.add(lossHigh);//.add(lossLow).add(lossVolumen).add(lossMAE);
         CompletableFuture<LossReport> request = dataRequest;
         if (request != null && !request.isDone()) {
+
             // Solo aquí pagamos el costo de sincronización GPU -> CPU
             request.complete(new LossReport(
                     totalLoss.getFloat(),
                     lossCloses.getFloat(),
-                    0,//lossHigh.getFloat(),
+                    0,
                     0,//lossLow.getFloat(),
-                    trueParts.getFirst().mean().getFloat(),
-                    predParts.getFirst().mean().getFloat()
+                    yTrue.mean().getFloat(),
+                    yPred.mean().getFloat()
             ));
             dataRequest = null;
         }
         return totalLoss;
     }
 
-    public NDArray computeDistance(NDArray trueND, NDArray predND){
-        return trueND.sub(predND).abs().mean();
-    }
-    public NDArray computeRelative(NDArray trueND, NDArray predND){
-        NDManager manager = trueND.getManager();
-        NDArray diff = trueND.sub(predND).abs();
-        NDArray mse = diff.pow(EngineUtils.floatToNDArray(1f, manager));
+    public NDArray computeError(NDArray trueND, NDArray predND) {
+        // Error absoluto base
+        NDArray absError = trueND.sub(predND).abs();
 
-        NDArray absTrue = trueND.abs();
-        NDArray weight = absTrue.mul(EngineUtils.floatToNDArray(RELATIVE_WEIGHT_ALPHA, manager))
-                .add(EngineUtils.floatToNDArray(1f, manager));
-        NDArray weighted = mse.mul(weight);
+        // Detectar signo: positivo = 1, negativo = 0
+        NDArray truePositive = trueND.gt(0);
+        NDArray predPositive = predND.gt(0);
 
-//        NDArray absPred = predND.abs();
-//        NDArray one = EngineUtils.floatToNDArray(1f, manager);
-//        NDArray clipped = absPred.minimum(one);
-//        NDArray center = one.sub(clipped);
-//        NDArray centerPenalty = center
-//                .pow(EngineUtils.floatToNDArray(RELATIVE_CENTER_POWER, manager))
-//                .mul(EngineUtils.floatToNDArray(RELATIVE_CENTER_WEIGHT, manager));
+        // Coincidencia de signo (true si ambos tienen el mismo signo)
+        NDArray sameSign = truePositive.eq(predPositive);
 
-//        return weighted.add(centerPenalty).mean();
-        return weighted.mean();
-    }
+        // Crear factor: 0.5 si mismo signo, 2.0 si signo diferente
+        NDArray factor = sameSign.toType(trueND.getDataType(), false)
+                .mul(0.1f) // true -> 0.1
+                .add(sameSign.logicalNot().toType(trueND.getDataType(), false).mul(2.0f)); // false -> 2.0
 
-    public NDArray computeDiffAdvance(NDArray trueND, NDArray predND){
-        NDManager manager = trueND.getManager();
-        NDArray diff = trueND.sub(predND).abs();
+        // Aplicar factor al error
+        NDArray weightedError = absError.mul(factor);
 
-        NDArray radix = diff.sqrt();
-        NDArray pow = diff.square().mul(EngineUtils.floatToNDArray(0.2f, manager));
-        return radix.add(pow).mean();
-    }
-
-    /**
-     * Penaliza el orden de llegada a los límites usando una probabilidad en [0,1].
-     * trueFirstHit: 0 si mínimo primero, 1 si máximo primero.
-     * Se pondera por la diferencia absoluta entre límites (señal más fuerte cuando hay más separación).
-     */
-    public NDArray computeFirstHitLoss(NDArray trueUp, NDArray trueDown, NDArray trueFirstHit, NDArray predFirstHit) {
-        NDManager manager = trueUp.getManager();
-        NDArray diff = trueUp.sub(trueDown).abs();
-        NDArray predProb = Activation.sigmoid(predFirstHit);
-        NDArray error = predProb.sub(trueFirstHit).abs();
-        return error.mul(diff).mean();
-    }
-
-    /**
-     * Penaliza cuando la predicción invierte la dirección (up > down vs up < down).
-     * Retorna un factor multiplicativo: 1.0 si coincide, 2.0 si es opuesta.
-     */
-    public NDArray computeDirectionPenalty(NDArray trueUp, NDArray trueDown, NDArray predUp, NDArray predDown) {
-        NDManager manager = trueUp.getManager();
-        NDArray trueDiff = trueUp.sub(trueDown);
-        NDArray predDiff = predUp.sub(predDown);
-        NDArray product = trueDiff.mul(predDiff);
-        // Penalizacion suave: 1.0 cuando coincide, 1.0 + extra cuando es opuesta
-        NDArray mismatch = Activation.sigmoid(product.mul(EngineUtils.floatToNDArray(-DIRECTION_PENALTY_K, manager)));
-        return mismatch.mul(EngineUtils.floatToNDArray(DIRECTION_PENALTY_EXTRA, manager))
-                .add(EngineUtils.floatToNDArray(1f, manager));
+        return weightedError.mean();
     }
 
     /**

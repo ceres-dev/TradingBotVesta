@@ -1,43 +1,41 @@
 package xyz.cereshost.vesta.core.utils;
 
 import lombok.Getter;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
-import org.jfree.chart.ChartFactory;
-import org.jfree.chart.ChartFrame;
-import org.jfree.chart.ChartPanel;
-import org.jfree.chart.JFreeChart;
-import org.jfree.chart.annotations.XYBoxAnnotation;
+import org.jetbrains.annotations.Nullable;
+import org.jfree.chart.*;
 import org.jfree.chart.axis.DateAxis;
 import org.jfree.chart.axis.NumberAxis;
 import org.jfree.chart.axis.ValueAxis;
-import org.jfree.chart.plot.*;
+import org.jfree.chart.plot.Plot;
+import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.chart.plot.ValueMarker;
+import org.jfree.chart.plot.XYPlot;
 import org.jfree.chart.renderer.xy.CandlestickRenderer;
-import org.jfree.chart.renderer.xy.XYAreaRenderer;
 import org.jfree.chart.renderer.xy.XYItemRenderer;
 import org.jfree.chart.renderer.xy.XYLineAndShapeRenderer;
 import org.jfree.data.xy.DefaultHighLowDataset;
 import org.jfree.data.xy.OHLCDataset;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
+import org.tensorflow.proto.framework.SavedUserObject;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.Symbol;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
+import xyz.cereshost.vesta.core.trading.TradingTelemetry;
 import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
 import java.awt.*;
 import java.awt.geom.Ellipse2D;
+import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.LockSupport;
 
 import static org.jfree.chart.axis.NumberAxis.createIntegerTickUnits;
 
@@ -434,53 +432,35 @@ public class ChartUtils {
         frame.setVisible(true);
     }
 
-    public static void animateCandlePredictions(
+    public static void showCandleChartWithTradeSnapshots(
             String title,
             List<Candle> candles,
-            List<BackTestEngine.IncompleteTrade> trades,
-            int windowSize,
-            int delayMs
-    ) {
-        animateCandlePredictions(title, candles, trades, windowSize, delayMs, 0, 15);
-    }
-
-    public static void animateCandlePredictions(
-            String title,
-            List<Candle> candles,
-            List<BackTestEngine.IncompleteTrade> trades,
-            int windowSize,
-            int delayMs,
-            double zoomOutFactor,
-            double horizonZoomOutFactor
+            Symbol symbol,
+            List<TradingTelemetry.TradeSnapshot> trades
     ) {
         if (candles == null || candles.isEmpty()) {
-            Vesta.error("No hay velas para animar");
+            Vesta.error("No hay velas para mostrar");
             return;
         }
         if (!chartsEnabled()) {
             return;
         }
 
-        List<PredictionPoint> preds = new ArrayList<>();
-        for (BackTestEngine.IncompleteTrade trade : trades) {
-            preds.add(new PredictionPoint(trade.getEntryTime(), trade.getTpPrice(), trade.getSlPrice()));
+        List<Candle> sortedCandles = new ArrayList<>(candles);
+        sortedCandles.sort(Comparator.comparingLong(Candle::getOpenTime));
+
+        List<TradingTelemetry.TradeSnapshot> sortedTrades = new ArrayList<>();
+        if (trades != null) {
+            sortedTrades.addAll(trades);
+            sortedTrades.sort(Comparator.comparingLong(TradingTelemetry.TradeSnapshot::entryTime));
         }
 
-        List<Candle> sorted = new ArrayList<>(candles);
-        sorted.sort(Comparator.comparingLong(Candle::getOpenTime));
-
-        preds.sort(Comparator.comparingLong(PredictionPoint::time));
-
-        int safeDelay = Math.max(10, delayMs);
-        double safeZoomOut = Math.max(0.0, zoomOutFactor);
-        double safeHorizonZoomOut = Math.max(0.0, horizonZoomOutFactor);
-
-        DefaultHighLowDataset dataset = buildHighLowDataset(sorted, 0, 0, title);
+        DefaultHighLowDataset candleDataset = buildHighLowDataset(sortedCandles, 0, sortedCandles.size() - 1, title);
         JFreeChart chart = ChartFactory.createCandlestickChart(
-                title,
+                title + " - " + symbol,
                 "Fecha",
                 "Precio",
-                dataset,
+                candleDataset,
                 true
         );
 
@@ -489,320 +469,78 @@ public class ChartUtils {
         axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
         applyBinanceCandleStyle(plot);
 
-        XYSeries maxSeries = new XYSeries("Max");
-        XYSeries minSeries = new XYSeries("Min");
-        XYSeries priceSeries = new XYSeries("Precio");
-        XYSeriesCollection predDataset = new XYSeriesCollection();
-        predDataset.addSeries(maxSeries);
-        predDataset.addSeries(minSeries);
-        predDataset.addSeries(priceSeries);
+        long chartStartTime = sortedCandles.getFirst().getOpenTime();
+        long chartEndTime = sortedCandles.getLast().getCloseTime();
 
-        XYLineAndShapeRenderer predRenderer = new XYLineAndShapeRenderer(true, false);
-        predRenderer.setSeriesPaint(0, new Color(0, 255, 0, 200));
-        predRenderer.setSeriesPaint(1, new Color(255, 0, 0, 200));
-        predRenderer.setSeriesPaint(2, new Color(0, 120, 255, 220));
-        predRenderer.setSeriesStroke(0, new BasicStroke(1.5f));
-        predRenderer.setSeriesStroke(1, new BasicStroke(1.5f));
-        predRenderer.setSeriesStroke(2, new BasicStroke(1.2f));
-        plot.setDataset(1, predDataset);
-        plot.setRenderer(1, predRenderer);
+        if (!sortedTrades.isEmpty()) {
+            XYSeriesCollection balanceDataset = buildBalanceDataset(sortedTrades, chartStartTime, chartEndTime);
+            NumberAxis balanceAxis = new NumberAxis("Balance %");
+            balanceAxis.setAutoRangeIncludesZero(true);
+            balanceAxis.setNumberFormatOverride(new DecimalFormat("0.##"));
+            balanceAxis.setLabelPaint(new Color(135, 206, 250));
+            balanceAxis.setTickLabelPaint(new Color(135, 206, 250));
 
+            XYLineAndShapeRenderer balanceRenderer = new XYLineAndShapeRenderer(true, false);
+            balanceRenderer.setSeriesPaint(0, new Color(100, 180, 255, 115));
+            balanceRenderer.setSeriesStroke(0, new BasicStroke(2.2f));
+
+            plot.setRangeAxis(1, balanceAxis);
+            plot.setDataset(1, balanceDataset);
+            plot.mapDatasetToRangeAxis(1, 1);
+            plot.setRenderer(1, balanceRenderer);
+
+            XYSeriesCollection tradePathDataset = buildTradePathDataset(sortedTrades);
+            XYLineAndShapeRenderer tradePathRenderer = new XYLineAndShapeRenderer(true, false);
+            for (int i = 0; i < sortedTrades.size(); i++) {
+                TradingTelemetry.TradeSnapshot trade = sortedTrades.get(i);
+                tradePathRenderer.setSeriesPaint(i, trade.winner()
+                        ? new Color(46, 188, 132, 190)
+                        : new Color(244, 69, 92, 190));
+                tradePathRenderer.setSeriesStroke(i, new BasicStroke(1.8f));
+            }
+            plot.setDataset(2, tradePathDataset);
+            plot.setRenderer(2, tradePathRenderer);
+
+            XYSeriesCollection tradeMarkerDataset = buildTradeMarkerDataset(sortedTrades);
+            XYLineAndShapeRenderer tradeMarkerRenderer = new XYLineAndShapeRenderer(false, true);
+            tradeMarkerRenderer.setUseOutlinePaint(true);
+            tradeMarkerRenderer.setDefaultOutlinePaint(Color.WHITE);
+            tradeMarkerRenderer.setSeriesPaint(0, BINANCE_UP);
+            tradeMarkerRenderer.setSeriesShape(0, createTriangleShape(7, true));
+            tradeMarkerRenderer.setSeriesPaint(1, BINANCE_DOWN);
+            tradeMarkerRenderer.setSeriesShape(1, createTriangleShape(7, false));
+            tradeMarkerRenderer.setSeriesPaint(2, new Color(255, 215, 0));
+            tradeMarkerRenderer.setSeriesShape(2, new Ellipse2D.Double(-4, -4, 8, 8));
+            tradeMarkerRenderer.setSeriesPaint(3, new Color(255, 140, 0));
+            tradeMarkerRenderer.setSeriesShape(3, new Rectangle2D.Double(-4, -4, 8, 8));
+            plot.setDataset(3, tradeMarkerDataset);
+            plot.setRenderer(3, tradeMarkerRenderer);
+        }
+
+        axis.setRange(new Date(chartStartTime), new Date(chartEndTime));
+        applyPriceRange(plot, sortedCandles, null);
         darkMode(chart);
 
-        ChartFrame frame = new ChartFrame(title, chart);
+        Iterator<LegendItem> legend = plot.getLegendItems().iterator();
+        LegendItemCollection collection = new LegendItemCollection();
+        while (legend.hasNext()) {
+            LegendItem item = legend.next();
+            if (!item.getLabel().startsWith("Trade ")){
+                collection.add(item);
+            }
+        }
+        plot.setFixedLegendItems(collection);
+
+        ChartPanel chartPanel = new ChartPanel(chart);
+        chartPanel.setMouseWheelEnabled(true);
+        chartPanel.setPreferredSize(new Dimension(1300, 700));
+
+        JFrame frame = new JFrame(title + " - " + symbol);
+        frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
+        frame.getContentPane().add(chartPanel);
         frame.pack();
+        frame.setLocationRelativeTo(null);
         frame.setVisible(true);
-
-        Thread animator = new Thread(() -> {
-            int predIndex = 0;
-            PredictionPoint activePrediction = null;
-            XYBoxAnnotation[] shadeHolder = new XYBoxAnnotation[1];
-            for (int i = 0; i < sorted.size(); i++) {
-                int endIndex = i;
-                int horizonExtra = (int) Math.round(windowSize * safeHorizonZoomOut);
-                int startIndex = Math.max(0, endIndex - windowSize + 1 - horizonExtra);
-                int endIndexWindow = Math.min(sorted.size() - 1, endIndex + horizonExtra);
-                long currentTime = sorted.get(endIndex).getOpenTime();
-                double currentPrice = sorted.get(endIndex).getClose();
-
-                while (predIndex < preds.size() && preds.get(predIndex).time() <= currentTime) {
-                    activePrediction = preds.get(predIndex);
-                    predIndex++;
-                }
-
-                PredictionPoint predictionFinal = activePrediction;
-                int startFinal = startIndex;
-                int endFinal = endIndexWindow;
-                long currentTimeFinal = currentTime;
-                long windowEndTimeFinal = sorted.get(Math.min(sorted.size() - 1, i + windowSize)).getOpenTime();
-                double currentPriceFinal = currentPrice;
-
-                SwingUtilities.invokeLater(() -> {
-                    DefaultHighLowDataset windowDataset = buildHighLowDataset(sorted, startFinal, endFinal, title);
-                    plot.setDataset(0, windowDataset);
-                    updateAxisRange(plot, sorted, startFinal, endFinal, predictionFinal, safeZoomOut);
-
-                    maxSeries.clear();
-                    minSeries.clear();
-                    priceSeries.clear();
-                    if (predictionFinal != null) {
-                        long startTime = sorted.get(startFinal).getOpenTime();
-                        long lineStart = Math.max(startTime, predictionFinal.time());
-                        long lineEnd = Math.max(currentTimeFinal, windowEndTimeFinal);
-                        double low = Math.min(predictionFinal.tpPrice(), predictionFinal.slPrice());
-                        double high = Math.max(predictionFinal.tpPrice(), predictionFinal.slPrice());
-                        maxSeries.add(lineStart, high);
-                        maxSeries.add(lineEnd, high);
-                        minSeries.add(lineStart, low);
-                        minSeries.add(lineEnd, low);
-
-                        if (shadeHolder[0] != null) {
-                            plot.removeAnnotation(shadeHolder[0]);
-                        }
-
-                        XYBoxAnnotation shade = new XYBoxAnnotation(
-                                lineStart,
-                                low,
-                                lineEnd,
-                                high,
-                                new BasicStroke(0.5f),
-                                new Color(0, 120, 255, 40),
-                                new Color(0, 120, 255, 20)
-                        );
-                        plot.addAnnotation(shade);
-                        shadeHolder[0] = shade;
-                    } else if (shadeHolder[0] != null) {
-                        plot.removeAnnotation(shadeHolder[0]);
-                        shadeHolder[0] = null;
-                    }
-
-                    long priceStart = sorted.get(startFinal).getOpenTime();
-                    long priceLineStart = Math.max(priceStart, currentTimeFinal);
-                    long priceLineEnd = Math.max(currentTimeFinal, windowEndTimeFinal);
-                    priceSeries.add(priceLineStart, currentPriceFinal);
-                    priceSeries.add(priceLineEnd, currentPriceFinal);
-                });
-
-                LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(safeDelay));
-            }
-        });
-        animator.setDaemon(true);
-        animator.start();
-    }
-
-    public static void plotRatioVsROI(String title, List<BackTestEngine.CompleteTrade> extraStats) {
-        if (extraStats == null || extraStats.isEmpty()) return;
-        if (!chartsEnabled()) {
-            return;
-        }
-
-        try {
-            // Ordenar por ratio (de menor a mayor)
-            List<BackTestEngine.CompleteTrade> sortedStats = new ArrayList<>(extraStats);
-            sortedStats.sort(Comparator.comparingDouble(BackTestEngine.CompleteTrade::getRatio));
-
-            // Crear dataset para ROI vs Ratio
-            XYSeriesCollection dataset = new XYSeriesCollection();
-            XYSeries roiSeries = new XYSeries("ROI por Ratio");
-            XYSeries cumulativeROISeries = new XYSeries("ROI Acumulado");
-
-            double cumulativeROI = 0;
-            for (BackTestEngine.CompleteTrade stat : sortedStats) {
-                double roi = stat.getPnlPercent() * 100; // Convertir a porcentaje
-                float ratio = stat.getRatio();
-
-                roiSeries.add(ratio, roi);
-
-                cumulativeROI += roi;
-                cumulativeROISeries.add(ratio, cumulativeROI);
-            }
-
-            dataset.addSeries(roiSeries);
-            dataset.addSeries(cumulativeROISeries);
-
-            // Crear gráfico
-            JFreeChart chart = ChartFactory.createXYLineChart(
-                    title + " - ROI vs Ratio TP/SL",
-                    "Ratio TP/SL (Ordenado)",
-                    "ROI (%)",
-                    dataset
-            );
-
-            // Configurar colores y estilo
-            XYPlot plot = (XYPlot) chart.getPlot();
-            plot.getRenderer().setSeriesPaint(0, Color.BLUE);
-            plot.getRenderer().setSeriesPaint(1, Color.RED);
-
-            // Añadir línea en ROI=0 para referencia
-            plot.addRangeMarker(new ValueMarker(0, Color.GRAY, new BasicStroke(1.0f)));
-
-            // Añadir línea en Ratio=1 (TP=SL) para referencia
-            plot.addDomainMarker(new ValueMarker(1, Color.GREEN, new BasicStroke(1.0f)));
-
-            // Mostrar en ventana
-            ChartPanel chartPanel = new ChartPanel(chart);
-            chartPanel.setPreferredSize(new Dimension(1200, 600));
-
-            JFrame frame = new JFrame("Ratio vs ROI");
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(chartPanel);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-        } catch (Exception e) {
-            Vesta.error("Error en plotRatioVsROI: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    /**
-     * Muestra un gráfico que ordena las operaciones por magnitud del TP (de menor a mayor)
-     * y visualiza el ROI correspondiente
-     */
-    public static void plotTPSLMagnitudeVsROI(
-            String title,
-            List<BackTestEngine.CompleteTrade> ExtraData
-    ) {
-        if ( ExtraData == null || ExtraData.isEmpty()) return;
-        if (!chartsEnabled()) {
-            return;
-        }
-
-        try {
-            // Crear lista combinada de datos
-            List<TPSLROIData> dataList = new ArrayList<>();
-            for (int i = 0; i < ExtraData.size(); i++) {
-                BackTestEngine.CompleteTrade stat = ExtraData.get(i);
-                // Calcular magnitud del TP (en porcentaje de log return)
-                float tpMagnitude = (float) Math.abs(stat.getTpPercent()); // Convertir a puntos base
-                float slMagnitude = (float) Math.abs(stat.getSlPercent()); // Convertir a puntos base
-                float roi = (float) (stat.getPnlPercent() * 100); // Convertir a porcentaje
-
-                dataList.add(new TPSLROIData(tpMagnitude, slMagnitude, roi));
-            }
-
-            // Ordenar por magnitud del TP (menor a mayor)
-            dataList.sort(Comparator.comparingDouble(TPSLROIData::tpMagnitude));
-
-            // Crear datasets
-            XYSeriesCollection datasetTP = new XYSeriesCollection();
-            XYSeriesCollection datasetSL = new XYSeriesCollection();
-            XYSeriesCollection datasetRatio = new XYSeriesCollection();
-
-            XYSeries tpSeries = new XYSeries("ROI vs Magnitud TP");
-            XYSeries slSeries = new XYSeries("ROI vs Magnitud SL");
-            XYSeries ratioSeries = new XYSeries("ROI vs Ratio TP/SL");
-
-            XYSeries cumTPROI = new XYSeries("ROI Acumulado TP");
-            XYSeries cumSLROI = new XYSeries("ROI Acumulado SL");
-
-            double cumTP = 0;
-            double cumSL = 0;
-
-            for (TPSLROIData data : dataList) {
-                tpSeries.add(data.tpMagnitude(), data.roi());
-                slSeries.add(data.slMagnitude(), data.roi());
-
-                float ratio = data.tpMagnitude() > 0 && data.slMagnitude() > 0 ?
-                        data.tpMagnitude() / data.slMagnitude() : 0;
-                ratioSeries.add(ratio, data.roi());
-
-                cumTP += data.roi();
-                cumSL += data.roi();
-
-                cumTPROI.add(data.tpMagnitude(), cumTP);
-                cumSLROI.add(data.slMagnitude(), cumSL);
-            }
-
-            datasetTP.addSeries(tpSeries);
-            datasetTP.addSeries(cumTPROI);
-
-            datasetSL.addSeries(slSeries);
-            datasetSL.addSeries(cumSLROI);
-
-            datasetRatio.addSeries(ratioSeries);
-
-            // Crear panel con múltiples gráficos
-            JPanel panel = new JPanel(new GridLayout(2, 2));
-
-            // Gráfico 1: ROI vs Magnitud TP
-            JFreeChart chartTP = ChartFactory.createScatterPlot(
-                    "ROI vs Magnitud TP",
-                    "Magnitud TP (puntos base)",
-                    "ROI (%)",
-                    datasetTP
-            );
-            XYPlot plotTP = (XYPlot) chartTP.getPlot();
-            plotTP.getRenderer().setSeriesPaint(0, Color.BLUE);
-            plotTP.getRenderer().setSeriesPaint(1, Color.RED);
-            plotTP.addRangeMarker(new ValueMarker(0, Color.GRAY, new BasicStroke(1.0f)));
-            panel.add(new ChartPanel(chartTP));
-
-            // Gráfico 2: ROI vs Magnitud SL
-            JFreeChart chartSL = ChartFactory.createScatterPlot(
-                    "ROI vs Magnitud SL",
-                    "Magnitud SL (puntos base)",
-                    "ROI (%)",
-                    datasetSL
-            );
-            XYPlot plotSL = (XYPlot) chartSL.getPlot();
-            plotSL.getRenderer().setSeriesPaint(0, Color.GREEN);
-            plotSL.getRenderer().setSeriesPaint(1, Color.ORANGE);
-            plotSL.addRangeMarker(new ValueMarker(0, Color.GRAY, new BasicStroke(1.0f)));
-            panel.add(new ChartPanel(chartSL));
-
-            // Gráfico 3: ROI vs Ratio TP/SL
-            JFreeChart chartRatio = ChartFactory.createScatterPlot(
-                    "ROI vs Ratio TP/SL",
-                    "Ratio TP/SL",
-                    "ROI (%)",
-                    datasetRatio
-            );
-            XYPlot plotRatio = (XYPlot) chartRatio.getPlot();
-            plotRatio.getRenderer().setSeriesPaint(0, Color.MAGENTA);
-            plotRatio.addRangeMarker(new ValueMarker(0, Color.GRAY, new BasicStroke(1.0f)));
-            plotRatio.addDomainMarker(new ValueMarker(1, Color.GREEN, new BasicStroke(1.0f)));
-            panel.add(new ChartPanel(chartRatio));
-
-            // Gráfico 4: Heatmap de densidad
-            JFreeChart heatmap = createROIDensityHeatmap(dataList);
-            panel.add(new ChartPanel(heatmap));
-
-            // Mostrar ventana
-            JFrame frame = new JFrame(title);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-            frame.getContentPane().add(new JScrollPane(panel));
-            frame.setSize(1600, 1200);
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-            // Calcular estadísticas
-            double avgTP = dataList.stream()
-                    .mapToDouble(TPSLROIData::tpMagnitude)
-                    .average()
-                    .orElse(0);
-
-            double avgSL = dataList.stream()
-                    .mapToDouble(TPSLROIData::slMagnitude)
-                    .average()
-                    .orElse(0);
-
-            double avgROI = dataList.stream()
-                    .mapToDouble(TPSLROIData::roi)
-                    .average()
-                    .orElse(0);
-
-            Vesta.info("Estadísticas Magnitud TP/SL vs ROI:");
-            Vesta.info("  Magnitud TP promedio: " + String.format("%.2f", avgTP) + " pbs");
-            Vesta.info("  Magnitud SL promedio: " + String.format("%.2f", avgSL) + " pbs");
-            Vesta.info("  ROI promedio: " + String.format("%.2f", avgROI) + "%");
-            Vesta.info("  ROI total acumulado: " + String.format("%.2f", cumTP) + "%");
-
-        } catch (Exception e) {
-            Vesta.error("Error en plotTPSLMagnitudeVsROI: " + e.getMessage());
-            e.printStackTrace();
-        }
     }
 
     /**
@@ -877,189 +615,8 @@ public class ChartUtils {
         }
     }
 
-    /**
-     * Calcular media de una lista
-     */
-    private static double calculateMean(List<Float> values) {
-        if (values.isEmpty()) return 0;
-        double sum = 0;
-        for (float val : values) {
-            sum += val;
-        }
-        return sum / values.size();
-    }
-
-    public static void showCandleChartWithTrades(String title, List<Candle> candles, Symbol symbol, List<BackTestEngine.CompleteTrade> trades) {
-        if (candles == null || candles.isEmpty()) {
-            Vesta.error("No hay velas para mostrar");
-            return;
-        }
-        if (!chartsEnabled()) {
-            return;
-        }
-
-        try {
-            // Preparar datos para JFreeChart
-            int itemCount = candles.size();
-            Date[] dates = new Date[itemCount];
-            double[] highs = new double[itemCount];
-            double[] lows = new double[itemCount];
-            double[] opens = new double[itemCount];
-            double[] closes = new double[itemCount];
-            double[] volumes = new double[itemCount];
-
-            // Mapa para buscar velas por tiempo rápidamente
-            Map<Long, Integer> timeToIndex = new HashMap<>();
-
-            for (int i = 0; i < itemCount; i++) {
-                Candle candle = candles.get(i);
-                dates[i] = new Date(candle.getOpenTime());
-                opens[i] = candle.getOpen();
-                highs[i] = candle.getHigh();
-                lows[i] = candle.getLow();
-                closes[i] = candle.getClose();
-                volumes[i] = candle.getVolumen().baseVolume();
-                timeToIndex.put(candle.getOpenTime(), i);
-            }
-
-            // Crear dataset de velas
-            OHLCDataset dataset = new DefaultHighLowDataset(
-                    symbol, dates, highs, lows, opens, closes, volumes
-            );
-
-            // Crear gráfico de velas
-            JFreeChart chart = ChartFactory.createCandlestickChart(
-                    title + " - " + symbol + " (Trades: " + trades.size() + ")",
-                    "Fecha",
-                    "Precio",
-                    dataset,
-                    true
-            );
-
-            // Configurar eje de fechas
-            XYPlot plot = (XYPlot) chart.getPlot();
-            DateAxis axis = (DateAxis) plot.getDomainAxis();
-            axis.setDateFormatOverride(new SimpleDateFormat("dd/MM HH:mm"));
-
-            // Ajustar zoom
-            double minPrice = Arrays.stream(lows).min().orElse(0);
-            double maxPrice = Arrays.stream(highs).max().orElse(0);
-
-            double padding = (maxPrice - minPrice) * 0.05; // Más padding para mostrar SL/TP
-            NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
-            rangeAxis.setRange(minPrice - padding, maxPrice + padding);
-
-            // Preparar renderer para agregar anotaciones
-            CandlestickRenderer renderer = new CandlestickRenderer();
-            applyBinanceCandleStyle(renderer);
-
-            XYSeriesCollection balanceDataset = buildBalanceDataset(candles, trades);
-            int candleDatasetIndex = 0;
-            int markerDatasetIndex = 1;
-            if (balanceDataset != null) {
-                candleDatasetIndex = 1;
-                markerDatasetIndex = 2;
-
-                NumberAxis balanceAxis = new NumberAxis("Balance");
-                balanceAxis.setAutoRangeIncludesZero(false);
-                balanceAxis.setLabelPaint(Color.WHITE);
-                balanceAxis.setTickLabelPaint(Color.WHITE);
-                plot.setRangeAxis(1, balanceAxis);
-
-                XYAreaRenderer balanceRenderer = new XYAreaRenderer();
-                balanceRenderer.setSeriesPaint(0, new Color(0, 140, 255, 50));
-                balanceRenderer.setSeriesOutlinePaint(0, new Color(0, 140, 255, 140));
-                balanceRenderer.setSeriesOutlineStroke(0, new BasicStroke(1.2f));
-                balanceRenderer.setOutline(true);
-
-                plot.setDataset(0, balanceDataset);
-                plot.setRenderer(0, balanceRenderer);
-                plot.mapDatasetToRangeAxis(0, 1);
-            }
-
-            plot.setDataset(candleDatasetIndex, dataset);
-            plot.setRenderer(candleDatasetIndex, renderer);
-            plot.mapDatasetToRangeAxis(candleDatasetIndex, 0);
-
-            // Agregar anotaciones para cada trade
-            if (trades != null && !trades.isEmpty()) {
-                addTradeAnnotations(plot, trades, timeToIndex, candles, markerDatasetIndex);
-            }
-
-            // Agregar leyenda para colores
-            addLegend(chart, trades);
-
-            // Mostrar en ventana
-            ChartPanel chartPanel = new ChartPanel(chart);
-            chartPanel.setPreferredSize(new Dimension(1400, 700));
-
-            // Agregar panel de información de trades
-            JPanel infoPanel = createTradeInfoPanel(trades);
-
-            JFrame frame = new JFrame("Visualización de Velas con Trades - " + symbol);
-            frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-
-            // Usar BorderLayout para dividir la ventana
-            JPanel mainPanel = new JPanel(new BorderLayout());
-            mainPanel.add(chartPanel, BorderLayout.CENTER);
-            mainPanel.add(infoPanel, BorderLayout.EAST);
-            darkMode(chart);
-            frame.getContentPane().add(mainPanel);
-            frame.pack();
-            frame.setLocationRelativeTo(null);
-            frame.setVisible(true);
-
-            Vesta.info("Mostrando gráfico de " + candles.size() + " velas con " +
-                    (trades != null ? trades.size() : 0) + " trades para " + symbol);
-
-        } catch (Exception e) {
-            Vesta.error("Error mostrando gráfico: " + e.getMessage());
-            e.printStackTrace();
-        }
-    }
-
-    private static XYSeriesCollection buildBalanceDataset(List<Candle> candles, List<BackTestEngine.CompleteTrade> trades) {
-        if (candles == null || candles.isEmpty() || trades == null || trades.isEmpty()) {
-            return null;
-        }
-
-        List<BackTestEngine.CompleteTrade> sorted = new ArrayList<>(trades);
-        sorted.sort(Comparator.comparingLong(BackTestEngine.CompleteTrade::getExitTime));
-
-        BackTestEngine.CompleteTrade first = sorted.getFirst();
-        double initialBalance = first.getBalance() - first.getPnl();
-        if (!Double.isFinite(initialBalance)) {
-            return null;
-        }
-
-        XYSeries balanceSeries = new XYSeries("Balance", true, true);
-        long startTime = candles.getFirst().getOpenTime();
-        balanceSeries.add(startTime, initialBalance);
-
-        long lastTime = startTime;
-        double lastBalance = initialBalance;
-        for (BackTestEngine.CompleteTrade trade : sorted) {
-            double balance = trade.getBalance();
-            if (!Double.isFinite(balance)) {
-                continue;
-            }
-            long time = trade.getExitTime();
-            balanceSeries.add(time, balance);
-            lastTime = time;
-            lastBalance = balance;
-        }
-
-        long endTime = candles.getLast().getOpenTime();
-        if (endTime > lastTime && Double.isFinite(lastBalance)) {
-            balanceSeries.add(endTime, lastBalance);
-        }
-
-        XYSeriesCollection dataset = new XYSeriesCollection();
-        dataset.addSeries(balanceSeries);
-        return dataset;
-    }
-
-    private static DefaultHighLowDataset buildHighLowDataset(
+    @Contract("_, _, _, _ -> new")
+    private static @NotNull DefaultHighLowDataset buildHighLowDataset(
             List<Candle> candles,
             int startIndex,
             int endIndex,
@@ -1085,339 +642,113 @@ public class ChartUtils {
         return new DefaultHighLowDataset(seriesKey, dates, highs, lows, opens, closes, volumes);
     }
 
-    private static void updateAxisRange(
-            XYPlot plot,
-            List<Candle> candles,
-            int startIndex,
-            int endIndex,
-            PredictionPoint prediction,
-            double zoomOutFactor
+    private static XYSeriesCollection buildBalanceDataset(
+            List<TradingTelemetry.TradeSnapshot> trades,
+            long chartStartTime,
+            long chartEndTime
     ) {
-        double min = Double.MAX_VALUE;
-        double max = -Double.MAX_VALUE;
-        for (int i = startIndex; i <= endIndex; i++) {
-            Candle candle = candles.get(i);
+        XYSeries balanceSeries = new XYSeries("Balance %", true, false);
+        TradingTelemetry.TradeSnapshot firstTrade = trades.getFirst();
+        double initialBalance = firstTrade.balanceAfterClose() - firstTrade.netPnl();
+        if (!Double.isFinite(initialBalance) || Math.abs(initialBalance) < 1.0E-9) {
+            initialBalance = firstTrade.balanceAfterClose();
+        }
+        if (!Double.isFinite(initialBalance) || Math.abs(initialBalance) < 1.0E-9) {
+            initialBalance = 1D;
+        }
+
+        double currentBalancePercent = 0D;
+        balanceSeries.add(chartStartTime -1, currentBalancePercent);
+        for (TradingTelemetry.TradeSnapshot trade : trades) {
+            balanceSeries.add(trade.entryTime(), currentBalancePercent);
+            currentBalancePercent = ((trade.balanceAfterClose() / initialBalance) - 1D) * 100D;
+            balanceSeries.add(trade.exitTime(), currentBalancePercent);
+        }
+        balanceSeries.add(chartEndTime, currentBalancePercent);
+
+        XYSeriesCollection collection = new XYSeriesCollection();
+        collection.addSeries(balanceSeries);
+        return collection;
+    }
+
+    private static XYSeriesCollection buildTradePathDataset(List<TradingTelemetry.TradeSnapshot> trades) {
+        XYSeriesCollection dataset = new XYSeriesCollection();
+        int index = 1;
+        for (TradingTelemetry.TradeSnapshot trade : trades) {
+            XYSeries tradeSeries = new XYSeries("Trade " + index++, true, false);
+            tradeSeries.add(trade.entryTime(), trade.entryPrice());
+            tradeSeries.add(trade.exitTime(), trade.exitPrice());
+            dataset.addSeries(tradeSeries);
+        }
+        return dataset;
+    }
+
+    private static XYSeriesCollection buildTradeMarkerDataset(List<TradingTelemetry.TradeSnapshot> trades) {
+        XYSeries longEntries = new XYSeries("Entrada LONG", true, false);
+        XYSeries shortEntries = new XYSeries("Entrada SHORT", true, false);
+        XYSeries winningExits = new XYSeries("Salida WIN", true, false);
+        XYSeries losingExits = new XYSeries("Salida LOSS", true, false);
+
+        for (TradingTelemetry.TradeSnapshot trade : trades) {
+            if (trade.direction().isLong()) {
+                longEntries.add(trade.entryTime(), trade.entryPrice());
+            } else {
+                shortEntries.add(trade.entryTime(), trade.entryPrice());
+            }
+
+            if (trade.winner()) {
+                winningExits.add(trade.exitTime(), trade.exitPrice());
+            } else {
+                losingExits.add(trade.exitTime(), trade.exitPrice());
+            }
+        }
+
+        XYSeriesCollection dataset = new XYSeriesCollection();
+        dataset.addSeries(longEntries);
+        dataset.addSeries(shortEntries);
+        dataset.addSeries(winningExits);
+        dataset.addSeries(losingExits);
+        return dataset;
+    }
+
+    private static void applyPriceRange(
+            @NotNull XYPlot plot,
+            List<Candle> candles,
+            @Nullable XYSeries extraSeries
+    ) {
+        double min = Double.POSITIVE_INFINITY;
+        double max = Double.NEGATIVE_INFINITY;
+
+        for (Candle candle : candles) {
             min = Math.min(min, candle.getLow());
             max = Math.max(max, candle.getHigh());
         }
-        if (prediction != null) {
-            min = Math.min(min, Math.min(prediction.tpPrice(), prediction.slPrice()));
-            max = Math.max(max, Math.max(prediction.tpPrice(), prediction.slPrice()));
-        }
-        if (!Double.isFinite(min) || !Double.isFinite(max)) {
-            return;
-        }
-        double range = max - min;
-        double basePadding = range > 0 ? range * 0.05 : Math.max(Math.abs(max) * 0.01, 0.0001);
-        double padding = basePadding + (range > 0 ? range * zoomOutFactor : Math.abs(max) * zoomOutFactor);
-        NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
-        rangeAxis.setRange(min - padding, max + padding);
 
-        DateAxis domainAxis = (DateAxis) plot.getDomainAxis();
-        long startTime = candles.get(startIndex).getOpenTime();
-        long endTime = candles.get(endIndex).getOpenTime();
-        domainAxis.setRange(new Date(startTime), new Date(endTime));
-    }
-
-    private static void addTradeAnnotations(XYPlot plot, List<BackTestEngine.CompleteTrade> trades,
-                                            Map<Long, Integer> timeToIndex, List<Candle> candles,
-                                            int datasetIndex) {
-
-        // Crear un dataset para markers
-        XYSeriesCollection datasetMarkers = new XYSeriesCollection();
-
-        // Series para diferentes tipos de markers
-        XYSeries entryLongSeries = new XYSeries("Entrada LONG");
-        XYSeries entryShortSeries = new XYSeries("Entrada SHORT");
-        XYSeries exitProfitSeries = new XYSeries("Salida TP");
-        XYSeries exitLossSeries = new XYSeries("Salida SL");
-        XYSeries exitOtherSeries = new XYSeries("Otras Salidas");
-
-        // Series para líneas de TP/SL
-        XYSeries tpLinesSeries = new XYSeries("TP Line");
-        XYSeries slLinesSeries = new XYSeries("SL Line");
-
-        for (BackTestEngine.CompleteTrade trade : trades) {
-            // Encontrar el índice de la vela más cercana al tiempo de entrada
-            int entryIndex = findClosestCandleIndex(candles, trade.getEntryTime());
-            int exitIndex = findClosestCandleIndex(candles, trade.getExitTime());
-
-            if (entryIndex >= 0) {
-                Candle entryCandle = candles.get(entryIndex);
-                double entryX = entryCandle.getOpenTime();
-
-                // Agregar marker de entrada
-                if (trade.getDireccion() == DireccionOperation.LONG) {
-                    entryLongSeries.add(entryX, trade.getEntryPrice());
-                } else if (trade.getDireccion() == DireccionOperation.SHORT) {
-                    entryShortSeries.add(entryX, trade.getEntryPrice());
-                }
-
-                // Agregar líneas de TP y SL
-                tpLinesSeries.add(entryX, trade.getTpPrice());
-                tpLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).getOpenTime() : entryX + 3600000, trade.getTpPrice());
-
-                slLinesSeries.add(entryX, trade.getSlPrice());
-                slLinesSeries.add(exitIndex >= 0 ? candles.get(exitIndex).getOpenTime() : entryX + 3600000, trade.getSlPrice());
-            }
-
-            // Agregar marker de salida
-            if (exitIndex >= 0) {
-                Candle exitCandle = candles.get(exitIndex);
-                double exitX = exitCandle.getOpenTime();
-
-                switch (trade.getExitReason()) {
-                    case LONG_TAKE_PROFIT:
-                    case SHORT_TAKE_PROFIT:
-                        exitProfitSeries.add(exitX, trade.getExitPrice());
-                        break;
-                    case LONG_STOP_LOSS:
-                    case SHORT_STOP_LOSS:
-                        exitLossSeries.add(exitX, trade.getExitPrice());
-                        break;
-                    default:
-                        exitOtherSeries.add(exitX, trade.getExitPrice());
-                        break;
-                }
-            }
+        if (extraSeries != null && !extraSeries.isEmpty()) {
+            min = Math.min(min, extraSeries.getMinY());
+            max = Math.max(max, extraSeries.getMaxY());
         }
 
-        // Agregar series al dataset
-        if (entryLongSeries.getItemCount() > 0) datasetMarkers.addSeries(entryLongSeries);
-        if (entryShortSeries.getItemCount() > 0) datasetMarkers.addSeries(entryShortSeries);
-        if (exitProfitSeries.getItemCount() > 0) datasetMarkers.addSeries(exitProfitSeries);
-        if (exitLossSeries.getItemCount() > 0) datasetMarkers.addSeries(exitLossSeries);
-        if (exitOtherSeries.getItemCount() > 0) datasetMarkers.addSeries(exitOtherSeries);
-        if (tpLinesSeries.getItemCount() > 0) datasetMarkers.addSeries(tpLinesSeries);
-        if (slLinesSeries.getItemCount() > 0) datasetMarkers.addSeries(slLinesSeries);
-
-        // Crear renderer para markers
-        XYLineAndShapeRenderer markerRenderer = new XYLineAndShapeRenderer(false, true);
-
-        // Configurar colores y formas
-        int seriesIndex = 0;
-
-        // Entrada LONG - triángulo verde hacia arriba
-        if (entryLongSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesShape(seriesIndex,
-                    new Polygon(new int[]{0, 5, 10}, new int[]{10, 0, 10}, 3));
-            markerRenderer.setSeriesPaint(seriesIndex, Color.GREEN);
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(2));
-            seriesIndex++;
-        }
-
-        // Entrada SHORT - triángulo rojo hacia abajo
-        if (entryShortSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesShape(seriesIndex,
-                    new Polygon(new int[]{0, 10, 5}, new int[]{0, 0, 10}, 3));
-            markerRenderer.setSeriesPaint(seriesIndex, Color.RED);
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(2));
-            seriesIndex++;
-        }
-
-        // Salida TP - círculo verde
-        if (exitProfitSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesShape(seriesIndex, new Ellipse2D.Double(-5, -5, 10, 10));
-            markerRenderer.setSeriesPaint(seriesIndex, new Color(0, 200, 0)); // Verde brillante
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(2));
-            seriesIndex++;
-        }
-
-        // Salida SL - X roja
-        if (exitLossSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesShape(seriesIndex,
-                    new Polygon(new int[]{0, 10, 10, 0}, new int[]{0, 10, 0, 10}, 4));
-            markerRenderer.setSeriesPaint(seriesIndex, new Color(200, 0, 0)); // Rojo brillante
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(2));
-            seriesIndex++;
-        }
-
-        // Otras salidas - cuadrado azul
-        if (exitOtherSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesShape(seriesIndex, new Rectangle2D.Double(-5, -5, 10, 10));
-            markerRenderer.setSeriesPaint(seriesIndex, Color.BLUE);
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(2));
-            seriesIndex++;
-        }
-
-        // Líneas de TP - línea verde discontinua
-        if (tpLinesSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesLinesVisible(seriesIndex, true);
-            markerRenderer.setSeriesShapesVisible(seriesIndex, false);
-            markerRenderer.setSeriesPaint(seriesIndex, new Color(0, 255, 0, 200)); // Verde transparente
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(1, BasicStroke.CAP_BUTT,
-                    BasicStroke.JOIN_BEVEL, 0, new float[]{5, 5}, 0));
-            seriesIndex++;
-        }
-
-        // Líneas de SL - línea roja discontinua
-        if (slLinesSeries.getItemCount() > 0) {
-            markerRenderer.setSeriesLinesVisible(seriesIndex, true);
-            markerRenderer.setSeriesShapesVisible(seriesIndex, false);
-            markerRenderer.setSeriesPaint(seriesIndex, new Color(255, 0, 0, 200)); // Rojo transparente
-            markerRenderer.setSeriesStroke(seriesIndex, new BasicStroke(1, BasicStroke.CAP_BUTT,
-                    BasicStroke.JOIN_BEVEL, 0, new float[]{5, 5}, 0));
-        }
-
-        // Agregar el renderer al plot
-        plot.setDataset(datasetIndex, datasetMarkers);
-        plot.setRenderer(datasetIndex, markerRenderer);
-    }
-
-    private static int findClosestCandleIndex(List<Candle> candles, long time) {
-        int left = 0;
-        int right = candles.size() - 1;
-
-        while (left <= right) {
-            int mid = left + (right - left) / 2;
-            long midTime = candles.get(mid).getOpenTime();
-
-            if (midTime == time) {
-                return mid;
-            } else if (midTime < time) {
-                left = mid + 1;
-            } else {
-                right = mid - 1;
-            }
-        }
-
-        // Si no encontramos exacto, devolvemos el más cercano
-        if (right < 0) return 0;
-        if (left >= candles.size()) return candles.size() - 1;
-
-        long leftTime = candles.get(left).getOpenTime();
-        long rightTime = candles.get(right).getOpenTime();
-
-        return Math.abs(leftTime - time) < Math.abs(rightTime - time) ? left : right;
-    }
-
-    private static void addLegend(JFreeChart chart, List<BackTestEngine.CompleteTrade> trades) {
-        // Crear leyenda personalizada si hay trades
-        if (trades != null && !trades.isEmpty()) {
-            // Contar estadísticas
-            long longWins = trades.stream()
-                    .filter(t -> t.getDireccion() == DireccionOperation.LONG && t.getPnl() > 0)
-                    .count();
-            long longLosses = trades.stream()
-                    .filter(t -> t.getDireccion() == DireccionOperation.LONG && t.getPnl() <= 0)
-                    .count();
-            long shortWins = trades.stream()
-                    .filter(t -> t.getDireccion() == DireccionOperation.SHORT && t.getPnl() > 0)
-                    .count();
-            long shortLosses = trades.stream()
-                    .filter(t -> t.getDireccion() == DireccionOperation.SHORT && t.getPnl() <= 0)
-                    .count();
-
-            String legendText = String.format(
-                    "<html><b>Resumen de Trades:</b><br>" +
-                            "Total: %d trades<br>" +
-                            "LONG: %d (✓%d ✗%d)<br>" +
-                            "SHORT: %d (✓%d ✗%d)<br>" +
-                            "<br><b>Leyenda:</b><br>" +
-                            "▲ Entrada LONG<br>" +
-                            "▼ Entrada SHORT<br>" +
-                            "● Salida TP<br>" +
-                            "✗ Salida SL<br>" +
-                            "■ Otra Salida<br>" +
-                            "---- Línea TP<br>" +
-                            "---- Línea SL</html>",
-                    trades.size(),
-                    longWins + longLosses, longWins, longLosses,
-                    shortWins + shortLosses, shortWins, shortLosses
-            );
-
-            JLabel legendLabel = new JLabel(legendText);
-            legendLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-
-            // Podrías agregar esta leyenda al frame principal si lo deseas
+        if (Double.isFinite(min) && Double.isFinite(max)) {
+            double range = max - min;
+            double padding = range > 0 ? range * 0.05 : Math.max(Math.abs(max) * 0.01, 0.0001);
+            NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
+            rangeAxis.setRange(min - padding, max + padding);
         }
     }
 
-    private static JPanel createTradeInfoPanel(List<BackTestEngine.CompleteTrade> trades) {
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.setPreferredSize(new Dimension(300, 700));
-        panel.setBorder(BorderFactory.createTitledBorder("Detalles de Trades"));
-
-        // Crear modelo de tabla
-        String[] columnNames = {"#", "Dir", "Entry", "TP", "SL", "Exit", "PnL%", "Razón"};
-        Object[][] data = new Object[trades.size()][8];
-
-        DecimalFormat priceFormat = new DecimalFormat("#0.0000");
-        DecimalFormat pnlFormat = new DecimalFormat("+0.00%;-0.00%");
-
-        for (int i = 0; i < trades.size(); i++) {
-            BackTestEngine.CompleteTrade trade = trades.get(i);
-
-            String direction = trade.getDireccion() == DireccionOperation.LONG ? "LONG" :
-                    trade.getDireccion() == DireccionOperation.SHORT ? "SHORT" : "NEUT";
-
-            String exitReason = trade.getExitReason().name()
-                    .replace("LONG_", "")
-                    .replace("SHORT_", "")
-                    .replace("_", " ");
-
-            data[i][0] = i + 1;
-            data[i][1] = direction;
-            data[i][2] = priceFormat.format(trade.getEntryPrice());
-            data[i][3] = priceFormat.format(trade.getTpPrice());
-            data[i][4] = priceFormat.format(trade.getSlPrice());
-            data[i][5] = priceFormat.format(trade.getExitPrice());
-            data[i][6] = pnlFormat.format(trade.getPnlPercent());
-            data[i][7] = exitReason;
+    private static Shape createTriangleShape(int size, boolean up) {
+        Path2D.Double path = new Path2D.Double();
+        if (up) {
+            path.moveTo(0, -size);
+            path.lineTo(size, size);
+            path.lineTo(-size, size);
+        } else {
+            path.moveTo(0, size);
+            path.lineTo(size, -size);
+            path.lineTo(-size, -size);
         }
-
-        JTable table = new JTable(data, columnNames);
-        table.setAutoCreateRowSorter(true);
-
-        // Colorear filas según PnL
-        table.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
-            @Override
-            public Component getTableCellRendererComponent(JTable table, Object value,
-                                                           boolean isSelected, boolean hasFocus, int row, int column) {
-                Component c = super.getTableCellRendererComponent(table, value,
-                        isSelected, hasFocus, row, column);
-
-                if (column == 6) { // Columna PnL%
-                    String pnlText = value.toString();
-                    if (pnlText.startsWith("+")) {
-                        c.setForeground(new Color(0, 150, 0)); // Verde para ganancias
-                    } else if (pnlText.startsWith("-")) {
-                        c.setForeground(Color.RED); // Rojo para pérdidas
-                    }
-                } else if (column == 1) { // Columna Dirección
-                    String dir = value.toString();
-                    if ("LONG".equals(dir)) {
-                        c.setForeground(new Color(0, 100, 0)); // Verde oscuro
-                    } else if ("SHORT".equals(dir)) {
-                        c.setForeground(new Color(150, 0, 0)); // Rojo oscuro
-                    }
-                }
-
-                return c;
-            }
-        });
-
-        JScrollPane scrollPane = new JScrollPane(table);
-        panel.add(scrollPane, BorderLayout.CENTER);
-
-        // Agregar estadísticas rápidas
-        if (!trades.isEmpty()) {
-            double totalPnL = trades.stream().mapToDouble(t -> t.getPnlPercent()).sum();
-            double avgPnL = totalPnL / trades.size();
-            long wins = trades.stream().filter(t -> t.getPnl() > 0).count();
-            double winRate = (double) wins / trades.size() * 100;
-
-            JLabel statsLabel = new JLabel(String.format(
-                    "<html><b>Estadísticas:</b><br>" +
-                            "Win Rate: %.1f%%<br>" +
-                            "PnL Total: %.2f%%<br>" +
-                            "PnL Promedio: %.2f%%</html>",
-                    winRate, totalPnL * 100, avgPnL * 100
-            ));
-            statsLabel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-            panel.add(statsLabel, BorderLayout.SOUTH);
-        }
-
-        return panel;
+        path.closePath();
+        return path;
     }
 }
