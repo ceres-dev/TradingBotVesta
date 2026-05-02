@@ -31,7 +31,7 @@ public class MetricsListener extends TrainingListenerAdapter {
     @Override
     public void onEpoch(Trainer trainer) {
         count++;
-        if (count%5 != 0) return;
+//        if (count%5 != 0) return;
         var result = trainer.getTrainingResult();
         // Obtener los resultados
         float lossTrain = result.getTrainLoss();

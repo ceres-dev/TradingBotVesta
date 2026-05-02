@@ -8,6 +8,7 @@ import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
 import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
+import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
@@ -27,12 +28,16 @@ public class DeltaStrategy implements TradingStrategyConfigurable, TradingStrate
         }
         optional.ifPresent(predictedCandles ->
                 {
-                    double value = predictedCandles.getLast().getClose();
-                    System.out.println(value);
+                    double value = predictedCandles.getLast().get(0);
                     if (Math.abs(value) > 0.5) {
-                        manager.open(DireccionOperation.parse(value),
+                        DireccionOperation direccion = DireccionOperation.parse(value);
+                        manager.open(direccion,
                                 (manager.getAvailableBalance() / 2)*Math.abs(value),
                                 4
+                        );
+                        manager.limitAlgo(direccion.inverse(),
+                                TypeOrder.STOP_MARKET,
+                                direccion.isLong() ? manager.getCurrentPrice() - 1 : manager.getCurrentPrice() +1
                         );
                     }
                 }

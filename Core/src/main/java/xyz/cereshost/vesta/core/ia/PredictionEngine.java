@@ -8,12 +8,10 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.Shape;
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.experimental.Delegate;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.BaseCandle;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
 import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
@@ -29,7 +27,7 @@ import java.util.List;
 @Getter
 public class PredictionEngine {
 
-    private static final int MODEL_OUTPUTS = 5;
+    private static final int MODEL_OUTPUTS = BuilderData.OUTPUTS;
     private static final int REQUIRED_AUTOREGRESSIVE_FEATURES = BuilderData.FEATURES;
 
     private final Model model;
@@ -96,11 +94,7 @@ public class PredictionEngine {
         }
 
         float[][] output2D = new float[1][MODEL_OUTPUTS];
-        output2D[0][0] = normalizedOutput[0];
-        output2D[0][1] = normalizedOutput[1];
-        output2D[0][2] = normalizedOutput[2];
-        output2D[0][3] = normalizedOutput[3];
-        output2D[0][4] = normalizedOutput[4];
+        System.arraycopy(normalizedOutput, 0, output2D[0], 0, output2D[0].length);
         return yNormalizer.inverseTransform(output2D)[0];
     }
 
@@ -140,12 +134,7 @@ public class PredictionEngine {
             // Inferencia
             float[] rawPredictions = predictRaw(X); // Output del modelo
             PredictedCandle predicted = new PredictedCandle(
-                    0,
-                    rawPredictions[1], // High
-                    rawPredictions[2], // Low
-                    rawPredictions[0], // Close
-                    rawPredictions[3], // Volumen
-                    rawPredictions[4]  // other (indicador técnico)
+                    rawPredictions
             );
             results.add(predicted);
 
@@ -153,14 +142,7 @@ public class PredictionEngine {
             for (int t = 0; t < lookBack - 1; t++) {
                 X[0][t] = X[0][t + 1];
             }
-
-            float[] nextFeatures = new float[X[0][0].length];
-            nextFeatures[0] = (float) predicted.getClose();
-            nextFeatures[1] = (float) predicted.getHigh();
-            nextFeatures[2] = (float) predicted.getLow();
-            nextFeatures[3] = predicted.getVolumenRelative();
-            nextFeatures[4] = (float) predicted.getOtherIndicator()[0];
-            X[0][lookBack - 1] = nextFeatures;
+            X[0][lookBack - 1] = rawPredictions;
         }
 
         return new SequenceCandlesPrediction(results);
@@ -198,7 +180,7 @@ public class PredictionEngine {
             double max = Double.NEGATIVE_INFINITY;
             double min = Double.POSITIVE_INFINITY;
             for (PredictedCandle candle : candles) {
-                double step = candle.getClose();
+                double step = candle.get(0);
                 if (!Double.isFinite(step)) {
                     continue;
                 }
@@ -259,20 +241,9 @@ public class PredictionEngine {
         }
     }
 
-    @Data
-    @EqualsAndHashCode(callSuper = true)
-    public static final class PredictedCandle extends BaseCandle {
-
-        private final float volumenRelative;
-        private final double[] otherIndicator;
-
-        // EL open,
-        public PredictedCandle(double open, double high, double low, double close, float volumen, double... other) {
-            super(open, high, low, close);
-            volumenRelative = volumen;
-            otherIndicator = other;
+    public record PredictedCandle(float... values) {
+        public float get(int i) {
+            return values[i];
         }
-
-
     }
 }

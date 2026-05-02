@@ -51,8 +51,8 @@ public class VestaEngine {
     public static final int SHORT_LOOK_BACK = 5;
     public static final int AUXILIAR_EPOCH = 1;
     public static final int BACH_SIZE = 4;
-    public static final int SPLIT_DATA = 1;
-    public static final int EPOCH = SPLIT_DATA * 200;
+    public static final int SPLIT_DATA = 2;
+    public static final int EPOCH = SPLIT_DATA * 4;
 
     @Getter @Setter
     private static NDManager rootManager;
@@ -122,8 +122,8 @@ public class VestaEngine {
             TrainingConfig config = new DefaultTrainingConfig(new VestaLoss())
                     .optOptimizer(Optimizer.adamW()
                             .optLearningRateTracker(Tracker.cosine()
-                                    .setBaseValue( .000_0001f)
-                                    .optFinalValue(.000_00001f)
+                                    .setBaseValue( .000_001f)
+                                    .optFinalValue(.000_000_02f)
                                     .setMaxUpdates(70_000)
                                     .build())
                             .optWeightDecays(0)
@@ -247,19 +247,19 @@ public class VestaEngine {
         ParallelBlock branches = new ParallelBlock(list -> {
             NDArray out0 = list.get(0).singletonOrThrow();
             NDArray out1 = list.get(1).singletonOrThrow();
-            NDArray out2 = list.get(2).singletonOrThrow();
-            NDArray out3 = list.get(3).singletonOrThrow();
-            NDArray out4 = list.get(4).singletonOrThrow();
             return new NDList(
-                    NDArrays.concat(new NDList(out0, out1, out2, out3, out4), 1)
+                    NDArrays.concat(new NDList(out0, out1), 1)
             );
         });
 
-        branches.add(getMagnitud());   // output 0: Close
-        branches.add(getZeroHead());   // output 1: high
-        branches.add(getZeroHead());   // output 2: low
-        branches.add(getZeroHead());   // output 3: volumen
-        branches.add(getZeroHead());   // output 4: Otro (Indicador)
+        branches.add(getMagnitud());   // output 0
+        branches.add(getMagnitud());   // output 1
+//        branches.add(getMagnitud());   // output 2
+//        branches.add(getMagnitud());   // output 3
+//        branches.add(getMagnitud());   // output 4
+//        branches.add(getMagnitud());   // output 5
+//        branches.add(getMagnitud());   // output 6
+//        branches.add(getMagnitud());   // output 7
 
         mainBlock.add(branches);
         return mainBlock;
@@ -286,18 +286,10 @@ public class VestaEngine {
 //                .add(Linear.builder().setUnits(32).build());
 
         return new SequentialBlock()
-                .add(Linear.builder().setUnits(1024*2).build())
-                .add(Linear.builder().setUnits(1024*2).build())
-                .add(Linear.builder().setUnits(1024*2).build())
-                .add(Linear.builder().setUnits(1024*2).build())
-                .add(Linear.builder().setUnits(1024).build())
-                .add(Linear.builder().setUnits(1024).build())
-                .add(Linear.builder().setUnits(1024).build())
-                .add(Linear.builder().setUnits(512).build())
-                .add(Linear.builder().setUnits(512).build())
-                .add(Linear.builder().setUnits(512).build())
-                .add(Linear.builder().setUnits(512).build())
-                .add(Linear.builder().setUnits(512).build())
+                .add(Linear.builder().setUnits(64).build())
+                .add(Linear.builder().setUnits(64).build())
+                .add(Linear.builder().setUnits(64).build())
+                .add(Linear.builder().setUnits(64).build())
                 .add(Linear.builder().setUnits(1).build());
     }
 
@@ -333,11 +325,11 @@ public class VestaEngine {
             return new NDList(recent);
         }));
         block.add(TemporalTransformerBlock.builder()
-                        .setModelDim(2*32)
+                        .setModelDim(2*64)
                         .setNumHeads(2)
                         .setFeedForwardDim(1024)
-                        .setDropoutRate(0.1f)
-                        .setAttentionProbsDropoutProb(.1f)
+                        .setDropoutRate(.04f)
+                        .setAttentionProbsDropoutProb(.04f)
                         .setMaxSequenceLength(VestaEngine.SHORT_LOOK_BACK)
                         .build())
                 .add(new LambdaBlock(ndArrays -> {
@@ -357,11 +349,11 @@ public class VestaEngine {
     private static SequentialBlock buildLSTMSummaryBlock() {
         SequentialBlock block = new SequentialBlock();
         block.add(TemporalTransformerBlock.builder()
-                        .setModelDim(8*(48))
+                        .setModelDim(8*128)
                         .setNumHeads(8)
                         .setFeedForwardDim(1024)
-                        .setDropoutRate(0.1f)
-                        .setAttentionProbsDropoutProb(.1f)
+                        .setDropoutRate(.04f)
+                        .setAttentionProbsDropoutProb(.04f)
                         .setMaxSequenceLength(VestaEngine.LOOK_BACK)
                         .build())
                 .add(new LambdaBlock(ndArrays -> {

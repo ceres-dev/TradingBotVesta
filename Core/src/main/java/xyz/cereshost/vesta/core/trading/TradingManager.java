@@ -10,7 +10,6 @@ import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.market.Market;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
-import xyz.cereshost.vesta.core.trading.real.TradingManagerBinance;
 import xyz.cereshost.vesta.core.utils.Copyable;
 import xyz.cereshost.vesta.core.utils.Identifiable;
 
@@ -34,36 +33,36 @@ public interface TradingManager extends Notifiable {
                                                @NotNull Integer leverage
     );
 
-    @NotNull Optional<Order> limit(@NotNull DireccionOperation side,
-                                   @NotNull Double trigger,
-                                   @NotNull Double quantity,
-                                   @NotNull Integer leverage,
-                                   @NotNull TypeOrder typeOrder,
-                                   @NotNull TimeInForce timeInForce
+    @NotNull Optional<OrderSimple> limit(@NotNull DireccionOperation side,
+                                         @NotNull Double trigger,
+                                         @NotNull Double quantity,
+                                         @NotNull Integer leverage,
+                                         @NotNull TypeOrder typeOrder,
+                                         @NotNull TimeInForce timeInForce
     );
 
-    default Optional<Order> limit(@NotNull DireccionOperation side,
-                                  @NotNull Double trigger,
-                                  @NotNull Double quantity,
-                                  @NotNull Integer leverage,
-                                  @NotNull TypeOrder typeOrder
+    default Optional<OrderSimple> limit(@NotNull DireccionOperation side,
+                                        @NotNull Double trigger,
+                                        @NotNull Double quantity,
+                                        @NotNull Integer leverage,
+                                        @NotNull TypeOrder typeOrder
     ){
         return limit(side, trigger, quantity, leverage, typeOrder, TimeInForce.GTE_GTC);
     }
 
-    default Optional<Order> limit(@NotNull DireccionOperation side,
-                                  @NotNull Double trigger,
-                                  @NotNull Double quantity,
-                                  @NotNull Integer leverage,
-                                  @NotNull TimeInForce timeInForce
+    default Optional<OrderSimple> limit(@NotNull DireccionOperation side,
+                                        @NotNull Double trigger,
+                                        @NotNull Double quantity,
+                                        @NotNull Integer leverage,
+                                        @NotNull TimeInForce timeInForce
     ){
         return limit(side, trigger, quantity, leverage, TypeOrder.MARKET, timeInForce);
     }
 
-    default Optional<Order> limit(@NotNull DireccionOperation side,
-                                  @NotNull Double trigger,
-                                  @NotNull Double quantity,
-                                  @NotNull Integer leverage
+    default Optional<OrderSimple> limit(@NotNull DireccionOperation side,
+                                        @NotNull Double trigger,
+                                        @NotNull Double quantity,
+                                        @NotNull Integer leverage
     ){
         return limit(side, trigger, quantity, leverage, TypeOrder.MARKET, TimeInForce.GTE_GTC);
     }
@@ -112,6 +111,8 @@ public interface TradingManager extends Notifiable {
     }
 
 
+
+
     /**
      * Cierras una Operación previamente Abierta
      *
@@ -129,7 +130,7 @@ public interface TradingManager extends Notifiable {
 
     @NotNull Optional<OpenPosition> getOpenPosition();
 
-    @NotNull List<Order> getOrder();
+    @NotNull List<OrderSimple> getOrder();
 
     @NotNull List<OrderAlgo> getLimitAlgos();
 
@@ -346,6 +347,7 @@ public interface TradingManager extends Notifiable {
         @Nullable protected final Double quantity;
         @Nullable protected final Integer leverage;
         @NotNull protected final Boolean reduceOnly;
+        @NotNull protected final List<PriceSnapshot> historyTriggerPrices = new ArrayList<>();
 
         public OrderAlgo(@NotNull TradingManager tradingManager,
                          @NotNull DireccionOperation direccion,
@@ -363,19 +365,21 @@ public interface TradingManager extends Notifiable {
             this.leverage = leverage;
             this.reduceOnly = reduceOnly;
             this.timeInForce = timeInForce;
+            historyTriggerPrices.add(new PriceSnapshot(triggerPrice, tradingManager.getCurrentTime()));
         }
 
-        public OrderAlgo(@NotNull OrderAlgo order){
+        public OrderAlgo(@NotNull OrderAlgo orderAlgo){
             this(
-                    order.tradingManager,
-                    order.direccion,
-                    order.triggerPrice,
-                    order.quantity,
-                    order.leverage,
-                    order.reduceOnly,
-                    order.typeOrder,
-                    order.timeInForce
+                    orderAlgo.tradingManager,
+                    orderAlgo.direccion,
+                    orderAlgo.triggerPrice,
+                    orderAlgo.quantity,
+                    orderAlgo.leverage,
+                    orderAlgo.reduceOnly,
+                    orderAlgo.typeOrder,
+                    orderAlgo.timeInForce
             );
+            historyTriggerPrices.addAll(orderAlgo.historyTriggerPrices);
         }
 
         public boolean satisfaceCondicion(Double currentPrice) {
@@ -422,6 +426,33 @@ public interface TradingManager extends Notifiable {
         }
 
         @Override
+        public void setTriggerPrice(@NotNull Double triggerPrice) {
+            this.triggerPrice = triggerPrice;
+            historyTriggerPrices.add(new PriceSnapshot(triggerPrice, tradingManager.getCurrentTime()));
+        }
+
+        public void addTriggerPriceByPrice(@NotNull Double triggerPrice) {
+            setTriggerPrice(getTriggerPrice() + triggerPrice);
+        }
+
+        public void addTriggerPriceByPercent(@NotNull Double percent) {
+            setTriggerPrice(getTriggerPrice() + getTriggerPrice() * (percent/100));
+        }
+
+        public void addTriggerPriceByPercentRelative(@NotNull Double percent) {
+            if (direccion == LONG) {
+                addTriggerPriceByPercent(percent);
+            }else {
+                addTriggerPriceByPercent(-percent);
+            }
+        }
+
+        @Override
+        public @NotNull List<PriceSnapshot> getHistoryTriggerPrices(){
+            return historyTriggerPrices;
+        }
+
+        @Override
         public void cancel() {
             tradingManager.cancelOrder(this.uuid);
         }
@@ -430,39 +461,53 @@ public interface TradingManager extends Notifiable {
 
     @Data
     @EqualsAndHashCode(callSuper = true)
-    abstract class Order extends PossiblePosition<Order> implements LimitedPosition {
+    abstract class OrderSimple extends PossiblePosition<OrderSimple> implements LimitedPosition {
 
         @NotNull protected TypeOrder typeOrder;
         @Nullable protected TimeInForce timeInForce;
+        @NotNull protected final List<PriceSnapshot> historyTriggerPrices = new ArrayList<>();
 
-        public Order(@NotNull TradingManager tradingManager,
-                     @NotNull DireccionOperation direccion,
-                     @NotNull Double triggerPrice,
-                     @NotNull Double quantity,
-                     @NotNull Integer leverage,
-                     @NotNull TypeOrder typeOrder,
-                     @Nullable TimeInForce timeInForce
+        public OrderSimple(@NotNull TradingManager tradingManager,
+                           @NotNull DireccionOperation direccion,
+                           @NotNull Double triggerPrice,
+                           @NotNull Double quantity,
+                           @NotNull Integer leverage,
+                           @NotNull TypeOrder typeOrder,
+                           @Nullable TimeInForce timeInForce
         ) {
             super(tradingManager, direccion, triggerPrice, quantity, leverage);
             this.typeOrder = typeOrder;
             this.timeInForce = timeInForce;
+            historyTriggerPrices.add(new PriceSnapshot(triggerPrice, tradingManager.getCurrentTime()));
         }
 
-        public Order(@NotNull Order order){
+        public OrderSimple(@NotNull TradingManager.OrderSimple orderSimple){
             this(
-                    order.tradingManager,
-                    order.direccion,
-                    order.triggerPrice,
-                    order.quantity,
-                    order.leverage,
-                    order.typeOrder,
-                    order.timeInForce
+                    orderSimple.tradingManager,
+                    orderSimple.direccion,
+                    orderSimple.triggerPrice,
+                    orderSimple.quantity,
+                    orderSimple.leverage,
+                    orderSimple.typeOrder,
+                    orderSimple.timeInForce
             );
+            historyTriggerPrices.addAll(orderSimple.historyTriggerPrices);
         }
 
         @Override
         public @NotNull Boolean isAlgo(){
             return true;
+        }
+
+        @Override
+        public void setTriggerPrice(@NotNull Double triggerPrice) {
+            this.triggerPrice = triggerPrice;
+            historyTriggerPrices.add(new PriceSnapshot(triggerPrice, tradingManager.getCurrentTime()));
+        }
+
+        @Override
+        public @NotNull List<PriceSnapshot> getHistoryTriggerPrices(){
+            return historyTriggerPrices;
         }
 
         @Override
@@ -530,6 +575,9 @@ public interface TradingManager extends Notifiable {
         @Contract(pure = true)
         @NotNull Boolean isAlgo();
 
+        @Contract(pure = true)
+        @NotNull List<PriceSnapshot> getHistoryTriggerPrices();
+
         void cancel();
     }
 
@@ -583,227 +631,5 @@ public interface TradingManager extends Notifiable {
         }
     }
 
-    @Data
-    @AllArgsConstructor
-    @Deprecated
-    abstract class RiskLimits{ // TODO: Arreglar los limites cuando es relativo
-        // Si es nulo no hay limite de Take Profit
-        @Nullable private Double takeProfit;
-        // Si es nulo no hay limite de Stop Loss
-        @Nullable private Double stopLoss;
-
-        @Nullable private Double qty;
-
-        private boolean isLimit = true;
-        private TimeInForce timeInForce = TimeInForce.GTC;
-
-        public RiskLimits(@Nullable Double takeProfit, @Nullable Double stopLoss) {
-            this.takeProfit = takeProfit;
-            this.stopLoss = stopLoss;
-        }
-
-        public RiskLimits(@Nullable Double takeProfit, @Nullable Double stopLoss,  @Nullable Double qty) {
-            this.takeProfit = takeProfit;
-            this.stopLoss = stopLoss;
-            this.qty = qty;
-        }
-
-        public RiskLimits setLimit(boolean isLimit) {
-            this.isLimit = isLimit;
-            return this;
-        }
-
-        public RiskLimits setTimeInForce(TimeInForce timeInForce) {
-            this.timeInForce = timeInForce;
-            return this;
-        }
-
-        private @Nullable BiFunction<Double, Boolean, Boolean> onUpdate = null;
-        private final boolean isAbsolute = this instanceof RiskLimitsAbsolute;
-
-        private static double toTpPriceFromPercent(double price, double takeProfitPercent, @NotNull DireccionOperation direccion) {
-            double pct = takeProfitPercent * 0.01D;
-            return direccion == LONG ? price + (price * pct) : price - (price * pct);
-        }
-
-        private static double toSlPriceFromPercent(double price, double stopLossPercent, @NotNull DireccionOperation direccion) {
-            double pct = stopLossPercent * 0.01D;
-            return direccion == LONG ? price - (price * pct) : price + (price * pct);
-        }
-
-        public void setStopLoss(Double stopLoss, double price) {
-            setStopLoss(stopLoss, price, LONG);
-        }
-
-        public void setStopLoss(Double stopLoss, double price, @NotNull DireccionOperation direccion) {
-            if (onUpdate != null) {
-                if (onUpdate.apply(isAbsolute ? stopLoss : toSlPriceFromPercent(price, stopLoss, direccion), false)) this.stopLoss = stopLoss;
-            }else this.stopLoss = stopLoss;
-        }
-
-        public void setTakeProfit(Double takeProfit, double price) {
-            setTakeProfit(takeProfit, price, LONG);
-        }
-
-        public void setTakeProfit(Double takeProfit, double price, @NotNull DireccionOperation direccion) {
-            if (onUpdate != null) {
-                if (onUpdate.apply(isAbsolute ? takeProfit : toTpPriceFromPercent(price, takeProfit, direccion), true)) this.takeProfit = takeProfit;
-            }else this.takeProfit = takeProfit;
-        }
-
-        public void setTakeProfitPercent(double percent, double price) {
-            setTakeProfitPercent(percent, price, LONG);
-        }
-
-        public void setTakeProfitPercent(double percent, double price, @NotNull DireccionOperation direccion) {
-            if (isAbsolute) {
-                setTakeProfit(toTpPriceFromPercent(price, percent, direccion), price, direccion);
-            }else setTakeProfit(percent, price, direccion);
-        }
-
-        public void addTakeProfitPercent(double percent, double price) {
-            addTakeProfitPercent(percent, price, LONG);
-        }
-
-        public void addTakeProfitPercent(double percent, double price, @NotNull DireccionOperation direccion) {
-            if (isAbsolute) {
-                if (this.takeProfit == null){
-                    setTakeProfit(toTpPriceFromPercent(price, percent, direccion), price, direccion);
-                }else setTakeProfit(this.takeProfit + toTpPriceFromPercent(price, percent, direccion), price, direccion);
-            }else {
-                if (this.takeProfit == null) {
-                    setTakeProfit(percent, price, direccion);
-                }else setTakeProfit(this.takeProfit + percent, price, direccion);
-            }
-        }
-
-        public void setStopLossPercent(double percent, double price) {
-            setStopLossPercent(percent, price, LONG);
-        }
-
-        public void setStopLossPercent(double percent, double price, @NotNull DireccionOperation direccion) {
-            if (isAbsolute) {
-                setStopLoss(toSlPriceFromPercent(price, percent, direccion), price, direccion);
-            }else setStopLoss(percent, price, direccion);
-        }
-
-        public void addStopLossPercent(double percent, double price) {
-            addStopLossPercent(percent, price, LONG);
-        }
-
-        public void addStopLossPercent(double percent, double price, @NotNull DireccionOperation direccion) {
-            if (isAbsolute) {
-                if (this.stopLoss == null){
-                    setStopLoss(toSlPriceFromPercent(price, percent, direccion), price, direccion);
-                }else setStopLoss(this.stopLoss + toSlPriceFromPercent(price, percent, direccion), price, direccion);
-            }else {
-                if (this.stopLoss == null) {
-                    setStopLoss(percent, price, direccion);
-                }else setStopLoss(this.stopLoss + percent, price, direccion);
-            }
-        }
-
-        public double getTpPercent(double price) {
-            return getTpPercent(price, LONG);
-        }
-
-        public double getTpPercent(double price, @NotNull DireccionOperation direccion) {
-            Double takeProfit = getTakeProfit();
-            if (takeProfit == null) return Double.NaN;
-            if (!isAbsolute()) return takeProfit;
-            return direccion == LONG ? ((takeProfit - price) / price) * 100D : ((price - takeProfit) / price) * 100D;
-        }
-
-        public double getSlPercent(double price) {
-            return getSlPercent(price, LONG);
-        }
-
-        public double getSlPercent(double price, @NotNull DireccionOperation direccion) {
-            Double stopLoss = getStopLoss();
-            if (stopLoss == null) return Double.NaN;
-            if (!isAbsolute()) return stopLoss;
-            return direccion == LONG ? ((price - stopLoss) / price) * 100D : ((stopLoss - price) / price) * 100D;
-        }
-
-        public double getTpPrice(double price){
-            return getTpPrice(price, LONG);
-        }
-
-        public double getTpPrice(double price, @NotNull DireccionOperation direccion){
-            Double takeProfit = getTakeProfit();
-            if (takeProfit == null) return Double.NaN;
-            if (isAbsolute()) return takeProfit;
-            return toTpPriceFromPercent(price, takeProfit, direccion);
-        }
-
-        public double getSlPrice(double price){
-            return getSlPrice(price, LONG);
-        }
-
-        public double getSlPrice(double price, @NotNull DireccionOperation direccion){
-            Double stopLoss = getStopLoss();
-            if (stopLoss == null) return Double.NaN;
-            if (isAbsolute()) return stopLoss;
-            return toSlPriceFromPercent(price, stopLoss, direccion);
-        }
-    }
-
-    class RiskLimitsPercent extends RiskLimits {
-        public RiskLimitsPercent(@Nullable Double takeProfitPercent, @Nullable Double stopLossPercent) {
-            super(takeProfitPercent, stopLossPercent);
-        }
-    }
-
-    class RiskLimitsAbsolute extends RiskLimits {
-        public RiskLimitsAbsolute(@Nullable Double takeProfitAbsolute, @Nullable Double stopLossAbsolute) {
-            super(takeProfitAbsolute, stopLossAbsolute);
-        }
-
-        public RiskLimitsAbsolute(@Nullable Double takeProfitAbsolute, @Nullable Double stopLossAbsolute, Double price) {
-            super(takeProfitAbsolute == null ? null : takeProfitAbsolute + price, stopLossAbsolute == null ? null : price - stopLossAbsolute);
-        }
-    }
-
-
-    interface RiskLimiterContainer {
-
-        @Contract(pure = true)
-        @NotNull RiskLimits getRiskLimits();
-
-        @NotNull DireccionOperation getDireccion();
-
-        double getEntryPrice();
-
-        default double getTpPercent() {
-            return getRiskLimits().getTpPercent(getEntryPrice(), getDireccion());
-        }
-
-        default double getSlPercent() {
-            return getRiskLimits().getSlPercent(getEntryPrice(), getDireccion());
-        }
-
-        default double getTpPrice(){
-            return getRiskLimits().getTpPrice(getEntryPrice(), getDireccion());
-        }
-
-        default double getSlPrice(){
-            return getRiskLimits().getSlPrice(getEntryPrice(), getDireccion());
-        }
-
-        default void setTpPercent(double tpPercent) {
-            getRiskLimits().setTakeProfitPercent(tpPercent, getEntryPrice(), getDireccion());
-        }
-
-        default void setSlPercent(double slPercent) {
-            getRiskLimits().setStopLossPercent(slPercent, getEntryPrice(), getDireccion());
-        }
-
-        default void addTpPercent(double tpPercent) {
-            getRiskLimits().addTakeProfitPercent(tpPercent, getEntryPrice(), getDireccion());
-        }
-
-        default void addSlPercent(double slPercent) {
-            getRiskLimits().addStopLossPercent(slPercent, getEntryPrice(), getDireccion());
-        }
-    }
+    record PriceSnapshot(@NotNull Double price, @NotNull Long date) {}
 }

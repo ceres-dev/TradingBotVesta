@@ -198,16 +198,16 @@ public class BackTestEngine {
                 manager.cancelAllOrderAlgo();
             }
             if (optional.isEmpty()) {
-                for (TradingManager.Order order : manager.getOrder()){
-                    if ((currentPrice >= order.getTriggerPrice() && lastPrice <= order.getTriggerPrice()) ||
-                            (currentPrice <= order.getTriggerPrice() && lastPrice >= order.getTriggerPrice())
+                for (TradingManager.OrderSimple orderSimple : manager.getOrder()){
+                    if ((currentPrice >= orderSimple.getTriggerPrice() && lastPrice <= orderSimple.getTriggerPrice()) ||
+                            (currentPrice <= orderSimple.getTriggerPrice() && lastPrice >= orderSimple.getTriggerPrice())
                     ){
                         TradingManagerBackTest.BackTestOpenPosition o = new TradingManagerBackTest.BackTestOpenPosition(manager,
                                 currentPrice,
-                                order.getDireccion(),
-                                order.getQuantity(),
-                                order.getLeverage(),
-                                order
+                                orderSimple.getDireccion(),
+                                orderSimple.getQuantity(),
+                                orderSimple.getLeverage(),
+                                orderSimple
                         );
                         manager.openForEngine(o);
                         optional = manager.getOpenPosition();

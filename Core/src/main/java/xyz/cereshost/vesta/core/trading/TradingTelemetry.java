@@ -1,6 +1,5 @@
 package xyz.cereshost.vesta.core.trading;
 
-import kotlin.internal.ContractsDsl;
 import lombok.Getter;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
@@ -11,6 +10,7 @@ import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import java.util.*;
 import java.util.function.Predicate;
 
+@SuppressWarnings("unused")
 public class TradingTelemetry {
 
     private double initialBalance;
@@ -53,8 +53,8 @@ public class TradingTelemetry {
         this.trades.clear();
     }
 
-    public void recordOrderCreated(@NotNull TradingManager.Order order, long createdTime) {
-        orders.put(order.getUuid(), PendingObjectLifecycle.fromOrder(order, createdTime));
+    public void recordOrderCreated(@NotNull TradingManager.OrderSimple orderSimple, long createdTime) {
+        orders.put(orderSimple.getUuid(), PendingObjectLifecycle.fromOrder(orderSimple, createdTime));
         lastEventTime = createdTime;
     }
 
@@ -71,14 +71,14 @@ public class TradingTelemetry {
         closeLifecycle(orderAlgos.get(uuid), LifecycleStatus.CANCELLED, closedTime, null, null, closeReason);
     }
 
-    public void recordOrderFilled(@NotNull TradingManager.Order order,
+    public void recordOrderFilled(@NotNull TradingManager.OrderSimple orderSimple,
                                   @NotNull UUID positionUuid,
                                   double fillPrice,
                                   long fillTime
     ) {
         PendingObjectLifecycle lifecycle = orders.computeIfAbsent(
-                order.getUuid(),
-                ignored -> PendingObjectLifecycle.fromOrder(order, fillTime)
+                orderSimple.getUuid(),
+                ignored -> PendingObjectLifecycle.fromOrder(orderSimple, fillTime)
         );
         closeLifecycle(lifecycle, LifecycleStatus.FILLED, fillTime, fillPrice, positionUuid, "FILLED");
     }
@@ -397,6 +397,7 @@ public class TradingTelemetry {
             @NotNull PendingObjectKind kind,
             @NotNull DireccionOperation direction,
             @NotNull TypeOrder typeOrder,
+            @NotNull List<TradingManager.PriceSnapshot> historiesTriggerPrices,
             @Nullable TimeInForce timeInForce,
             double triggerPrice,
             @Nullable Double quantity,
@@ -462,6 +463,7 @@ public class TradingTelemetry {
         private final @NotNull PendingObjectKind kind;
         private final @NotNull DireccionOperation direction;
         private final @NotNull TypeOrder typeOrder;
+        private final @NotNull List<TradingManager.PriceSnapshot> historyTriggerPrices;
         private final @Nullable TimeInForce timeInForce;
         private final double triggerPrice;
         private final @Nullable Double quantity;
@@ -478,6 +480,7 @@ public class TradingTelemetry {
                                        @NotNull PendingObjectKind kind,
                                        @NotNull DireccionOperation direction,
                                        @NotNull TypeOrder typeOrder,
+                                       @NotNull List<TradingManager.PriceSnapshot> historyTriggerPrices,
                                        @Nullable TimeInForce timeInForce,
                                        double triggerPrice,
                                        @Nullable Double quantity,
@@ -489,6 +492,7 @@ public class TradingTelemetry {
             this.kind = kind;
             this.direction = direction;
             this.typeOrder = typeOrder;
+            this.historyTriggerPrices = historyTriggerPrices;
             this.timeInForce = timeInForce;
             this.triggerPrice = triggerPrice;
             this.quantity = quantity;
@@ -499,16 +503,17 @@ public class TradingTelemetry {
             this.closeReason = "OPEN";
         }
 
-        private static @NotNull PendingObjectLifecycle fromOrder(@NotNull TradingManager.Order order, long openedAt) {
+        private static @NotNull PendingObjectLifecycle fromOrder(@NotNull TradingManager.OrderSimple orderSimple, long openedAt) {
             return new PendingObjectLifecycle(
-                    order.getUuid(),
+                    orderSimple.getUuid(),
                     PendingObjectKind.ORDER,
-                    order.getDireccion(),
-                    order.getTypeOrder(),
-                    order.getTimeInForce(),
-                    order.getTriggerPrice(),
-                    order.getQuantity(),
-                    order.getLeverage(),
+                    orderSimple.getDireccion(),
+                    orderSimple.getTypeOrder(),
+                    orderSimple.getHistoryTriggerPrices(),
+                    orderSimple.getTimeInForce(),
+                    orderSimple.getTriggerPrice(),
+                    orderSimple.getQuantity(),
+                    orderSimple.getLeverage(),
                     false,
                     openedAt
             );
@@ -520,6 +525,7 @@ public class TradingTelemetry {
                     PendingObjectKind.ORDER_ALGO,
                     orderAlgo.getDireccion(),
                     orderAlgo.getTypeOrder(),
+                    orderAlgo.getHistoryTriggerPrices(),
                     orderAlgo.getTimeInForce(),
                     orderAlgo.getTriggerPrice(),
                     orderAlgo.getQuantity(),
@@ -536,6 +542,7 @@ public class TradingTelemetry {
                     kind,
                     direction,
                     typeOrder,
+                    historyTriggerPrices,
                     timeInForce,
                     triggerPrice,
                     quantity,

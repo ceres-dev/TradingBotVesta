@@ -23,7 +23,9 @@ import org.tensorflow.proto.framework.SavedUserObject;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.common.market.Candle;
 import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TradingTelemetry;
+import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
@@ -436,7 +438,7 @@ public class ChartUtils {
             String title,
             List<Candle> candles,
             Symbol symbol,
-            List<TradingTelemetry.TradeSnapshot> trades
+            @NotNull TradingTelemetry telemetry
     ) {
         if (candles == null || candles.isEmpty()) {
             Vesta.error("No hay velas para mostrar");
@@ -449,11 +451,12 @@ public class ChartUtils {
         List<Candle> sortedCandles = new ArrayList<>(candles);
         sortedCandles.sort(Comparator.comparingLong(Candle::getOpenTime));
 
-        List<TradingTelemetry.TradeSnapshot> sortedTrades = new ArrayList<>();
-        if (trades != null) {
-            sortedTrades.addAll(trades);
-            sortedTrades.sort(Comparator.comparingLong(TradingTelemetry.TradeSnapshot::entryTime));
-        }
+        List<TradingTelemetry.TradeSnapshot> trades = telemetry.getTrades();
+        List<TradingTelemetry.TradeSnapshot> sortedTrades = new ArrayList<>(trades);
+        sortedTrades.sort(Comparator.comparingLong(TradingTelemetry.TradeSnapshot::entryTime));
+        List<TradingTelemetry.PendingObjectSnapshot> pendingObjects = new ArrayList<>(telemetry.getOrders());
+        pendingObjects.addAll(telemetry.getOrderAlgos());
+        pendingObjects.sort(Comparator.comparingLong(TradingTelemetry.PendingObjectSnapshot::openedAt));
 
         DefaultHighLowDataset candleDataset = buildHighLowDataset(sortedCandles, 0, sortedCandles.size() - 1, title);
         JFreeChart chart = ChartFactory.createCandlestickChart(
@@ -473,6 +476,7 @@ public class ChartUtils {
         long chartEndTime = sortedCandles.getLast().getCloseTime();
 
         if (!sortedTrades.isEmpty()) {
+            // Balance
             XYSeriesCollection balanceDataset = buildBalanceDataset(sortedTrades, chartStartTime, chartEndTime);
             NumberAxis balanceAxis = new NumberAxis("Balance %");
             balanceAxis.setAutoRangeIncludesZero(true);
@@ -489,6 +493,7 @@ public class ChartUtils {
             plot.mapDatasetToRangeAxis(1, 1);
             plot.setRenderer(1, balanceRenderer);
 
+            // Trades Lineas de win/loss
             XYSeriesCollection tradePathDataset = buildTradePathDataset(sortedTrades);
             XYLineAndShapeRenderer tradePathRenderer = new XYLineAndShapeRenderer(true, false);
             for (int i = 0; i < sortedTrades.size(); i++) {
@@ -501,6 +506,7 @@ public class ChartUtils {
             plot.setDataset(2, tradePathDataset);
             plot.setRenderer(2, tradePathRenderer);
 
+            // Trades Iconos de entrada y salida
             XYSeriesCollection tradeMarkerDataset = buildTradeMarkerDataset(sortedTrades);
             XYLineAndShapeRenderer tradeMarkerRenderer = new XYLineAndShapeRenderer(false, true);
             tradeMarkerRenderer.setUseOutlinePaint(true);
@@ -517,15 +523,31 @@ public class ChartUtils {
             plot.setRenderer(3, tradeMarkerRenderer);
         }
 
+        XYSeries pendingOrderRangeSeries = null;
+        if (!pendingObjects.isEmpty()) {
+            PendingOrderDataset pendingOrderDataset = buildPendingOrderDataset(pendingObjects, chartEndTime);
+            pendingOrderRangeSeries = pendingOrderDataset.rangeSeries();
+
+            XYLineAndShapeRenderer pendingOrderRenderer = new XYLineAndShapeRenderer(true, false);
+            for (int i = 0; i < pendingOrderDataset.dataset().getSeriesCount(); i++) {
+                PendingOrderSeriesStyle style = pendingOrderDataset.styles().get(i);
+                pendingOrderRenderer.setSeriesPaint(i, getPendingOrderColor(style.typeOrder()));
+                pendingOrderRenderer.setSeriesStroke(i, getPendingOrderStroke(style.kind()));
+            }
+
+            plot.setDataset(4, pendingOrderDataset.dataset());
+            plot.setRenderer(4, pendingOrderRenderer);
+        }
+
         axis.setRange(new Date(chartStartTime), new Date(chartEndTime));
-        applyPriceRange(plot, sortedCandles, null);
+        applyPriceRange(plot, sortedCandles, pendingOrderRangeSeries);
         darkMode(chart);
 
         Iterator<LegendItem> legend = plot.getLegendItems().iterator();
         LegendItemCollection collection = new LegendItemCollection();
         while (legend.hasNext()) {
             LegendItem item = legend.next();
-            if (!item.getLabel().startsWith("Trade ")){
+            if (!item.getLabel().startsWith("Trade ") && !item.getLabel().startsWith("Orden ")){
                 collection.add(item);
             }
         }
@@ -660,7 +682,7 @@ public class ChartUtils {
         double currentBalancePercent = 0D;
         balanceSeries.add(chartStartTime -1, currentBalancePercent);
         for (TradingTelemetry.TradeSnapshot trade : trades) {
-            balanceSeries.add(trade.entryTime(), currentBalancePercent);
+            balanceSeries.addOrUpdate(trade.entryTime(), currentBalancePercent);
             currentBalancePercent = ((trade.balanceAfterClose() / initialBalance) - 1D) * 100D;
             balanceSeries.add(trade.exitTime(), currentBalancePercent);
         }
@@ -709,6 +731,92 @@ public class ChartUtils {
         dataset.addSeries(winningExits);
         dataset.addSeries(losingExits);
         return dataset;
+    }
+
+    private static @NotNull PendingOrderDataset buildPendingOrderDataset(
+            @NotNull List<TradingTelemetry.PendingObjectSnapshot> pendingObjects,
+            long chartEndTime
+    ) {
+        XYSeriesCollection dataset = new XYSeriesCollection();
+        XYSeries rangeSeries = new XYSeries("Rango ordenes", true, true);
+        List<PendingOrderSeriesStyle> styles = new ArrayList<>();
+
+        for (TradingTelemetry.PendingObjectSnapshot pendingObject : pendingObjects) {
+            XYSeries series = buildPendingOrderSeries(pendingObject, chartEndTime);
+            if (series.isEmpty()) {
+                continue;
+            }
+
+            dataset.addSeries(series);
+            styles.add(new PendingOrderSeriesStyle(pendingObject.kind(), pendingObject.typeOrder()));
+
+            List<TradingManager.PriceSnapshot> history = pendingObject.historiesTriggerPrices();
+            if (history.isEmpty()) {
+                rangeSeries.add(pendingObject.openedAt(), pendingObject.triggerPrice());
+            } else {
+                for (TradingManager.PriceSnapshot priceSnapshot : history) {
+                    rangeSeries.add(priceSnapshot.date(), priceSnapshot.price());
+                }
+            }
+        }
+
+        return new PendingOrderDataset(dataset, rangeSeries, styles);
+    }
+
+    private static @NotNull XYSeries buildPendingOrderSeries(
+            @NotNull TradingTelemetry.PendingObjectSnapshot pendingObject,
+            long chartEndTime
+    ) {
+        XYSeries series = new XYSeries("Orden " + pendingObject.kind() + " " + pendingObject.uuid(), true, true);
+
+        List<TradingManager.PriceSnapshot> history = new ArrayList<>(pendingObject.historiesTriggerPrices());
+        history.sort(Comparator.comparingLong(TradingManager.PriceSnapshot::date));
+        if (history.isEmpty()) {
+            history.add(new TradingManager.PriceSnapshot(pendingObject.triggerPrice(), pendingObject.openedAt()));
+        }
+
+        TradingManager.PriceSnapshot firstPoint = history.getFirst();
+        long currentTime = Math.min(firstPoint.date(), pendingObject.openedAt());
+        double currentPrice = firstPoint.price();
+        series.add(currentTime, currentPrice);
+        for (int i = 1; i < history.size(); i++) {
+            TradingManager.PriceSnapshot point = history.get(i);
+            series.add(point.date(), point.price());
+        }
+//        long endTime = pendingObject.closedAt() != null ? pendingObject.closedAt() : chartEndTime;
+//        if (endTime < currentTime) {
+//            endTime = currentTime;
+//        }
+//        series.add(endTime, currentPrice);
+        return series;
+    }
+
+    private static @NotNull Color getPendingOrderColor(@NotNull TypeOrder typeOrder) {
+        return switch (typeOrder) {
+            case STOP, STOP_MARKET -> new Color(244, 69, 92, 200);
+            case TAKE_PROFIT, TAKE_PROFIT_MARKET, TRAILING_STOP_MARKET -> new Color(46, 188, 132, 200);
+            default -> new Color(255, 196, 64, 200);
+        };
+    }
+
+    private static @NotNull Stroke getPendingOrderStroke(@NotNull TradingTelemetry.PendingObjectKind kind) {
+        if (kind == TradingTelemetry.PendingObjectKind.ORDER_ALGO) {
+            return new BasicStroke(2.2f);
+        }
+        return new BasicStroke(2.2f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_BEVEL, 0, new float[]{8.0f, 6.0f}, 0);
+    }
+
+    private record PendingOrderSeriesStyle(
+            @NotNull TradingTelemetry.PendingObjectKind kind,
+            @NotNull TypeOrder typeOrder
+    ) {
+    }
+
+    private record PendingOrderDataset(
+            @NotNull XYSeriesCollection dataset,
+            @NotNull XYSeries rangeSeries,
+            @NotNull List<PendingOrderSeriesStyle> styles
+    ) {
     }
 
     private static void applyPriceRange(

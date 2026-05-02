@@ -120,7 +120,7 @@ public class FastSetupPrediction extends BaseCommand implements Flags {
         double lastClose = candles.getCandle(idx).get(VALUE_SHOW);
         long baseTime = candles.get(idx).getOpenTime();
         for (int k = 0; k < result.size(); k++) {
-            double diff = result.get(k).getClose();
+            double diff = result.get(k).get(0);
             double predictedClose = lastClose * (1.0 + diff);
             lastClose = predictedClose;
 

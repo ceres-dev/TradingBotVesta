@@ -48,14 +48,14 @@ public class TradingManagerBackTest implements TradingManager {
     }
 
     @Override
-    public @NotNull Optional<Order> limit(@NotNull DireccionOperation direccion,
-                                          @NotNull Double trigger,
-                                          @NotNull Double quantity,
-                                          @NotNull Integer leverage,
-                                          @NotNull TypeOrder typeOrder,
-                                          @NotNull TimeInForce timeInForce
+    public @NotNull Optional<OrderSimple> limit(@NotNull DireccionOperation direccion,
+                                                @NotNull Double trigger,
+                                                @NotNull Double quantity,
+                                                @NotNull Integer leverage,
+                                                @NotNull TypeOrder typeOrder,
+                                                @NotNull TimeInForce timeInForce
     ) {
-        Order limit = new BackTestOrder(
+        OrderSimple limit = new BackTestOrderSimple(
                 this, direccion, trigger, quantity, leverage, typeOrder, timeInForce
         );
         pendingOrder.put(limit.getUuid(), limit);
@@ -106,7 +106,7 @@ public class TradingManagerBackTest implements TradingManager {
             return;
         }
         long currentTime = backTestEngine.getCurrentTime();
-        if (removed instanceof Order) {
+        if (removed instanceof OrderSimple) {
             telemetry.recordOrderCancelled(uuid, currentTime);
             return;
         }
@@ -116,7 +116,7 @@ public class TradingManagerBackTest implements TradingManager {
     @Override
     public void cancelAllOrder() {
         List<UUID> uuidsForRemover = pendingOrder.values().stream().filter(order ->
-                order instanceof Order
+                order instanceof OrderSimple
         ).map(order ->
                 (MarketObject<?>) order
         ).map(MarketObject::getUuid).toList();
@@ -183,11 +183,11 @@ public class TradingManagerBackTest implements TradingManager {
         LimitedPosition sourceOrder = openPosition.getOrder();
         if (sourceOrder != null) {
             switch (sourceOrder){
-                case Order order -> {
-                    pendingOrder.remove(order.getUuid());
+                case OrderSimple orderSimple -> {
+                    pendingOrder.remove(orderSimple.getUuid());
                     if (telemetry != null) {
                         telemetry.recordOrderFilled(
-                                order,
+                                orderSimple,
                                 openPosition.getUuid(),
                                 openPosition.getTriggerPrice(),
                                 openPosition.getEntryTime()
@@ -225,11 +225,11 @@ public class TradingManagerBackTest implements TradingManager {
     }
 
     @Override
-    public @NotNull List<Order> getOrder() {
+    public @NotNull List<OrderSimple> getOrder() {
         return pendingOrder.values().stream().filter(order ->
-                order instanceof Order
+                order instanceof OrderSimple
         ).map(order ->
-                (Order) order
+                (OrderSimple) order
         ).toList();
     }
 
@@ -336,26 +336,26 @@ public class TradingManagerBackTest implements TradingManager {
         }
     }
 
-    public static class BackTestOrder extends Order {
+    public static class BackTestOrderSimple extends OrderSimple {
 
-        public BackTestOrder(@NotNull TradingManager tradingManager,
-                             @NotNull DireccionOperation direccion,
-                             @NotNull Double triggerPrice,
-                             @NotNull Double quantity,
-                             @NotNull Integer leverage,
-                             @NotNull TypeOrder typeOrder,
-                             @Nullable TimeInForce timeInForce
+        public BackTestOrderSimple(@NotNull TradingManager tradingManager,
+                                   @NotNull DireccionOperation direccion,
+                                   @NotNull Double triggerPrice,
+                                   @NotNull Double quantity,
+                                   @NotNull Integer leverage,
+                                   @NotNull TypeOrder typeOrder,
+                                   @Nullable TimeInForce timeInForce
         ) {
             super(tradingManager, direccion, triggerPrice, quantity, leverage, typeOrder, timeInForce);
         }
 
-        public BackTestOrder(@NotNull BackTestOrder backTestOrder){
+        public BackTestOrderSimple(@NotNull TradingManagerBackTest.BackTestOrderSimple backTestOrder){
             super(backTestOrder);
         }
 
         @Override
-        public @NotNull Order copy() {
-            return new BackTestOrder(this);
+        public @NotNull TradingManager.OrderSimple copy() {
+            return new BackTestOrderSimple(this);
         }
     }
 

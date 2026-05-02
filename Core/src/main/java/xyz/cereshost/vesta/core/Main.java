@@ -18,6 +18,7 @@ import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
 import xyz.cereshost.vesta.core.packet.PacketHandlerServer;
 import xyz.cereshost.vesta.core.strategy.strategis.AlfaStrategy;
+import xyz.cereshost.vesta.core.strategy.strategis.BetaStrategy;
 import xyz.cereshost.vesta.core.strategy.strategis.DeltaStrategy;
 import xyz.cereshost.vesta.core.trading.TradingTelemetry;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
@@ -48,7 +49,7 @@ public class Main {
 
     public static final ScheduledExecutorService EXECUTOR = Executors.newScheduledThreadPool(8);
 
-    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.SOLUSDC, TimeFrameMarket.FOUR_HOURS);
+    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.SOLUSDC, TimeFrameMarket.FIVE_MINUTE);
     @NotNull public static final List<TypeMarket> SYMBOLS_TRAINING = List.of(TYPE_MARKET);
     public static final int MAX_MONTH_TRAINING = 12*2;
     public static final Gson GSON = new Gson();
@@ -72,7 +73,7 @@ public class Main {
                 market.sortd();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
                 PredictionEngine engine = new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu()));
-                TradingTelemetry telemetry = new BackTestEngine(engine, new DeltaStrategy()).run();
+                TradingTelemetry telemetry = new BackTestEngine(engine, new BetaStrategy()).run();
                 TradingTelemetry.Summary summary = telemetry.getSummary();
                 DecimalFormat decimalFormat = new DecimalFormat("###,###,###,###,##0.00");
                 Vesta.info("");
@@ -80,7 +81,7 @@ public class Main {
                 Vesta.info("  PNL Neto:               %s$%s%s", summary.netPnl() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(summary.netPnl()), "\u001B[0m");
                 Vesta.info("  ROI Total:              %s%s%%%s", summary.totalRoi() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(summary.totalRoi()), "\u001B[0m");
                 Vesta.info("  Rendimiento:            %s%.2f%%%s ", summary.performer() >= 0 ? "\u001B[32m" : "\u001B[31m", summary.performer(), "\u001B[0m");
-                ChartUtils.showCandleChartWithTradeSnapshots("Resultados", telemetry.getMarket().getCandles().stream().toList(), telemetry.getMarket().getSymbol(), telemetry.getTrades());
+                ChartUtils.showCandleChartWithTradeSnapshots("Resultados", telemetry.getMarket().getCandles().stream().toList(), telemetry.getMarket().getSymbol(), telemetry);
 
             }
             case "trading" -> new TradingTickLoop(TYPE_MARKET, null, new AlfaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
@@ -102,7 +103,7 @@ public class Main {
         return Objects.requireNonNull(
                 IOMarket.loadMarket(
                     TYPE_MARKET,
-                    new LoadDataMethodLocalRange(loadTrade, 0, 30)
+                    new LoadDataMethodLocalRange(loadTrade, 0, 60)
                 )
         );
     }
@@ -204,7 +205,7 @@ public class Main {
         double lastClose = candles.getCandle(idx).get(VALUE_SHOW);
         long baseTime = candles.get(idx).getOpenTime();
         for (int k = 0; k < result.size(); k++) {
-            double diff = result.get(k).getClose();
+            double diff = result.get(k).get(0);
             double predictedClose = lastClose * (1.0 + diff);
             lastClose = predictedClose;
 

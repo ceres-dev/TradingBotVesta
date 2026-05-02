@@ -29,7 +29,7 @@ public class AlfaStrategy implements TradingStrategy, TradingStrategyConfigurabl
         if (manager.getOpenPosition().isPresent()) {
             manager.close(TradingManager.ExitReason.STRATEGY);
         }
-        optional.ifPresent(predictedCandles -> manager.open(DireccionOperation.parse(predictedCandles.getLast().getClose()),
+        optional.ifPresent(predictedCandles -> manager.open(DireccionOperation.parse(predictedCandles.getLast().get(0)),
                         manager.getAvailableBalance() / 2,
                         4
                 )

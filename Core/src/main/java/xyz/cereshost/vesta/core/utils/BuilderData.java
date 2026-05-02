@@ -40,8 +40,9 @@ public class BuilderData {
 
     public static final int DEFAULT_FUTURE_WINDOW = 30;
     public static final int TREND_LABEL_WINDOW = 15;
-    public static final int OUTPUTS = 1;
+    public static final int OUTPUTS = 2;
     public static final String TREND_EFFICIENCY_KEY = "trend_er_15";
+    public static final String TREND_ADX_KEY = "trend_adx_15";
 
     public static @NotNull TrainingData buildTrainingData(@NotNull List<TypeMarket> typeMarkets, int maxMonth, int offset, CandlesBuilder candlesBuilder) {
         List<PairCache> cacheEntries = new ArrayList<>();
@@ -96,6 +97,7 @@ public class BuilderData {
                                 return new MonthMarketCache(0, 0, 0, 0, candlesThisMonth, false);
                             }
                             Pair<float[][][], float[][]> pair = BuilderData.buildPair(candlesThisMonth, LOOK_BACK);
+
                             AtomicReference<float[][][]> Xraw = new AtomicReference<>(pair.getKey());
                             AtomicReference<float[][]> yraw = new AtomicReference<>(pair.getValue());
 
@@ -185,7 +187,7 @@ public class BuilderData {
         int yCols = cacheEntries.getFirst().yCols;
 
         long delta = (System.currentTimeMillis() - time);
-        Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", typeMarkets.stream().map(TypeMarket::symbol).map(Symbol::toString).toList()), totalSamples, delta/60_000,((delta/1000)%60));
+        Vesta.info("✅ Construcción completada de %s (S: %d) +T: %dm %ds", String.join(", ", typeMarkets.stream().map(TypeMarket::symbol).map(Symbol::toString).toList()), totalSamples, delta / 60_000, ((delta / 1000) % 60));
 
         System.gc();
         return new TrainingData(cacheEntries.stream().map(PairCache::getCacheFile).toList(), totalSamples, seqLen, features, yCols);
@@ -228,11 +230,16 @@ public class BuilderData {
         int samples = n - lookBack - TREND_LABEL_WINDOW;
 
         if (samples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
+
         int validSamples = 0;
         for (int i = 0; i < samples; i++) {
-            CandleIndicators cOld = candles.getCandle(i);
-            CandleIndicators cNew = candles.getCandle(i + 1);
-            // Aquí va la logica en caso de que se requiera descartar datos
+            if (!hasValidFeatureWindow(candles, i, lookBack)) {
+                continue;
+            }
+            float[] outputs = buildTrendOutputs(candles, i + lookBack, TREND_LABEL_WINDOW);
+            if (outputs.length != OUTPUTS) {
+                continue;
+            }
             validSamples++;
         }
         if (validSamples <= 0) return new Pair<>(new float[0][0][0], new float[0][0]);
@@ -241,20 +248,25 @@ public class BuilderData {
         float[][] y = new float[validSamples][OUTPUTS];
         int idx = 0;
         for (int i = 0; i < samples; i++) {
-            CandleIndicators cOld = candles.getCandle(i);
-            CandleIndicators cNew = candles.getCandle(i + 1);
-            // X
-            for (int j = 0; j < lookBack; j++)
+            if (!hasValidFeatureWindow(candles, i, lookBack)) {
+                continue;
+            }
+
+            float[] outputs = buildTrendOutputs(candles, i + lookBack, TREND_LABEL_WINDOW);
+            if (outputs.length != OUTPUTS) {
+                continue;
+            }
+
+            for (int j = 0; j < lookBack; j++) {
                 X[idx][j] = buildTrendInputs(
                         candles.getCandle(i + j + 1),
                         candles.getCandle(i + j)
                 );
-            // Y
-            double delta = cNew.getDiffPercent()*3;
-            y[idx] = new float[]{Math.clamp((delta > 0) ? (float) Math.log1p(delta) : (float) -Math.log1p(Math.abs(delta)), -1, 1)};
-//            y[idx] = buildTrendOutputs(candles, i + lookBack, TREND_LABEL_WINDOW);
+            }
+            y[idx] = outputs;
             idx++;
         }
+
         return new Pair<>(X, y);
     }
 
@@ -282,12 +294,13 @@ public class BuilderData {
         return f;
     }
 
-    public CandlesBuilder getProfierCandlesBuilder(){
+    public CandlesBuilder getProfierCandlesBuilder() {
         return new CandlesBuilder()
-                .addERIndicator(TREND_EFFICIENCY_KEY, TREND_LABEL_WINDOW);
+                .addERIndicator(TREND_EFFICIENCY_KEY, TREND_LABEL_WINDOW)
+                .addADXIndicator(TREND_ADX_KEY, TREND_LABEL_WINDOW, TREND_LABEL_WINDOW);
     }
 
-    public static double checkDouble(double d) throws IllegalArgumentException{
+    public static double checkDouble(double d) throws IllegalArgumentException {
         if (Double.isInfinite(d) || Double.isNaN(d)) {
             throw new IllegalArgumentException("The input is infinite or NaN");
         }
@@ -304,7 +317,7 @@ public class BuilderData {
     }
 
     public static float safeDiffPercent(double nw, double old) {
-        float v = (float) ((nw - old)/old);
+        float v = (float) ((nw - old) / old);
         return Double.isFinite(v) ? v : 0f;
     }
 
@@ -344,7 +357,8 @@ public class BuilderData {
             return new float[0];
         }
 
-        double anchorClose = candles.getCandle(anchorIndex).getClose();
+        CandleIndicators anchor = candles.getCandle(anchorIndex);
+        double anchorClose = anchor.getClose();
         if (!Double.isFinite(anchorClose) || anchorClose <= 0D) {
             return new float[]{0f, 0f};
         }
@@ -376,12 +390,16 @@ public class BuilderData {
         }
 
         double efficiency = clamp01(Math.abs(previousClose - anchorClose) / pathMovement);
+        double efficiencyIndicator = clamp01(safeDiv(anchor.get(TREND_EFFICIENCY_KEY), 100D));
+        double adxStrength = clamp01((anchor.get(TREND_ADX_KEY) - 15D) / 25D);
         double dominantRatio = Math.max(upMoves, downMoves) / (double) futureWindow;
-        double consistency = clamp01((dominantRatio - 0.55D) / 0.45D);
+        double consistency = clamp01((dominantRatio - 0.70D) / 0.30D);
+        double directionalBias = clamp01((Math.abs(upMoves - downMoves) / (double) futureWindow - 0.20D) / 0.80D);
         double magnitude = 1D - Math.exp(-Math.abs(netChangeRatio) * 60D);
-        float score = clamp01(efficiency * consistency * magnitude);
+        double technicalStrength = clamp01((efficiencyIndicator * 0.65D) + (adxStrength * 0.35D));
+        float score = clamp01(efficiency * consistency * directionalBias * technicalStrength * magnitude);
 
-        if (score < 0.02f) {
+        if (score < 0.03f) {
             return new float[]{0f, 0f};
         }
         if (netChangeRatio > 0D && upMoves > downMoves) {
@@ -399,8 +417,3 @@ public class BuilderData {
         return safeFloat(Math.max(0D, Math.min(1D, value)));
     }
 }
-
-
-
-
-

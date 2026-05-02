@@ -71,12 +71,12 @@ public class TradingManagerBinance implements TradingManager {
     }
 
     @Override
-    public @NotNull Optional<TradingManager.Order> limit(@NotNull DireccionOperation side,
-                                                         @NotNull Double trigger,
-                                                         @NotNull Double quantity,
-                                                         @NotNull Integer leverage,
-                                                         @NotNull TypeOrder typeOrder,
-                                                         @NotNull TimeInForce timeInForce
+    public @NotNull Optional<OrderSimple> limit(@NotNull DireccionOperation side,
+                                                @NotNull Double trigger,
+                                                @NotNull Double quantity,
+                                                @NotNull Integer leverage,
+                                                @NotNull TypeOrder typeOrder,
+                                                @NotNull TimeInForce timeInForce
     ) {
         Symbol symbol = getMarket().getSymbol();
         if (!Double.isFinite(trigger) || trigger <= 0) {
@@ -95,7 +95,7 @@ public class TradingManagerBinance implements TradingManager {
                     false,
                     false
             );
-            BinanceOrder op = new BinanceOrder(
+            BinanceOrderSimple op = new BinanceOrderSimple(
                     this,
                     orderId,
                     side,
@@ -200,7 +200,7 @@ public class TradingManagerBinance implements TradingManager {
 
     public void cancelAllOrder() {
         List<BinanceObject> uuidsForRemover = pendingOrder.values().stream().filter(order ->
-                order instanceof Order
+                order instanceof OrderSimple
         ).map(order ->
                 (BinanceObject) order
         ).toList();
@@ -232,11 +232,11 @@ public class TradingManagerBinance implements TradingManager {
     }
 
     @Override // READ ONLY
-    public @NotNull List<Order> getOrder() {
+    public @NotNull List<OrderSimple> getOrder() {
         return pendingOrder.values().stream().filter(order ->
-                order instanceof Order
+                order instanceof OrderSimple
         ).map(order ->
-                (Order) order
+                (OrderSimple) order
         ).toList();
     }
 
@@ -438,9 +438,9 @@ public class TradingManagerBinance implements TradingManager {
                                     @NotNull Double entryPrice,
                                     @NotNull Double quantity,
                                     @NotNull Integer leverage,
-                                    @Nullable Order order
+                                    @Nullable TradingManager.OrderSimple orderSimple
         ) {
-            super(binance, direccion, entryPrice, quantity, leverage, order);
+            super(binance, direccion, entryPrice, quantity, leverage, orderSimple);
             this.orderId = orderId;
         }
 
@@ -457,23 +457,23 @@ public class TradingManagerBinance implements TradingManager {
 
     @Getter
     @Setter
-    public static class BinanceOrder extends Order implements BinanceObject {
+    public static class BinanceOrderSimple extends OrderSimple implements BinanceObject {
         private @NotNull Long orderId;
 
-        public BinanceOrder(@NotNull TradingManagerBinance tradingManager,
-                            @NotNull Long orderId,
-                            @NotNull DireccionOperation direccion,
-                            @NotNull Double entryPrice,
-                            @NotNull Double quantity,
-                            @NotNull Integer leverage,
-                            @NotNull TypeOrder typeOrder,
-                            @Nullable TimeInForce timeInForce
+        public BinanceOrderSimple(@NotNull TradingManagerBinance tradingManager,
+                                  @NotNull Long orderId,
+                                  @NotNull DireccionOperation direccion,
+                                  @NotNull Double entryPrice,
+                                  @NotNull Double quantity,
+                                  @NotNull Integer leverage,
+                                  @NotNull TypeOrder typeOrder,
+                                  @Nullable TimeInForce timeInForce
         ) {
             super(tradingManager, direccion, entryPrice, quantity, leverage, typeOrder, timeInForce);
             this.orderId = orderId;
         }
 
-        public BinanceOrder(@NotNull BinanceOrder binanceOrder) {
+        public BinanceOrderSimple(@NotNull TradingManagerBinance.BinanceOrderSimple binanceOrder) {
             super(binanceOrder);
             this.orderId = binanceOrder.orderId;
         }
@@ -491,7 +491,7 @@ public class TradingManagerBinance implements TradingManager {
                     true,
                     typeOrder.isAllowClosePosition()
             );
-            this.triggerPrice = triggerPrice;
+            super.setTriggerPrice(triggerPrice);
         }
 
         @Override
@@ -527,8 +527,8 @@ public class TradingManagerBinance implements TradingManager {
         }
 
         @Override
-        public @NotNull Order copy() {
-            return new BinanceOrder(this);
+        public @NotNull TradingManager.OrderSimple copy() {
+            return new BinanceOrderSimple(this);
         }
     }
     @Getter
@@ -568,7 +568,7 @@ public class TradingManagerBinance implements TradingManager {
                     reduceOnly,
                     typeOrder.isAllowClosePosition()
             );
-            this.triggerPrice = triggerPrice;
+            super.setTriggerPrice(triggerPrice);
         }
 
         @Override

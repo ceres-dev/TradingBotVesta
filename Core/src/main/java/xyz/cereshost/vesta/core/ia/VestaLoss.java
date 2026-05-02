@@ -38,20 +38,23 @@ public class VestaLoss extends Loss {
 //        NDList trueParts = yTrue.split(new long[]{1, 2}, 1);
 //        NDList predParts = yPred.split(new long[]{1, 2, 3, 4}, 1);
 
-        NDArray lossCloses = computeError(yTrue.get(":, 0"), yPred.get(":, 0"));
-//        NDArray lossHigh = computeDistance(yTrue.get(":, 1"),yPred.get(":, 1"));
-//        NDArray lossLow = computeDistance(trueParts.get(2), predParts.get(2));
-//        NDArray lossVolumen = computeDistance(trueParts.get(3), predParts.get(3));
-//        NDArray lossMAE = computeDistance(trueParts.get(4), predParts.get(4));
+        NDArray loss0 = computeDistance(yTrue.get(":, 0"), yPred.get(":, 0"));
+        NDArray loss1 = computeDistance(yTrue.get(":, 1"), yPred.get(":, 1"));
+//        NDArray loss2 = computeDistance(yTrue.get(":, 2"), yPred.get(":, 2"));
+//        NDArray loss3 = computeDistance(yTrue.get(":, 3"), yPred.get(":, 3"));
+//        NDArray loss4 = computeDistance(yTrue.get(":, 4"), yPred.get(":, 4"));
+//        NDArray loss5 = computeDistance(yTrue.get(":, 5"), yPred.get(":, 5"));
+//        NDArray loss6 = computeDistance(yTrue.get(":, 6"), yPred.get(":, 6"));
+//        NDArray loss7 = computeDistance(yTrue.get(":, 7"), yPred.get(":, 7"));
 
-        NDArray totalLoss = lossCloses;//.add(lossHigh);//.add(lossLow).add(lossVolumen).add(lossMAE);
+        NDArray totalLoss = loss0.add(loss1);//.add(loss2).add(loss3).add(loss4).add(loss5).add(loss6).add(loss7);
         CompletableFuture<LossReport> request = dataRequest;
         if (request != null && !request.isDone()) {
 
             // Solo aquí pagamos el costo de sincronización GPU -> CPU
             request.complete(new LossReport(
                     totalLoss.getFloat(),
-                    lossCloses.getFloat(),
+                    loss0.getFloat(),
                     0,
                     0,//lossLow.getFloat(),
                     yTrue.mean().getFloat(),
@@ -60,6 +63,10 @@ public class VestaLoss extends Loss {
             dataRequest = null;
         }
         return totalLoss;
+    }
+
+    public NDArray computeDistance(NDArray trueND, NDArray predND) {
+        return trueND.sub(predND).mean().abs();
     }
 
     public NDArray computeError(NDArray trueND, NDArray predND) {
@@ -75,8 +82,8 @@ public class VestaLoss extends Loss {
 
         // Crear factor: 0.5 si mismo signo, 2.0 si signo diferente
         NDArray factor = sameSign.toType(trueND.getDataType(), false)
-                .mul(0.1f) // true -> 0.1
-                .add(sameSign.logicalNot().toType(trueND.getDataType(), false).mul(2.0f)); // false -> 2.0
+                .mul(0.05f) // true -> 0.1
+                .add(sameSign.logicalNot().toType(trueND.getDataType(), false).mul(4.0f)); // false -> 2.0
 
         // Aplicar factor al error
         NDArray weightedError = absError.mul(factor);
