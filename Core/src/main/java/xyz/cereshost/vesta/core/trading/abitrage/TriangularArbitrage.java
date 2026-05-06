@@ -294,7 +294,7 @@ public class TriangularArbitrage {
         for (int i = 0; i < assetsWithoutClosing.size(); i++) {
             rotated.add(assetsWithoutClosing.get((bestIndex + i) % assetsWithoutClosing.size()));
         }
-        rotated.add(rotated.get(0));
+        rotated.add(rotated.getFirst());
         return String.join("->", rotated);
     }
 

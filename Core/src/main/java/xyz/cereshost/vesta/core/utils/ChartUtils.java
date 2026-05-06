@@ -237,7 +237,7 @@ public class ChartUtils {
 
             // Crear dataset de velas
             OHLCDataset dataset = new DefaultHighLowDataset(
-                    symbol, dates, highs, lows, opens, closes, volumes
+                    symbol.name(), dates, highs, lows, opens, closes, volumes
             );
 
             // Crear gráfico de velas
