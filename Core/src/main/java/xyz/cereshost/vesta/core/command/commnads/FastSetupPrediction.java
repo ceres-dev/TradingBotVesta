@@ -63,7 +63,7 @@ public class FastSetupPrediction extends BaseCommand implements Flags {
     public List<Flag> getFlags() {
         return List.of(
                 new Flag("device", TypeValue.STRING, "GPU", "CPU"),
-                new Flag("symbol", TypeValue.STRING, Utils.enumsToStrings(Symbol.values())),
+                new Flag("symbol", TypeValue.STRING, SymbolFutures.values()),
                 new Flag("timeframe", TypeValue.STRING, Utils.enumsToStrings(TimeFrameMarket.values())),
                 new Flag("limitTrade", TypeValue.INTEGER),
                 new Flag("limitCandles", TypeValue.INTEGER),

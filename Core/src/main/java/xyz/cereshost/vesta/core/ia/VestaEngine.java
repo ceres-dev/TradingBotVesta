@@ -104,9 +104,6 @@ public class VestaEngine {
 
             System.gc();
 
-            // Borra por que no se va a usar más
-            Vesta.MARKETS.clear();
-
             model.setBlock(getSequentialBlock());
 
             int maxMonthTraining = Main.MAX_MONTH_TRAINING - 1;

@@ -50,7 +50,7 @@ public class Main {
 
     public static final ScheduledExecutorService EXECUTOR = Executors.newScheduledThreadPool(8);
 
-    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.ETHUSDC, TimeFrameMarket.FIVE_MINUTE);
+    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(SymbolFutures.ETHUSDC, TimeFrameMarket.FIVE_MINUTE);
     @NotNull public static final List<TypeMarket> SYMBOLS_TRAINING = List.of(TYPE_MARKET);
     public static final int MAX_MONTH_TRAINING = 12*2;
     public static final Gson GSON = new Gson();

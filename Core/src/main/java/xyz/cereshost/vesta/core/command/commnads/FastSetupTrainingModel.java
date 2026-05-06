@@ -1,6 +1,7 @@
 package xyz.cereshost.vesta.core.command.commnads;
 
 import xyz.cereshost.vesta.core.market.Symbol;
+import xyz.cereshost.vesta.core.market.SymbolFutures;
 import xyz.cereshost.vesta.core.market.TimeFrameMarket;
 import xyz.cereshost.vesta.core.market.TypeMarket;
 import xyz.cereshost.vesta.core.command.Arguments;
@@ -32,7 +33,7 @@ public class FastSetupTrainingModel extends BaseCommand implements Flags {
     @Override
     public List<Flag> getFlags() {
         return List.of(
-                new Flag("symbol", TypeValue.STRING, Utils.enumsToStrings(Symbol.values())),
+                new Flag("symbol", TypeValue.STRING, Utils.enumsToStrings(SymbolFutures.values())),
                 new Flag("timeframe", TypeValue.STRING)
         );
     }

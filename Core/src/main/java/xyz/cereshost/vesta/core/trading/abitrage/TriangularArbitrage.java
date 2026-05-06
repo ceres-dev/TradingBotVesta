@@ -44,7 +44,6 @@ public class TriangularArbitrage {
                 System.load(absolutePath.toString());
                 return true;
             } catch (UnsatisfiedLinkError ignored) {
-                ignored.printStackTrace();
             }
         }
 
