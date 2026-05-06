@@ -1,22 +1,21 @@
 package xyz.cereshost.vesta.core.trading;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.experimental.Delegate;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.core.market.Market;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.exception.OperationFilled;
 import xyz.cereshost.vesta.core.message.Notifiable;
 import xyz.cereshost.vesta.core.utils.Copyable;
 import xyz.cereshost.vesta.core.utils.Identifiable;
 
 import java.util.*;
-import java.util.function.BiFunction;
 
-import static xyz.cereshost.vesta.core.trading.DireccionOperation.LONG;
+import static xyz.cereshost.vesta.core.market.DireccionOperation.LONG;
 
 public interface TradingManager extends Notifiable {
 

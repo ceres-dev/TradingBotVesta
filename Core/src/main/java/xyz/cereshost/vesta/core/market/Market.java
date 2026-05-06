@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.common.market;
+package xyz.cereshost.vesta.core.market;
 
 import lombok.Getter;
 import org.jetbrains.annotations.Contract;
@@ -6,7 +6,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-import static xyz.cereshost.vesta.common.market.TimeFrameMarket.*;
+import static xyz.cereshost.vesta.core.market.TimeFrameMarket.*;
 
 public class Market {
 
@@ -296,7 +296,7 @@ public class Market {
     }
 
     public double getFeedTaker(){
-        if (symbol.isUSDT()) {
+        if (symbol.isQuoteUSDT()) {
             return 0.0005;
         } else {
             return 0.0004;
@@ -304,7 +304,7 @@ public class Market {
     }
 
     public double getFeedMaker(){
-        if (symbol.isUSDT()) {
+        if (symbol.isQuoteUSDT()) {
             return 0.0002;
         }else {
             return 0;

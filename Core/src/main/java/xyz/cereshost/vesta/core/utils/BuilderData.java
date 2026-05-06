@@ -7,9 +7,9 @@ import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Symbol;
-import xyz.cereshost.vesta.common.market.TypeMarket;
+import xyz.cereshost.vesta.core.market.Market;
+import xyz.cereshost.vesta.core.market.Symbol;
+import xyz.cereshost.vesta.core.market.TypeMarket;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.ia.utils.TrainingData;
 import xyz.cereshost.vesta.core.io.IOMarket;
@@ -40,7 +40,7 @@ public class BuilderData {
 
     public static final int DEFAULT_FUTURE_WINDOW = 30;
     public static final int TREND_LABEL_WINDOW = 15;
-    public static final int OUTPUTS = 2;
+    public static final int OUTPUTS = 1;
     public static final String TREND_EFFICIENCY_KEY = "trend_er_15";
     public static final String TREND_ADX_KEY = "trend_adx_15";
 
@@ -56,7 +56,7 @@ public class BuilderData {
             try {
                 SequenceCandles allCandlesForChart = SequenceCandles.empty();
 
-                Vesta.info("Procesando símbolo (Relativo): " + typeMarket.symbol());
+                progressBar.setLabel("Procesando %s".formatted(symbol.name()));
 
                 // Procesar cada mes por separado SIN acumular
                 List<Integer> months = IntStream.rangeClosed(1, maxMonth)
@@ -80,7 +80,7 @@ public class BuilderData {
                             for (int day = 1; day <= daysInMonth; day++) {
                                 LocalDate date = targetMonth.atDay(day);
                                 int dayIndex = IOMarket.resolveDayIndex(date);
-                                Market market = IOMarket.loadMarket(typeMarket, new LoadDataMethodLocalIndex(false, dayIndex));
+                                Market market = IOMarket.loadMarket(typeMarket, new LoadDataMethodLocalIndex(false, dayIndex), false);
                                 if (market == null) {
                                     Vesta.warning("(idx:%d) Mercado vacio para %s", currentMonth, date);
                                     continue;
@@ -141,7 +141,6 @@ public class BuilderData {
                     try {
                         MonthMarketCache result = futures.get(i).get(); // Bloquea para mantener orden
                         int month = months.get(i);
-
                         if (result.hasData) {
                             if (maxMonth < 6) {
                                 allCandlesForChart.addAll(result.candles);
@@ -236,7 +235,7 @@ public class BuilderData {
             if (!hasValidFeatureWindow(candles, i, lookBack)) {
                 continue;
             }
-            float[] outputs = buildTrendOutputs(candles, i + lookBack, TREND_LABEL_WINDOW);
+            float[] outputs = buildTrendOutputs1(candles, i + lookBack, TREND_LABEL_WINDOW);
             if (outputs.length != OUTPUTS) {
                 continue;
             }
@@ -252,8 +251,9 @@ public class BuilderData {
                 continue;
             }
 
-            float[] outputs = buildTrendOutputs(candles, i + lookBack, TREND_LABEL_WINDOW);
+            float[] outputs = buildTrendOutputs1(candles, i + lookBack, TREND_LABEL_WINDOW);
             if (outputs.length != OUTPUTS) {
+
                 continue;
             }
 
@@ -352,7 +352,21 @@ public class BuilderData {
         return true;
     }
 
-    private static float @NotNull [] buildTrendOutputs(@NotNull SequenceCandles candles, int anchorIndex, int futureWindow) {
+    private static float @NotNull [] buildTrendOutputs1(@NotNull SequenceCandles candles, int anchorIndex, int futureWindow) {
+        if (anchorIndex < 0 || anchorIndex + futureWindow >= candles.size()) {
+            return new float[0];
+        }
+        float[] result = new float[1];
+        double diffTotal = 0;
+        for (int step = 1; step <= futureWindow; step++) {
+            diffTotal += candles.getCandle(anchorIndex + step).getDiffPercent();
+        }
+        result[0] = (float) Math.tanh(diffTotal);
+        return result;
+    }
+
+
+    private static float @NotNull [] buildTrendOutputs0(@NotNull SequenceCandles candles, int anchorIndex, int futureWindow) {
         if (anchorIndex < 0 || anchorIndex + futureWindow >= candles.size()) {
             return new float[0];
         }
@@ -399,7 +413,7 @@ public class BuilderData {
         double technicalStrength = clamp01((efficiencyIndicator * 0.65D) + (adxStrength * 0.35D));
         float score = clamp01(efficiency * consistency * directionalBias * technicalStrength * magnitude);
 
-        if (score < 0.03f) {
+        if (score < 0.00f) {
             return new float[]{0f, 0f};
         }
         if (netChangeRatio > 0D && upMoves > downMoves) {

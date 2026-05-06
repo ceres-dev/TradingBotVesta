@@ -1,7 +1,7 @@
 package xyz.cereshost.vesta.core.strategy;
 
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.common.market.TypeMarket;
+import xyz.cereshost.vesta.core.market.TypeMarket;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.trading.TradingManager;

@@ -6,7 +6,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.experimental.Delegate;
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.market.Candle;
 import xyz.cereshost.vesta.core.utils.ConcurrentHashBiDictionary;
 import xyz.cereshost.vesta.core.utils.BiDictionary;
 

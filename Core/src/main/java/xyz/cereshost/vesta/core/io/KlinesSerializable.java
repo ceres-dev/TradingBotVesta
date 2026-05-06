@@ -1,9 +1,9 @@
 package xyz.cereshost.vesta.core.io;
 
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.common.market.TimeFrameMarket;
-import xyz.cereshost.vesta.common.market.Volumen;
-import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.market.TimeFrameMarket;
+import xyz.cereshost.vesta.core.market.Volumen;
+import xyz.cereshost.vesta.core.market.Candle;
 
 import java.io.*;
 import java.util.Objects;

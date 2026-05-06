@@ -4,7 +4,7 @@
 //import org.jetbrains.annotations.Nullable;
 //import xyz.cereshost.vesta.core.ia.PredictionEngine;
 //import xyz.cereshost.vesta.core.strategy.TradingStrategy;
-//import xyz.cereshost.vesta.core.trading.DireccionOperation;
+//import xyz.cereshost.vesta.core.symbols.DireccionOperation;
 //import xyz.cereshost.vesta.core.trading.TradingManager;
 //import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 //import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;

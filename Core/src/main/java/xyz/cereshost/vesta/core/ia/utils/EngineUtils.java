@@ -1,28 +1,17 @@
 package xyz.cereshost.vesta.core.ia.utils;
 
-import ai.djl.Device;
 import ai.djl.ndarray.NDArray;
 import ai.djl.ndarray.NDArrays;
 import ai.djl.ndarray.NDList;
 import ai.djl.ndarray.NDManager;
-import ai.djl.ndarray.index.NDIndex;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.nn.Block;
 import ai.djl.nn.Parameter;
-import ai.djl.training.Trainer;
-import ai.djl.training.dataset.ArrayDataset;
-import ai.djl.training.dataset.Dataset;
-import ai.djl.translate.TranslateException;
 import ai.djl.util.Pair;
-import lombok.Data;
-import lombok.EqualsAndHashCode;
 import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.core.ia.PredictionEngine;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
 
-import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
 import java.util.List;

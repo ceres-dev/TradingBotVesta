@@ -2,7 +2,7 @@ package xyz.cereshost.vesta.common;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.core.market.Market;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;

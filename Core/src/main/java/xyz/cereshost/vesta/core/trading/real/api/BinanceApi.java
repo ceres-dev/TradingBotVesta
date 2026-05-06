@@ -1,12 +1,14 @@
 package xyz.cereshost.vesta.core.trading.real.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
+import xyz.cereshost.vesta.core.market.Symbol;
 import xyz.cereshost.vesta.core.exception.BinanceCodeException;
+import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.message.Notifiable;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 
@@ -21,21 +23,21 @@ import java.util.function.Consumer;
 public interface BinanceApi extends Notifiable {
 
     Long placeAlgoOrder(@NotNull Symbol symbol,
-                        @NotNull DireccionOperation side,
-                        @NotNull TypeOrder type,
-                        @Nullable TimeInForce timeInForce,
-                        @Nullable Double quantityLeverageCoin,
-                        @NotNull Double trigger,
-                        @NotNull Boolean reduceOnly,
-                        @NotNull Boolean closePosition
+                              @NotNull DireccionOperation side,
+                              @NotNull TypeOrder type,
+                              @Nullable TimeInForce timeInForce,
+                              @Nullable Double quantityLeverageCoin,
+                              @NotNull Double trigger,
+                              @NotNull Boolean reduceOnly,
+                              @NotNull Boolean closePosition
     );
 
     default Long placeAlgoOrder(@NotNull Symbol symbol,
-                                @NotNull DireccionOperation side,
-                                @NotNull TypeOrder type,
-                                @Nullable TimeInForce timeInForce,
-                                @Nullable Double quantityLeverageCoin,
-                                @NotNull Double trigger
+                                      @NotNull DireccionOperation side,
+                                      @NotNull TypeOrder type,
+                                      @Nullable TimeInForce timeInForce,
+                                      @Nullable Double quantityLeverageCoin,
+                                      @NotNull Double trigger
     ){
         return placeAlgoOrder(symbol, side, type, timeInForce, quantityLeverageCoin, trigger, true, type.isAllowClosePosition());
     }
@@ -62,25 +64,38 @@ public interface BinanceApi extends Notifiable {
 
     void cancelOrder(@NotNull Symbol symbol, @NotNull Long orderId, @NotNull Boolean isAlgoOrder);
 
-    void closeAll(Symbol symbol);
+    void closeAll(@NotNull Symbol symbol);
 
-    List<OrderData> getAllOrders(Symbol symbol);
+    void changeLeverage(@NotNull Symbol symbol, @NotNull Integer leverage);
 
-    @Nullable PositionData getPosition(Symbol symbol);
+    void invalidedCache();
 
-    void changeLeverage(Symbol symbol, int leverage);
+    @NotNull List<OrderData> getAllOrdersFuture(@NotNull Symbol symbol);
 
-    double getTickerPrice(Symbol symbol);
+    @Nullable PositionData getPosition(@NotNull Symbol symbol);
 
-    double getBalance(Symbol symbol);
+    @NotNull Double getTickerPrice(@NotNull Symbol symbol);
+
+    @Contract(value = "null, null -> fail; null, !null -> _; !null, null -> _; !null, !null -> _")
+    @NotNull Map<String, BookTicker> getBookTickers(@Nullable Symbol symbol, @Nullable Boolean isFuture);
+
+    @NotNull ExchangeInfo getExchangeInfo(@NotNull Boolean isFuture);
+
+    @NotNull SymbolConfigurable getSymbolConfigured(@NotNull String symbol, @NotNull Boolean shouldFuture);
+
+    @NotNull Double getBalance(@NotNull Symbol symbol);
+
+
+
+    @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
+
+    @NotNull JsonNode sendRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
+
+    @NotNull JsonNode sendPublicRequest(@NotNull String method, @NotNull String endpoint, @NotNull TreeMap<String, String> params);
 
     void checkRepose(Symbol symbol, JsonNode node, String method, String endpoint) throws BinanceCodeException;
 
     void setExceptionHandler(Consumer<Exception> consumer);
-
-    @NotNull JsonNode sendSignedRequest(String method, String endpoint, TreeMap<String, String> params);
-
-    @NotNull JsonNode sendRequest(String method, String endpoint, TreeMap<String, String> params);
 
     default String buildQueryString(@NotNull TreeMap<String, String> params) {
         StringJoiner sj = new StringJoiner("&");
@@ -102,26 +117,6 @@ public interface BinanceApi extends Notifiable {
         return hex.toString();
     }
 
-    default String formatQuantity(@NotNull String symbol, @NotNull Double qty) {
-        if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.3f", qty);
-        if (symbol.startsWith("ETH")) return String.format(Locale.US, "%.2f", qty);
-        if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.1f", qty);
-        if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", qty);
-        if (symbol.startsWith("XAU")) return String.format(Locale.US, "%.3f", qty);
-
-
-        return String.format(Locale.US, "%.0f", qty); // Default int
-    }
-
-    default String formatPrice(@NotNull String symbol, @NotNull Double price) {
-        if (symbol.startsWith("BTC")) return String.format(Locale.US, "%.1f", price);
-        if (symbol.startsWith("XRP")) return String.format(Locale.US, "%.4f", price);
-        if (symbol.startsWith("SOL")) return String.format(Locale.US, "%.2f", price);
-        if (symbol.startsWith("XAU")) return String.format(Locale.US, "%.2f", price);
-
-        return String.format(Locale.US, "%.2f", price);
-    }
-
     record OrderData(
             long orderID,
             Double price,
@@ -138,6 +133,18 @@ public interface BinanceApi extends Notifiable {
             Double margen,
             Integer leverage,
             DireccionOperation direccionOperation
+    ){}
+
+    record BookTicker(
+            String symbol,
+            Double bidPrice,
+            Double bidQty,
+            Double askPrice,
+            Double askQty
+    ){}
+
+    record ExchangeInfo(
+            Set<SymbolConfigurable> symbols
     ){}
 
 }

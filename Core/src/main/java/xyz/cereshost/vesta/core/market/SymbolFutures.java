@@ -1,6 +1,9 @@
-package xyz.cereshost.vesta.common.market;
+package xyz.cereshost.vesta.core.market;
 
-public enum Symbol {
+import lombok.experimental.Delegate;
+
+// Todos los symbolos de futuros
+public enum SymbolFutures implements Symbol {
     A2ZUSDT,
     AAVEUSDC,
     AAVEUSDT,
@@ -800,27 +803,9 @@ public enum Symbol {
     我踏马来了USDT,
     龙虾USDT;
 
+    @Delegate
+    private final SymbolConfigurable symbolConfigurable = new SymbolConfigurable(name(), true);
 
-    public boolean isUSDT(){
-        return this.name().endsWith("USDT");
-    }
 
-    public boolean isUSDC(){
-        return this.name().endsWith("USDC");
-    }
 
-    public String getQuoteAsset(){
-        if (isUSDT()){
-            return "USDT";
-        }
-        if (isUSDC()){
-            return "USDC";
-        }
-        return "null";
-    }
-
-    public boolean isTradFi(){
-        // TODO: expandir esta lista
-        return this == XAUUSDT || this == XAGUSDT || this == AMZNUSDT;
-    }
 }

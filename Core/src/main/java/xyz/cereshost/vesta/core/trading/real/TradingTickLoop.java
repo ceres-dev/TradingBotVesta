@@ -6,11 +6,11 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.core.exception.BinanceCodeWeakException;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodBinance;
+import xyz.cereshost.vesta.core.market.*;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.message.Notifiable;
 import xyz.cereshost.vesta.core.strategy.StrategyConfig;
@@ -74,6 +74,7 @@ public final class TradingTickLoop implements Notifiable {
         this.engine = engine;
         this.strategy = tradingStrategy;
         this.mediaNotification = Objects.requireNonNullElse(mediaNotification, MediaNotification.empty());
+        typeMarket.symbol().configure(binanceApi);
         try {
             binanceApi.setExceptionHandler(this::stop);
             binanceApi.setMediaNotification(this.mediaNotification);

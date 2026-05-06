@@ -10,14 +10,15 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.*;
+import xyz.cereshost.vesta.core.*;
 import xyz.cereshost.vesta.common.packet.Utils;
-import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.VestaEngine;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodBinance;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocal;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalIndex;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
+import xyz.cereshost.vesta.core.market.*;
+import xyz.cereshost.vesta.core.utils.ProgressBar;
 
 import java.io.*;
 import java.net.URI;
@@ -58,7 +59,7 @@ public class IOMarket {
         // Cargar desde el día más antiguo al más reciente para mantener orden temporal.
         for (int dayIndex = normalizedDays; dayIndex >= DEFAULT_LOOKBACK_DAY_INDEX; dayIndex--) {
             Market dayMarket;
-            dayMarket = loadMarket(typeMarket, new LoadDataMethodLocalIndex(loadTrades, dayIndex));
+            dayMarket = loadMarket(typeMarket, new LoadDataMethodLocalIndex(loadTrades, dayIndex), false);
             if (dayMarket == null) {
                 continue;
             }
@@ -78,11 +79,12 @@ public class IOMarket {
         return loadMarketsBinance(type, loadDataSetup.getLimitCandle(), loadDataSetup.getLimitTrade(), loadDataSetup.getLimitDepth());
     }
 
-    public static Market loadMarket(@NotNull TypeMarket type, @NotNull LoadDataMethodLocal loadDataSetup){
+    public static Market loadMarket(@NotNull TypeMarket type, @NotNull LoadDataMethodLocal loadDataSetup, boolean useProgressBar){
         switch (loadDataSetup){
             case LoadDataMethodLocalRange setupLocal -> {
                 List<CompletableFuture<Market>> task = new ArrayList<>();
                 Market market = new Market(type);
+                ProgressBar progressBar = new ProgressBar(Math.abs(setupLocal.getStartDay() - setupLocal.getEndDay()) + 1);
                 for (int i = setupLocal.getEndDay(); i >= setupLocal.getStartDay(); i--) {
                     int index = i;
                     task.add(CompletableFuture.supplyAsync(() ->
@@ -94,6 +96,10 @@ public class IOMarket {
                     try {
                         Market m = future.get();
                         if (m == null) continue;
+                        if (useProgressBar) {
+                            progressBar.increaseValue();
+                            progressBar.printAsync();
+                        }
                         market.concat(m);
                     }catch (InterruptedException | ExecutionException e){
                         Vesta.sendWaringException("error al obtener los datos en el loop", e);
@@ -192,7 +198,6 @@ public class IOMarket {
         int targetDay = targetDate.getDayOfMonth();
 
         try {
-            long timeTotal = System.currentTimeMillis();
 //            Vesta.info("%d/%02d/%02d (idx=%d) 💾 Leyendo zst local de klines", targetYear, targetMonth, targetDay, normalizedDayIndex);
             File klineFile = ensureFileCached(typeMarket, TypeData.KLINES, targetDate);
             Deque<Candle> candles = parseKlinesFromFile(klineFile);

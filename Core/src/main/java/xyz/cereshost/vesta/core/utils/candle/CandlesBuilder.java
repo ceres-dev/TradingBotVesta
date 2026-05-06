@@ -19,10 +19,10 @@ import org.ta4j.core.indicators.volume.VWAPIndicator;
 import org.ta4j.core.num.DecimalNum;
 import org.ta4j.core.num.Num;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.common.market.Depth;
-import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Metric;
+import xyz.cereshost.vesta.core.market.Candle;
+import xyz.cereshost.vesta.core.market.Depth;
+import xyz.cereshost.vesta.core.market.Market;
+import xyz.cereshost.vesta.core.market.Metric;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ConcurrentHashBiDictionary;
 import xyz.cereshost.vesta.core.utils.ProgressBar;
@@ -220,7 +220,7 @@ public class CandlesBuilder {
 
         List<SequenceCandles.CandleContainer> candles = new ArrayList<>();
         int index = 0;
-        ProgressBar progressBar = new ProgressBar((int) ((endMinute - startMinute) / step));
+        ProgressBar progressBar = new ProgressBar((int) ((endMinute - startMinute) / step) + 1);
         // Crear una vez la instancia de los indicadores técnicos
         Map<String, Indicator<Num>> indicatorsInstanced = new HashMap<>();
         synchronized (indicators) {

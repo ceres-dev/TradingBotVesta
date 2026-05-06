@@ -6,7 +6,6 @@ import com.google.gson.Gson;
 import lombok.Getter;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.*;
 import xyz.cereshost.vesta.core.command.HanderCommand;
 import xyz.cereshost.vesta.core.command.commnads.*;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
@@ -15,14 +14,16 @@ import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.IOdata;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
+import xyz.cereshost.vesta.core.market.*;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
 import xyz.cereshost.vesta.core.packet.PacketHandlerServer;
 import xyz.cereshost.vesta.core.strategy.strategis.AlfaStrategy;
 import xyz.cereshost.vesta.core.strategy.strategis.BetaStrategy;
-import xyz.cereshost.vesta.core.strategy.strategis.DeltaStrategy;
 import xyz.cereshost.vesta.core.trading.TradingTelemetry;
+import xyz.cereshost.vesta.core.trading.abitrage.TriangularArbitrage;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
@@ -49,7 +50,7 @@ public class Main {
 
     public static final ScheduledExecutorService EXECUTOR = Executors.newScheduledThreadPool(8);
 
-    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.SOLUSDC, TimeFrameMarket.FIVE_MINUTE);
+    @NotNull public static final TypeMarket TYPE_MARKET = new TypeMarket(Symbol.ETHUSDC, TimeFrameMarket.FIVE_MINUTE);
     @NotNull public static final List<TypeMarket> SYMBOLS_TRAINING = List.of(TYPE_MARKET);
     public static final int MAX_MONTH_TRAINING = 12*2;
     public static final Gson GSON = new Gson();
@@ -68,15 +69,14 @@ public class Main {
         switch (args[0]) {
 //            case "backtest" -> showDataBackTest(new BackTestEngine(IOMarket.loadMarkets(DATA_SOURCE_FOR_BACK_TEST, SYMBOL).limit(3), PredictionEngine.loadPredictionEngine("VestaIA"), new AlfaStrategy()).run());
             case "backtest" -> {
-                Market market = getMarket(true);
                 Vesta.info("🔙 Ejecutando backtest...");
-                market.sortd();
                 Pair<XNormalizer, YNormalizer> pair = IOdata.loadNormalizers();
                 PredictionEngine engine = new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu()));
                 TradingTelemetry telemetry = new BackTestEngine(engine, new BetaStrategy()).run();
                 TradingTelemetry.Summary summary = telemetry.getSummary();
                 DecimalFormat decimalFormat = new DecimalFormat("###,###,###,###,##0.00");
-                Vesta.info("");
+
+                Vesta.info("  Side Rate (L/S):        %.2f/%.2f", telemetry.getRatioLong(), telemetry.getRatioShort());
                 Vesta.info("  Trades:                 %d", telemetry.getTrades().size());
                 Vesta.info("  PNL Neto:               %s$%s%s", summary.netPnl() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(summary.netPnl()), "\u001B[0m");
                 Vesta.info("  ROI Total:              %s%s%%%s", summary.totalRoi() >= 0 ? "\u001B[32m" : "\u001B[31m", decimalFormat.format(summary.totalRoi()), "\u001B[0m");
@@ -96,6 +96,39 @@ public class Main {
                     showPredictionSnapshot(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu())), i, 20);
                 }
             }
+            case "arbitrageTriangular" -> {
+                BinanceApi api = new BinanceApiRest(true);
+                TriangularArbitrage triangularArbitrage = new TriangularArbitrage(api);
+
+                while (true){
+                    long time = System.currentTimeMillis();
+                    List<TriangularArbitrage.TriangularArbitrageOpportunity> opportunities = triangularArbitrage.findTriangularArbitrageOpportunities();
+                    if (opportunities.isEmpty()) {
+                        Vesta.warning("No se detectaron ciclos negativos triangulares con los precios actuales.");
+                        continue;
+                    }
+
+                    Vesta.info("Arbitrajes triangulares detectados: %d", opportunities.size());
+                    for (int i = 0; i < opportunities.size(); i++) {
+                        TriangularArbitrage.TriangularArbitrageOpportunity opportunity = opportunities.get(i);
+                        Vesta.info("[%d] Ciclo %s | retorno bruto %.6f | profit %.4f%% | peso %.8f",
+                                i + 1,
+                                String.join(" -> ", opportunity.assetsCycle()),
+                                opportunity.rateProduct(),
+                                opportunity.profitPercent(),
+                                opportunity.totalWeight());
+                        for (TriangularArbitrage.ArbitrageEdge edge : opportunity.edges()) {
+                            Vesta.info("    %s %s via %s @ %.10f -> rate %.10f",
+                                    edge.action(),
+                                    edge.fromAsset() + "/" + edge.toAsset(),
+                                    edge.symbol(),
+                                    edge.referencePrice(),
+                                    edge.rate());
+                        }
+                    }
+                    Vesta.info("Tiempo %.2f", (double)(System.currentTimeMillis() - time)/1000);
+                }
+            }
         }
     }
 
@@ -103,7 +136,8 @@ public class Main {
         return Objects.requireNonNull(
                 IOMarket.loadMarket(
                     TYPE_MARKET,
-                    new LoadDataMethodLocalRange(loadTrade, 0, 60)
+                    new LoadDataMethodLocalRange(loadTrade, 0, 60),
+                        false
                 )
         );
     }

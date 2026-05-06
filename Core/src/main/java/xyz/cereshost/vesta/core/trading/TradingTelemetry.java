@@ -4,7 +4,8 @@ import lombok.Getter;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.market.Market;
+import xyz.cereshost.vesta.core.market.Market;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 
 import java.util.*;
@@ -272,6 +273,18 @@ public class TradingTelemetry {
 
     public @NotNull List<PendingObjectSnapshot> getStopLossLevels() {
         return getOrderAlgos().stream().filter(PendingObjectSnapshot::stopLoss).toList();
+    }
+
+    public @NotNull Double getRatioLong(){
+        int total = trades.size();
+        List<TradeSnapshot> tradesLong = trades.stream().filter(tradeSnapshot -> tradeSnapshot.direction.isLong()).toList();
+        return ((double) tradesLong.size() / (double) total)*100d;
+    }
+
+    public @NotNull Double getRatioShort(){
+        int total = trades.size();
+        List<TradeSnapshot> tradesLong = trades.stream().filter(tradeSnapshot -> tradeSnapshot.direction.isShort()).toList();
+        return ((double) tradesLong.size() / (double) total)*100d;
     }
 
     private void closeLifecycle(@Nullable PendingObjectLifecycle lifecycle,

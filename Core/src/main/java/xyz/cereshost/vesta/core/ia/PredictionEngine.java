@@ -15,7 +15,7 @@ import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
 import xyz.cereshost.vesta.core.ia.utils.XNormalizer;
 import xyz.cereshost.vesta.core.ia.utils.YNormalizer;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 

@@ -19,10 +19,9 @@ import org.jfree.data.xy.DefaultHighLowDataset;
 import org.jfree.data.xy.OHLCDataset;
 import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
-import org.tensorflow.proto.framework.SavedUserObject;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.Candle;
-import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.core.market.Candle;
+import xyz.cereshost.vesta.core.market.Symbol;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TradingTelemetry;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
@@ -94,6 +93,7 @@ public class ChartUtils {
         
         ChartFrame frame = new ChartFrame(title, chart);
         darkMode(chart);
+        frame.getChartPanel().setMouseWheelEnabled(true);
         frame.pack();
         frame.setVisible(true);
 
@@ -780,8 +780,10 @@ public class ChartUtils {
         double currentPrice = firstPoint.price();
         series.add(currentTime, currentPrice);
         for (int i = 1; i < history.size(); i++) {
-            TradingManager.PriceSnapshot point = history.get(i);
-            series.add(point.date(), point.price());
+            TradingManager.PriceSnapshot pointCurrent = history.get(i);
+            series.add(pointCurrent.date(), pointCurrent.price());
+            TradingManager.PriceSnapshot pointPrev = history.get(i-1);
+            series.add(pointCurrent.date()-1, pointPrev.price());
         }
 //        long endTime = pendingObject.closedAt() != null ? pendingObject.closedAt() : chartEndTime;
 //        if (endTime < currentTime) {

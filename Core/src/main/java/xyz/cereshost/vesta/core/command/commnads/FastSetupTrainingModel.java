@@ -1,8 +1,8 @@
 package xyz.cereshost.vesta.core.command.commnads;
 
-import xyz.cereshost.vesta.common.market.Symbol;
-import xyz.cereshost.vesta.common.market.TimeFrameMarket;
-import xyz.cereshost.vesta.common.market.TypeMarket;
+import xyz.cereshost.vesta.core.market.Symbol;
+import xyz.cereshost.vesta.core.market.TimeFrameMarket;
+import xyz.cereshost.vesta.core.market.TypeMarket;
 import xyz.cereshost.vesta.core.command.Arguments;
 import xyz.cereshost.vesta.core.command.BaseCommand;
 import xyz.cereshost.vesta.core.command.Flags;

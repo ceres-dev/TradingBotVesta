@@ -5,8 +5,9 @@ import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
-import xyz.cereshost.vesta.common.market.Market;
-import xyz.cereshost.vesta.common.market.Symbol;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
+import xyz.cereshost.vesta.core.market.Market;
+import xyz.cereshost.vesta.core.market.Symbol;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.trading.*;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
@@ -310,12 +311,12 @@ public class TradingManagerBinance implements TradingManager {
     }
 
     public synchronized void sync(){
-        List<BinanceApi.OrderData> orders = binanceApi.getAllOrders(market.getSymbol());
+        List<BinanceApi.OrderData> orders = binanceApi.getAllOrdersFuture(market.getSymbol());
         BinanceApi.PositionData position = binanceApi.getPosition(market.getSymbol());
 //        if (position == null){
 //            for (BinanceApi.OrderData order : orders) {
 //                if (order.type().isExit()){
-//                    binanceApi.cancelOrder(market.getSymbol(), order.orderID(), order.isAlgoOrder());
+//                    binanceApi.cancelOrder(symbols.getSymbol(), order.orderID(), order.isAlgoOrder());
 //                }
 //            }
 //            openOperation = null;

@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.common.market;
+package xyz.cereshost.vesta.core.market;
 
 import org.jetbrains.annotations.NotNull;
 

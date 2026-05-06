@@ -1,14 +1,5 @@
 package xyz.cereshost.vesta.core.strategy.strategis;
 
-import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.core.ia.PredictionEngine;
-import xyz.cereshost.vesta.core.strategy.TradingStrategy;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
-import xyz.cereshost.vesta.core.trading.TradingManager;
-import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
-
-import java.util.Optional;
-
 /**
  * Estrategia por defecto: Usa tal cual la predicción de la IA.
  */

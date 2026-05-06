@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.common.market;
+package xyz.cereshost.vesta.core.market;
 
 public record Volumen(double quoteVolume,
                       double baseVolume,

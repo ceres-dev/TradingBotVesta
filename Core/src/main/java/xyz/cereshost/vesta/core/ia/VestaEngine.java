@@ -10,7 +10,6 @@ import ai.djl.ndarray.NDManager;
 import ai.djl.ndarray.types.Shape;
 import ai.djl.nn.*;
 import ai.djl.nn.core.Linear;
-import ai.djl.nn.recurrent.LSTM;
 import ai.djl.pytorch.engine.PtModel;
 import ai.djl.pytorch.engine.PtNDManager;
 import ai.djl.pytorch.jni.JniUtils;
@@ -29,13 +28,11 @@ import ai.djl.util.Pair;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.common.market.TypeMarket;
+import xyz.cereshost.vesta.core.market.TypeMarket;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.ia.blocks.TemporalTransformerBlock;
-import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.io.IOdata;
-import xyz.cereshost.vesta.core.ia.metrics.MAEEvaluator;
 import xyz.cereshost.vesta.core.ia.metrics.MetricsListener;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.ia.utils.EngineUtils;
@@ -47,7 +44,7 @@ import java.util.concurrent.*;
 
 public class VestaEngine {
 
-    public static final int LOOK_BACK = 60;
+    public static final int LOOK_BACK = 90;
     public static final int SHORT_LOOK_BACK = 5;
     public static final int AUXILIAR_EPOCH = 1;
     public static final int BACH_SIZE = 4;
@@ -122,8 +119,8 @@ public class VestaEngine {
             TrainingConfig config = new DefaultTrainingConfig(new VestaLoss())
                     .optOptimizer(Optimizer.adamW()
                             .optLearningRateTracker(Tracker.cosine()
-                                    .setBaseValue( .000_001f)
-                                    .optFinalValue(.000_000_02f)
+                                    .setBaseValue( .000_000_8f)
+                                    .optFinalValue(.000_000_2f)
                                     .setMaxUpdates(70_000)
                                     .build())
                             .optWeightDecays(0)
@@ -226,13 +223,13 @@ public class VestaEngine {
 //                    data.getLookback(),
 //                    data.getFeatures()
 //            );
-//            Market market = new Market(symbols.getFirst());
+//            Market symbols = new Market(symbols.getFirst());
 //            for (int day = 12; day >= 1; day--) {
-//                market.concat(IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_BACK_TEST, symbols.getFirst(), day));
+//                symbols.concat(IOMarket.loadMarkets(Main.DATA_SOURCE_FOR_BACK_TEST, symbols.getFirst(), day));
 //            }
 //
 //            BackTestEngine.BackTestResult simResult;
-//            simResult = new BackTestEngine(market, predEngine).run();
+//            simResult = new BackTestEngine(symbols, predEngine).run();
 //            manager.close();
 //            return new TrainingTestsResults(evaluate, simResult);
         }
@@ -244,16 +241,16 @@ public class VestaEngine {
         TTLHeader(mainBlock);
         mainBlock.add(Linear.builder().setUnits(1024*2).build());
 
-        ParallelBlock branches = new ParallelBlock(list -> {
-            NDArray out0 = list.get(0).singletonOrThrow();
-            NDArray out1 = list.get(1).singletonOrThrow();
-            return new NDList(
-                    NDArrays.concat(new NDList(out0, out1), 1)
-            );
-        });
-
-        branches.add(getMagnitud());   // output 0
-        branches.add(getMagnitud());   // output 1
+//        ParallelBlock branches = new ParallelBlock(list -> {
+//            NDArray out0 = list.get(0).singletonOrThrow();
+//            NDArray out1 = list.get(1).singletonOrThrow();
+//            return new NDList(
+//                    NDArrays.concat(new NDList(out0, out1), 1)
+//            );
+//        });
+//
+//        branches.add(getMagnitud());   // output 0
+//        branches.add(getMagnitud());   // output 1
 //        branches.add(getMagnitud());   // output 2
 //        branches.add(getMagnitud());   // output 3
 //        branches.add(getMagnitud());   // output 4
@@ -261,7 +258,7 @@ public class VestaEngine {
 //        branches.add(getMagnitud());   // output 6
 //        branches.add(getMagnitud());   // output 7
 
-        mainBlock.add(branches);
+        mainBlock.add(getMagnitud());
         return mainBlock;
     }
 
@@ -286,10 +283,10 @@ public class VestaEngine {
 //                .add(Linear.builder().setUnits(32).build());
 
         return new SequentialBlock()
-                .add(Linear.builder().setUnits(64).build())
-                .add(Linear.builder().setUnits(64).build())
-                .add(Linear.builder().setUnits(64).build())
-                .add(Linear.builder().setUnits(64).build())
+                .add(Linear.builder().setUnits(1024*2).build())
+                .add(Linear.builder().setUnits(1024*2).build())
+                .add(Linear.builder().setUnits(1024*2).build())
+                .add(Linear.builder().setUnits(1024*2).build())
                 .add(Linear.builder().setUnits(1).build());
     }
 
@@ -327,7 +324,7 @@ public class VestaEngine {
         block.add(TemporalTransformerBlock.builder()
                         .setModelDim(2*64)
                         .setNumHeads(2)
-                        .setFeedForwardDim(1024)
+                        .setFeedForwardDim(1024*2)
                         .setDropoutRate(.04f)
                         .setAttentionProbsDropoutProb(.04f)
                         .setMaxSequenceLength(VestaEngine.SHORT_LOOK_BACK)
@@ -349,9 +346,9 @@ public class VestaEngine {
     private static SequentialBlock buildLSTMSummaryBlock() {
         SequentialBlock block = new SequentialBlock();
         block.add(TemporalTransformerBlock.builder()
-                        .setModelDim(8*128)
+                        .setModelDim(8*96)
                         .setNumHeads(8)
-                        .setFeedForwardDim(1024)
+                        .setFeedForwardDim(1024*2)
                         .setDropoutRate(.04f)
                         .setAttentionProbsDropoutProb(.04f)
                         .setMaxSequenceLength(VestaEngine.LOOK_BACK)

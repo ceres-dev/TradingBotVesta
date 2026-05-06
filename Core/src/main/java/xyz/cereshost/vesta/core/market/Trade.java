@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.common.market;
+package xyz.cereshost.vesta.core.market;
 
 public record Trade(long time, float price, float qty, boolean isBuyerMaker) {
 

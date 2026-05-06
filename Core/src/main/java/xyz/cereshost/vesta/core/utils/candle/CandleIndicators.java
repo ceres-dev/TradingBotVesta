@@ -4,7 +4,7 @@ import lombok.AccessLevel;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
-import xyz.cereshost.vesta.common.market.Candle;
+import xyz.cereshost.vesta.core.market.Candle;
 
 import java.util.HashMap;
 

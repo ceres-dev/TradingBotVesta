@@ -5,6 +5,7 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import org.checkerframework.checker.units.qual.A;
+import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.Main;
 
 import java.util.concurrent.ExecutorService;
@@ -19,6 +20,9 @@ public class ProgressBar {
     private final int finalValue;
     private int currentValue;
 
+    @Setter
+    private @Nullable String label;
+
     public synchronized void addValue(int value) {
         this.currentValue += value;
     }
@@ -27,14 +31,17 @@ public class ProgressBar {
         this.currentValue++;
     }
 
+
     public synchronized void print(){
         float progress = (float) currentValue / (float) finalValue;
-        System.out.print(String.format("\r[%s] %.3f%% %,d/%,d            ",
+        System.out.printf("\r[%s] %.3f%% %,d/%,d %s",
                 "#".repeat((int) (progress * 100)) + " ".repeat((int) (Math.abs(progress - 1) * 100)),
                 progress*100,
                 currentValue,
-                finalValue
-        ));
+                finalValue,
+                label == null ? "" : label
+        );
+        if (progress >= 1) System.out.println();
     }
 
     public void printAsync(){

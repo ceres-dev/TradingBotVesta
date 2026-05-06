@@ -1,4 +1,4 @@
-package xyz.cereshost.vesta.core.trading;
+package xyz.cereshost.vesta.core.market;
 
 import lombok.Getter;
 import org.jetbrains.annotations.Contract;

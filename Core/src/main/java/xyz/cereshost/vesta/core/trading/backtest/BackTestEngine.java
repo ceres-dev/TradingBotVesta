@@ -3,13 +3,15 @@ package xyz.cereshost.vesta.core.trading.backtest;
 import lombok.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import xyz.cereshost.vesta.common.market.*;
+import xyz.cereshost.vesta.core.market.Candle;
+import xyz.cereshost.vesta.core.market.Market;
+import xyz.cereshost.vesta.core.market.Trade;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.io.IOMarket;
 import xyz.cereshost.vesta.core.io.setup.LoadDataMethodLocalRange;
 import xyz.cereshost.vesta.core.strategy.*;
 import xyz.cereshost.vesta.core.strategy.candles.ExecutorCandles;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TradingTelemetry;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
@@ -34,7 +36,7 @@ public class BackTestEngine {
     public BackTestEngine(int to, int from, @Nullable PredictionEngine engine, @NotNull TradingStrategy strategy) {
         this.marketMaster = IOMarket.loadMarket(
                 strategy.getMarketMaster(),
-                new LoadDataMethodLocalRange(true, to, from)
+                new LoadDataMethodLocalRange(true, to, from), true
         );
         this.balance = 6;
         this.manager = new TradingManagerBackTest(this);
@@ -88,6 +90,7 @@ public class BackTestEngine {
             }else {
                 prediction = Optional.empty();
             }
+            updateLabel(progressBar);
 
             // Consultar estrategia
             strategy.executeStrategy(prediction, window, manager);
@@ -107,6 +110,15 @@ public class BackTestEngine {
             manager.getOpenPosition().ifPresent(TradingManager.OpenPosition::nextStep);
         }
         return Objects.requireNonNull(manager.getTelemetry().get());
+    }
+
+    private void updateLabel(ProgressBar progressBar) {
+        Optional<TradingManager.OpenPosition> openPosition = manager.getOpenPosition();
+        if (openPosition.isPresent()) {
+            progressBar.setLabel("%.2f$ | %s".formatted(balance, openPosition.get().getDireccion().name()));
+        }else {
+            progressBar.setLabel("%.2f$ | waiting".formatted(balance));
+        }
     }
 
     public @NotNull TradingTelemetry.TradePerformance computeClose(@NotNull Double currentPrice,

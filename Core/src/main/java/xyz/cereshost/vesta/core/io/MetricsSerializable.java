@@ -1,7 +1,7 @@
 package xyz.cereshost.vesta.core.io;
 
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.common.market.Metric;
+import xyz.cereshost.vesta.core.market.Metric;
 
 import java.io.DataInputStream;
 import java.io.DataOutput;

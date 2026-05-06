@@ -5,14 +5,11 @@ import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategy.StrategyConfig;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
-import xyz.cereshost.vesta.core.strategy.TradingStrategyExecutor;
 import xyz.cereshost.vesta.core.strategy.candles.ExecutorCandles;
 import xyz.cereshost.vesta.core.strategy.candles.ExecutorCandlesBackTest;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
-import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.utils.BuilderData;
-import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
 import xyz.cereshost.vesta.core.utils.candle.CandlesBuilder;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 

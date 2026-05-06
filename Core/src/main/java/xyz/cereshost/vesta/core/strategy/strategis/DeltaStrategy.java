@@ -1,12 +1,11 @@
 package xyz.cereshost.vesta.core.strategy.strategis;
 
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.ia.PredictionEngine;
 import xyz.cereshost.vesta.core.strategy.StrategyConfig;
 import xyz.cereshost.vesta.core.strategy.TradingStrategy;
 import xyz.cereshost.vesta.core.strategy.TradingStrategyConfigurable;
-import xyz.cereshost.vesta.core.trading.DireccionOperation;
+import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.trading.TradingManager;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 import xyz.cereshost.vesta.core.utils.BuilderData;

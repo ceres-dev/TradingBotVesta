@@ -1,7 +1,7 @@
 package xyz.cereshost.vesta.core.io;
 
 import org.jetbrains.annotations.NotNull;
-import xyz.cereshost.vesta.common.market.Trade;
+import xyz.cereshost.vesta.core.market.Trade;
 
 import java.io.*;
 

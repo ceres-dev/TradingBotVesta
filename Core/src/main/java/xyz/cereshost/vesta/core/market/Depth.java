@@ -1,6 +1,7 @@
-package xyz.cereshost.vesta.common.market;
+package xyz.cereshost.vesta.core.market;
 
 import lombok.Getter;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 
 import java.util.ArrayDeque;
 import java.util.Collection;
