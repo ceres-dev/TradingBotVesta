@@ -2,6 +2,7 @@ package xyz.cereshost.vesta.core.trading.real.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.util.concurrent.RateLimiter;
 import lombok.Getter;
 import lombok.Setter;
 import org.jetbrains.annotations.NotNull;
@@ -17,6 +18,8 @@ import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.market.MarketStatus;
 import xyz.cereshost.vesta.core.market.DireccionOperation;
+import xyz.cereshost.vesta.core.trading.Endpoints;
+import xyz.cereshost.vesta.core.trading.RateLimitType;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 
@@ -26,6 +29,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /**
@@ -38,8 +43,8 @@ public final class BinanceApiRest implements BinanceApi {
 
     private final String apiKey;
     private final String secretKey;
-    private final String futureBaseUrl;
-    private final String spotBaseUrl;
+    private final Endpoints futureBaseUrl;
+    private final Endpoints spotBaseUrl;
     // Errores "idempotentes" que no deben detener el loop (ej: cancelar una orden ya cerrada).
     private static final List<Integer> WEAK_ERROS_CODE = List.of(-2021, -2011, -5022);
     private final HttpClient client = HttpClient.newHttpClient();
@@ -51,15 +56,15 @@ public final class BinanceApiRest implements BinanceApi {
         IOdata.ApiKeysBinance apiKeysBinance = IOdata.loadApiKeysBinance();
         this.apiKey = apiKeysBinance.key();
         this.secretKey = apiKeysBinance.secret();
-        this.futureBaseUrl = isTestNet ? "https://testnet.binancefuture.com" : "https://fapi.binance.com";
-        this.spotBaseUrl = isTestNet ? "https://testnet.binance.vision" : "https://api.binance.com";
+        this.futureBaseUrl = isTestNet ? Endpoints.DEMO_FAPI : Endpoints.FAPI;
+        this.spotBaseUrl = isTestNet ? Endpoints.API_TESTNET : Endpoints.API;
     }
 
     public BinanceApiRest(String apiKey, String secretKey, boolean isTestNet) {
         this.apiKey = apiKey;
         this.secretKey = secretKey;
-        this.futureBaseUrl = isTestNet ? "https://testnet.binancefuture.com" : "https://fapi.binance.com";
-        this.spotBaseUrl = isTestNet ? "https://testnet.binance.vision" : "https://api.binance.com";
+        this.futureBaseUrl = isTestNet ? Endpoints.DEMO_FAPI : Endpoints.FAPI;
+        this.spotBaseUrl = isTestNet ? Endpoints.API_TESTNET : Endpoints.API;
     }
 
     @Override
@@ -255,7 +260,8 @@ public final class BinanceApiRest implements BinanceApi {
 
     @Override
     public void invalidedCache() {
-
+        exchangeInfoFuture = null;
+        exchangeInfoSpot = null;
     }
 
     @Override
@@ -280,7 +286,6 @@ public final class BinanceApiRest implements BinanceApi {
         JsonNode root = future ?
                 sendPublicRequest("GET", "/fapi/v3/ticker/bookTicker", params) :
                 sendPublicRequest("GET", "/api/v3/ticker/bookTicker", params);
-
         Map<String, BookTicker> bookTickers = new HashMap<>();
 
         if (root.isArray()) {
@@ -307,14 +312,11 @@ public final class BinanceApiRest implements BinanceApi {
 
     @Nullable private ExchangeInfo exchangeInfoFuture = null;
     @Nullable private ExchangeInfo exchangeInfoSpot = null;
+    @Nullable private CompletableFuture<ExchangeInfo> task = null;
 
     @Override
     public @NotNull ExchangeInfo getExchangeInfo(@NotNull Boolean isFuture) {
         JsonNode exchangeInfo;
-        if (isFuture) exchangeInfo = sendPublicRequest("GET", "/api/v3/exchangeInfo", new TreeMap<>());
-        else exchangeInfo = sendPublicRequest("GET", "/fapi/v1/exchangeInfo", new TreeMap<>());
-
-        Set<SymbolConfigurable> exchangeInfos = new HashSet<>();
 
         if (exchangeInfoFuture != null && isFuture) {
             return exchangeInfoFuture;
@@ -323,9 +325,13 @@ public final class BinanceApiRest implements BinanceApi {
            return exchangeInfoSpot;
         }
 
+        if (isFuture) exchangeInfo = sendPublicRequest("GET", "/api/v3/exchangeInfo", new TreeMap<>());
+        else exchangeInfo = sendPublicRequest("GET", "/fapi/v1/exchangeInfo", new TreeMap<>());
+
+        Set<SymbolConfigurable> symbols = new HashSet<>();
         for (JsonNode info : exchangeInfo.get("symbols")) {
             String symbol = info.get("symbol").asText();
-            exchangeInfos.add(
+            symbols.add(
                     isFuture ?
                             new SymbolConfigurable(
                                     symbol,
@@ -353,7 +359,20 @@ public final class BinanceApiRest implements BinanceApi {
                             )
             );
         }
-        ExchangeInfo result = new ExchangeInfo(exchangeInfos);
+
+        List<RateLimit> limits = new ArrayList<>();
+        for (JsonNode info : exchangeInfo.get("rateLimits")) {
+            limits.add(
+                    new RateLimit(
+                            RateLimitType.valueOf(info.get("rateLimitType").asText()),
+                            // Se agrega una "S" por que la unidad que entrega binance es en sigular, pero el Emun trabaja en prural
+                            TimeUnit.valueOf(info.get("interval").asText() + "S"),
+                            info.get("intervalNum").asInt(),
+                            info.get("limit").asInt()
+                    )
+            );
+        }
+        ExchangeInfo result = new ExchangeInfo(limits, symbols);
         if (isFuture) exchangeInfoFuture = result;
         else exchangeInfoSpot = result;
 
@@ -513,10 +532,10 @@ public final class BinanceApiRest implements BinanceApi {
 
     private String getBaseURL(String endpoint) {
         if (endpoint.startsWith("/api")){
-            return spotBaseUrl;
+            return spotBaseUrl.getEndpoint();
         };
         if (endpoint.startsWith("/fapi")){
-            return futureBaseUrl;
+            return futureBaseUrl.getEndpoint();
         }
         throw new IllegalArgumentException("Base URL invalido: " +  endpoint);
     }

@@ -300,9 +300,11 @@ public class TriangularArbitrage {
     @SneakyThrows
     public List<TriangularArbitrageOpportunity> findTriangularArbitrageOpportunities() {
 
-        CompletableFuture<Map<String, BinanceApi.BookTicker>> tickersBookTicker = CompletableFuture.supplyAsync(() -> binanceApi.getBookTickers(null, false), Main.EXECUTOR);
+        CompletableFuture<Map<String, BinanceApi.BookTicker>> tickersBookTicker = CompletableFuture.supplyAsync(
+                () -> binanceApi.getBookTickers(null, false), Main.EXECUTOR);
+        CompletableFuture<BinanceApi.ExchangeInfo> futureInfo = CompletableFuture.supplyAsync(
+                () -> binanceApi.getExchangeInfo(false), Main.EXECUTOR);
 
-        CompletableFuture<BinanceApi.ExchangeInfo> futureInfo = CompletableFuture.supplyAsync(()->binanceApi.getExchangeInfo(false), Main.EXECUTOR);
         BinanceApi.ExchangeInfo exchangeInfo = futureInfo.get();
         Map<String, BinanceApi.BookTicker> tickers = tickersBookTicker.get();
 

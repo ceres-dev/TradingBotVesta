@@ -9,6 +9,7 @@ import xyz.cereshost.vesta.core.market.Symbol;
 import xyz.cereshost.vesta.core.exception.BinanceCodeException;
 import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.message.Notifiable;
+import xyz.cereshost.vesta.core.trading.RateLimitType;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
 
@@ -18,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 public interface BinanceApi extends Notifiable {
@@ -85,8 +87,6 @@ public interface BinanceApi extends Notifiable {
 
     @NotNull Double getBalance(@NotNull Symbol symbol);
 
-
-
     @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
 
     @NotNull JsonNode sendRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
@@ -118,7 +118,7 @@ public interface BinanceApi extends Notifiable {
     }
 
     record OrderData(
-            long orderID,
+            Long orderID,
             Double price,
             Double triggerPrice,
             Double quantity,
@@ -144,7 +144,15 @@ public interface BinanceApi extends Notifiable {
     ){}
 
     record ExchangeInfo(
+            List<RateLimit> rateLimits,
             Set<SymbolConfigurable> symbols
+    ){}
+
+    record RateLimit(
+            RateLimitType rateLimitType,
+            TimeUnit interval,
+            Integer intervalNum,
+            Integer limit
     ){}
 
 }

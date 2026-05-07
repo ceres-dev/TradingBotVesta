@@ -97,7 +97,7 @@ public class Main {
                 }
             }
             case "arbitrageTriangular" -> {
-                BinanceApi api = new BinanceApiRest(true);
+                BinanceApi api = new BinanceApiRest(false);
                 TriangularArbitrage triangularArbitrage = new TriangularArbitrage(api);
 
                 while (true){

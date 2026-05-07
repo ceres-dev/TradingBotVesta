@@ -1,6 +1,8 @@
 package xyz.cereshost.vesta.core.market;
 
 import lombok.experimental.Delegate;
+import org.jetbrains.annotations.NotNull;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 
 // Todos los symbolos de futuros
 public enum SymbolFutures implements Symbol {
@@ -803,9 +805,70 @@ public enum SymbolFutures implements Symbol {
     我踏马来了USDT,
     龙虾USDT;
 
-    @Delegate
     private final SymbolConfigurable symbolConfigurable = new SymbolConfigurable(name(), true);
 
 
+    public @NotNull Boolean isQuoteUSDT() {
+        return this.symbolConfigurable.isQuoteUSDT();
+    }
 
+    public @NotNull Boolean isQuoteUSDC() {
+        return this.symbolConfigurable.isQuoteUSDC();
+    }
+
+    public @NotNull Boolean isTradFi() {
+        return this.symbolConfigurable.isTradFi();
+    }
+
+    public void configure(BinanceApi binanceApi) {
+        this.symbolConfigurable.configure(binanceApi);
+    }
+
+    public @NotNull Boolean getTradFi() {
+        return this.symbolConfigurable.getTradFi();
+    }
+
+    public @NotNull Boolean getIsFuture() {
+        return this.symbolConfigurable.getIsFuture();
+    }
+
+    public @NotNull Boolean getIsSpot() {
+        return this.symbolConfigurable.getIsSpot();
+    }
+
+    public @NotNull Integer getPricePrecision() {
+        return this.symbolConfigurable.getPricePrecision();
+    }
+
+    public @NotNull Integer getQuantityPrecision() {
+        return this.symbolConfigurable.getQuantityPrecision();
+    }
+
+    public @NotNull MarketStatus getMarketStatus() {
+        return this.symbolConfigurable.getMarketStatus();
+    }
+
+    public @NotNull String getBaseAsset() {
+        return this.symbolConfigurable.getBaseAsset();
+    }
+
+    public @NotNull String getQuoteAsset() {
+        return this.symbolConfigurable.getQuoteAsset();
+    }
+
+    public @NotNull Boolean isFuture() {
+        return this.symbolConfigurable.isFuture();
+    }
+
+    public @NotNull Boolean isSpot() {
+        return this.symbolConfigurable.isSpot();
+    }
+
+    public String formatPrice(@NotNull Double price) {
+        return this.symbolConfigurable.formatPrice(price);
+    }
+
+    public String formatQuantity(@NotNull Double quantity) {
+        return this.symbolConfigurable.formatQuantity(quantity);
+    }
 }
