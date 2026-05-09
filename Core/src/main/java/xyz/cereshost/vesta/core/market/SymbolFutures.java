@@ -807,7 +807,6 @@ public enum SymbolFutures implements Symbol {
 
     private final SymbolConfigurable symbolConfigurable = new SymbolConfigurable(name(), true);
 
-
     public @NotNull Boolean isQuoteUSDT() {
         return this.symbolConfigurable.isQuoteUSDT();
     }

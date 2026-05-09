@@ -2,6 +2,7 @@ package xyz.cereshost.vesta.core.trading;
 
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import org.jetbrains.annotations.Contract;
 
 @Getter
 @RequiredArgsConstructor
@@ -20,4 +21,13 @@ public enum Endpoints {
     private final String endpoint;
     private final boolean isTest;
     private final boolean isFutures;
+
+    @Contract(pure = true)
+    public boolean isSpot() {
+        return !isFutures;
+    }
+    @Contract(pure = true)
+    public boolean isReal() {
+        return !isTest;
+    }
 }

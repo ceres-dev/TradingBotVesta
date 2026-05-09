@@ -1,319 +1,96 @@
 package xyz.cereshost.vesta.core.trading.abitrage;
 
-import kotlin.collections.ArrayDeque;
 import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import xyz.cereshost.vesta.common.Vesta;
 import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.market.MarketStatus;
 import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 @RequiredArgsConstructor
 public class TriangularArbitrage {
 
-    private static final double RELAX_EPSILON = 1e-12;
-    private static final boolean NATIVE_AVAILABLE = loadNativeLibrary();
+    private static final double PROFIT_EPSILON = 1e-12;
+    private static final double DEFAULT_FEE_RATE = 0.001; // 0.1% aprox
+    private static final int MIN_CYCLE_LENGTH = 3;
+    private static final int MAX_CYCLE_LENGTH = 4;
 
     private final BinanceApi binanceApi;
+    private final Consumer<List<TriangularArbitrageOpportunity>> onOpportunity;
 
-    private static native int[] detectTriangularCyclesNative(int assetCount,
-                                                             int[] edgeFrom,
-                                                             int[] edgeTo,
-                                                             double[] edgeWeights);
+    private volatile boolean started = false;
 
-    private static boolean loadNativeLibrary() {
-        List<Path> candidates = List.of(
-                Path.of("Core", "native", "cmake-build-debug", "libTradingBotVesta.dll"),
-                Path.of("native", "cmake-build-debug", "libTradingBotVesta.dll")
-        );
+    private final BlockingQueue<Data> queue = new LinkedBlockingQueue<>(2);
 
-        for (Path candidate : candidates) {
-            Path absolutePath = candidate.toAbsolutePath().normalize();
-            if (!Files.isRegularFile(absolutePath)) {
-                continue;
-            }
-
-            try {
-                System.load(absolutePath.toString());
-                return true;
-            } catch (UnsatisfiedLinkError ignored) {
-            }
-        }
-
-        try {
-            System.loadLibrary("TradingBotVesta");
-            return true;
-        } catch (UnsatisfiedLinkError ignored) {
-            return false;
-        }
-    }
-
-    private int registerAsset(@NotNull List<String> assets, @NotNull String asset) {
-        assets.add(asset);
-        return assets.size() - 1;
-    }
-
-    private List<TriangularArbitrageOpportunity> detectFromSource(@NotNull List<String> assets,
-                                                                  @NotNull List<ArbitrageEdge> edges,
-                                                                  int[] edgeFrom,
-                                                                  int[] edgeTo,
-                                                                  double[] edgeWeights,
-                                                                  @NotNull Set<String> seenCycles) {
-        if (NATIVE_AVAILABLE) {
-            return detectFromSourceNative(assets, edges, edgeFrom, edgeTo, edgeWeights, seenCycles);
-        }else {
-            return detectFromSourceJava(edges, edgeFrom, edgeTo, edgeWeights, seenCycles);
-        }
-    }
-
-    private List<TriangularArbitrageOpportunity> detectFromSourceNative(@NotNull List<String> assets,
-                                                                        @NotNull List<ArbitrageEdge> edges,
-                                                                        int[] edgeFrom,
-                                                                        int[] edgeTo,
-                                                                        double[] edgeWeights,
-                                                                        @NotNull Set<String> seenCycles) {
-        int[] nativeCycles = detectTriangularCyclesNative(assets.size(), edgeFrom, edgeTo, edgeWeights);
-        return buildOpportunitiesFromNativeResult(edges, nativeCycles, seenCycles);
-    }
-
-    private List<TriangularArbitrageOpportunity> detectFromSourceJava(@NotNull List<ArbitrageEdge> edges,
-                                                                      int[] edgeFrom,
-                                                                      int[] edgeTo,
-                                                                      double[] edgeWeights,
-                                                                      @NotNull Set<String> seenCycles) {
-        int assetCount = 0;
-        for (int i = 0; i < edgeFrom.length; i++) {
-            assetCount = Math.max(assetCount, Math.max(edgeFrom[i], edgeTo[i]) + 1);
-        }
-
-        List<TriangularArbitrageOpportunity> opportunities = new ArrayList<>();
-        for (int source = 0; source < assetCount; source++) {
-            double[] distances = new double[assetCount];
-            Arrays.fill(distances, Double.POSITIVE_INFINITY);
-            distances[source] = 0.0;
-
-            int[] predecessor = new int[assetCount];
-            int[] predecessorEdge = new int[assetCount];
-            Arrays.fill(predecessor, -1);
-            Arrays.fill(predecessorEdge, -1);
-
-            for (int i = 0; i < assetCount - 1; i++) {
-                boolean relaxed = false;
-                for (int edgeIndex = 0; edgeIndex < edges.size(); edgeIndex++) {
-                    int from = edgeFrom[edgeIndex];
-                    int to = edgeTo[edgeIndex];
-                    if (Double.isInfinite(distances[from])) {
-                        continue;
-                    }
-
-                    double candidate = distances[from] + edgeWeights[edgeIndex];
-                    if (candidate + RELAX_EPSILON < distances[to]) {
-                        distances[to] = candidate;
-                        predecessor[to] = from;
-                        predecessorEdge[to] = edgeIndex;
-                        relaxed = true;
-                    }
-                }
-                if (!relaxed) {
-                    break;
+    @Blocking
+    public void startSearch(Executor executor) {
+        started = true;
+        executor.execute(() -> {
+            while (started) {
+                try {
+                    CompletableFuture<Map<String, BinanceApi.BookTicker>> tickersFuture = CompletableFuture.supplyAsync(
+                            () -> binanceApi.getBookTickers(null, false),
+                            Main.EXECUTOR
+                    );
+                    CompletableFuture<BinanceApi.ExchangeInfo> exchangeInfoFuture = CompletableFuture.supplyAsync(
+                            () -> binanceApi.getExchangeInfo(false),
+                            Main.EXECUTOR
+                    );
+                    Data newData = new Data(
+                            exchangeInfoFuture.get(),
+                            tickersFuture.get()
+                    );
+                    queue.put(newData);
+                } catch (InterruptedException | ExecutionException e) {
+                    Vesta.sendWaringException("Error al hacer solicitud a bianance", e);
                 }
             }
-
-            for (int edgeIndex = 0; edgeIndex < edges.size(); edgeIndex++) {
-                int from = edgeFrom[edgeIndex];
-                int to = edgeTo[edgeIndex];
-                if (Double.isInfinite(distances[from])) {
-                    continue;
-                }
-
-                if (distances[from] + edgeWeights[edgeIndex] + RELAX_EPSILON < distances[to]) {
-                    predecessor[to] = from;
-                    predecessorEdge[to] = edgeIndex;
-                    int[] cycleEdgeIndexes = extractTriangularCycleEdgeIndexes(to, assetCount, predecessor, predecessorEdge);
-                    if (cycleEdgeIndexes == null) {
-                        continue;
-                    }
-
-                    TriangularArbitrageOpportunity opportunity = buildOpportunityFromCycleEdges(edges, cycleEdgeIndexes);
-                    if (opportunity == null) {
-                        continue;
-                    }
-
-                    String canonicalCycle = canonicalCycleKey(opportunity.assetsCycle());
-                    if (seenCycles.add(canonicalCycle)) {
-                        opportunities.add(opportunity);
-                    }
+        });
+        executor.execute(() -> {
+            while (started) {
+                try {
+                    Data localData = queue.take();
+                    onOpportunity.accept(findTriangularArbitrageOpportunities(localData.exchangeInfo(), localData.tickers()));
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
             }
-        }
-
-        return opportunities;
+        });
     }
 
-    private int @Nullable [] extractTriangularCycleEdgeIndexes(int startVertex,
-                                                               int assetCount,
-                                                               int[] predecessor,
-                                                               int[] predecessorEdge) {
-        int vertex = startVertex;
-        for (int i = 0; i < assetCount; i++) {
-            vertex = predecessor[vertex];
-            if (vertex < 0) {
-                return null;
-            }
-        }
-
-        List<Integer> cycleVertices = new ArrayDeque<>();
-        int current = vertex;
-        do {
-            cycleVertices.add(current);
-            current = predecessor[current];
-            if (current < 0) {
-                return null;
-            }
-        } while (current != vertex && cycleVertices.size() <= assetCount + 1);
-        cycleVertices.add(vertex);
-        Collections.reverse(cycleVertices);
-
-        if (cycleVertices.size() != 4) {
-            return null;
-        }
-
-        int[] cycleEdgeIndexes = new int[3];
-        for (int i = 1; i < cycleVertices.size(); i++) {
-            int edgeIndex = predecessorEdge[cycleVertices.get(i)];
-            if (edgeIndex < 0) {
-                return null;
-            }
-            cycleEdgeIndexes[i - 1] = edgeIndex;
-        }
-
-        return cycleEdgeIndexes;
+    private void stopSearch() {
+        started = false;
+        queue.clear();
     }
 
-    private @NotNull List<TriangularArbitrageOpportunity> buildOpportunitiesFromNativeResult(@NotNull List<ArbitrageEdge> edges,
-                                                                                             int[] nativeCycles,
-                                                                                             @NotNull Set<String> seenCycles) {
-        if (nativeCycles.length == 0) {
-            return List.of();
-        }
-
-        List<TriangularArbitrageOpportunity> opportunities = new ArrayList<>();
-        for (int offset = 0; offset + 2 < nativeCycles.length; offset += 3) {
-            int[] cycleEdgeIndexes = new int[]{nativeCycles[offset], nativeCycles[offset + 1], nativeCycles[offset + 2]};
-            TriangularArbitrageOpportunity opportunity = buildOpportunityFromCycleEdges(edges, cycleEdgeIndexes);
-            if (opportunity == null) {
-                continue;
-            }
-
-            String canonicalCycle = canonicalCycleKey(opportunity.assetsCycle());
-            if (seenCycles.add(canonicalCycle)) {
-                opportunities.add(opportunity);
-            }
-        }
-
-        return opportunities;
-    }
-
-    private @Nullable TriangularArbitrageOpportunity buildOpportunityFromCycleEdges(@NotNull List<ArbitrageEdge> edges,
-                                                                                    int[] cycleEdgeIndexes) {
-        if (cycleEdgeIndexes.length != 3) {
-            return null;
-        }
-
-        ArbitrageEdge first = getEdge(edges, cycleEdgeIndexes[0]);
-        ArbitrageEdge second = getEdge(edges, cycleEdgeIndexes[1]);
-        ArbitrageEdge third = getEdge(edges, cycleEdgeIndexes[2]);
-        if (first == null || second == null || third == null) {
-            return null;
-        }
-
-        if (!first.toAsset().equals(second.fromAsset())
-                || !second.toAsset().equals(third.fromAsset())
-                || !third.toAsset().equals(first.fromAsset())) {
-            return null;
-        }
-
-        List<String> cycleAssets = List.of(
-                first.fromAsset(),
-                first.toAsset(),
-                second.toAsset(),
-                third.toAsset()
-        );
-        if (!cycleAssets.get(0).equals(cycleAssets.get(3))) {
-            return null;
-        }
-
-        Set<String> distinctAssets = new HashSet<>(cycleAssets.subList(0, cycleAssets.size() - 1));
-        if (distinctAssets.size() != 3) {
-            return null;
-        }
-
-        List<ArbitrageEdge> cycleEdges = List.of(first, second, third);
-        double rateProduct = first.rate() * second.rate() * third.rate();
-        double totalWeight = first.weight() + second.weight() + third.weight();
-        if (rateProduct <= 1.0 || totalWeight >= 0.0) {
-            return null;
-        }
-
-        return new TriangularArbitrageOpportunity(
-                cycleAssets,
-                cycleEdges,
-                rateProduct,
-                (rateProduct - 1.0) * 100.0,
-                totalWeight
-        );
-    }
-
-    private @Nullable ArbitrageEdge getEdge(@NotNull List<ArbitrageEdge> edges, int index) {
-        if (index < 0 || index >= edges.size()) {
-            return null;
-        }
-        return edges.get(index);
-    }
-
-    private @NotNull String canonicalCycleKey(@NotNull List<String> cycleAssets) {
-        List<String> assetsWithoutClosing = new ArrayList<>(cycleAssets.subList(0, cycleAssets.size() - 1));
-        int bestIndex = 0;
-        for (int i = 1; i < assetsWithoutClosing.size(); i++) {
-            String current = assetsWithoutClosing.get(i);
-            String best = assetsWithoutClosing.get(bestIndex);
-            if (current.compareTo(best) < 0) {
-                bestIndex = i;
-            }
-        }
-
-        List<String> rotated = new ArrayList<>();
-        for (int i = 0; i < assetsWithoutClosing.size(); i++) {
-            rotated.add(assetsWithoutClosing.get((bestIndex + i) % assetsWithoutClosing.size()));
-        }
-        rotated.add(rotated.getFirst());
-        return String.join("->", rotated);
-    }
+    private record Data(
+            BinanceApi.ExchangeInfo exchangeInfo,
+            Map<String, BinanceApi.BookTicker> tickers
+    ){}
 
     @SneakyThrows
-    public List<TriangularArbitrageOpportunity> findTriangularArbitrageOpportunities() {
+    private synchronized @NotNull List<TriangularArbitrageOpportunity> findTriangularArbitrageOpportunities(
+            BinanceApi.@NotNull ExchangeInfo  exchangeInfo,
+            @NotNull Map<String, BinanceApi.BookTicker> tickers
+    ) {
 
-        CompletableFuture<Map<String, BinanceApi.BookTicker>> tickersBookTicker = CompletableFuture.supplyAsync(
-                () -> binanceApi.getBookTickers(null, false), Main.EXECUTOR);
-        CompletableFuture<BinanceApi.ExchangeInfo> futureInfo = CompletableFuture.supplyAsync(
-                () -> binanceApi.getExchangeInfo(false), Main.EXECUTOR);
-
-        BinanceApi.ExchangeInfo exchangeInfo = futureInfo.get();
-        Map<String, BinanceApi.BookTicker> tickers = tickersBookTicker.get();
-
-        Map<String, Integer> assetIndex = new HashMap<>();
-        List<String> assets = new ArrayList<>();
-        List<ArbitrageEdge> edges = new ArrayList<>();
+        Map<String, List<ArbitrageEdge>> outgoingByFromAsset = new HashMap<>();
 
         for (SymbolConfigurable symbolConfigurable : exchangeInfo.symbols()) {
-            if (!symbolConfigurable.getMarketStatus().equals(MarketStatus.TRADING)) {
+            if (!MarketStatus.TRADING.equals(symbolConfigurable.getMarketStatus())) {
+                continue;
+            }
+
+            // Solo spot para arbitraje triangular clásico
+            if (!symbolConfigurable.isSpot()) {
                 continue;
             }
 
@@ -323,64 +100,231 @@ public class TriangularArbitrage {
                 continue;
             }
 
-            double bid = ticker.bidPrice();
-            double ask = ticker.askPrice();
+            Double bidObj = ticker.bidPrice();
+            Double askObj = ticker.askPrice();
+            if (bidObj == null || askObj == null) {
+                continue;
+            }
+
+            double bid = bidObj;
+            double ask = askObj;
             if (bid <= 0.0 || ask <= 0.0) {
                 continue;
             }
 
             String baseAsset = symbolConfigurable.getBaseAsset();
             String quoteAsset = symbolConfigurable.getQuoteAsset();
-            assetIndex.computeIfAbsent(baseAsset, key -> registerAsset(assets, key));
-            assetIndex.computeIfAbsent(quoteAsset, key -> registerAsset(assets, key));
-            double fee = 0.001; // o dinámico
-            double sellRate = bid * (1 - fee);
-            double buyRate = (1.0 / ask) * (1 - fee);
-            edges.add(new ArbitrageEdge(
-                    symbolName,
-                    baseAsset,
-                    quoteAsset,
-                    sellRate,
-                    -Math.log(sellRate),
-                    "SELL",
-                    bid
-            ));
-            edges.add(new ArbitrageEdge(
-                    symbolName,
-                    quoteAsset,
-                    baseAsset,
-                    buyRate,
-                    -Math.log(buyRate),
-                    "BUY",
-                    ask
-            ));
+            if (baseAsset.equals("?") || quoteAsset.equals("?")) {
+                continue;
+            }
+
+            double sellRate = bid * (1.0 - DEFAULT_FEE_RATE);
+            double buyRate = (1.0 / ask) * (1.0 - DEFAULT_FEE_RATE);
+
+            if (sellRate > 0.0) {
+                addEdge(outgoingByFromAsset, new ArbitrageEdge(
+                        symbolName,
+                        baseAsset,
+                        quoteAsset,
+                        sellRate,
+                        -Math.log(sellRate),
+                        "SELL",
+                        bid
+                ));
+            }
+
+            if (buyRate > 0.0) {
+                addEdge(outgoingByFromAsset, new ArbitrageEdge(
+                        symbolName,
+                        quoteAsset,
+                        baseAsset,
+                        buyRate,
+                        -Math.log(buyRate),
+                        "BUY",
+                        ask
+                ));
+            }
         }
 
-        if (assets.size() < 3 || edges.size() < 3) {
+        if (outgoingByFromAsset.size() < MIN_CYCLE_LENGTH) {
             return List.of();
         }
 
-        int[] edgeFrom = new int[edges.size()];
-        int[] edgeTo = new int[edges.size()];
-        double[] edgeWeights = new double[edges.size()];
-        for (int i = 0; i < edges.size(); i++) {
-            ArbitrageEdge edge = edges.get(i);
-            edgeFrom[i] = assetIndex.get(edge.fromAsset());
-            edgeTo[i] = assetIndex.get(edge.toAsset());
-            edgeWeights[i] = edge.weight();
+        Set<String> seenCycles = new HashSet<>();
+        List<TriangularArbitrageOpportunity> opportunities = new ArrayList<>();
+
+        for (String startAsset : outgoingByFromAsset.keySet()) {
+            Deque<ArbitrageEdge> path = new ArrayDeque<>(MAX_CYCLE_LENGTH);
+            Set<String> visitedAssets = new HashSet<>();
+            visitedAssets.add(startAsset);
+            searchCyclesFrom(
+                    startAsset,
+                    startAsset,
+                    outgoingByFromAsset,
+                    path,
+                    visitedAssets,
+                    seenCycles,
+                    opportunities
+            );
         }
 
-        Set<String> seenCycles = new HashSet<>();
-        List<TriangularArbitrageOpportunity> opportunities = detectFromSource(
-                assets,
-                edges,
-                edgeFrom,
-                edgeTo,
-                edgeWeights,
-                seenCycles
-        );
         opportunities.sort(Comparator.comparingDouble(TriangularArbitrageOpportunity::profitPercent).reversed());
         return opportunities;
+    }
+
+    private void addEdge(@NotNull Map<String, List<ArbitrageEdge>> outgoingByFromAsset,
+                         @NotNull ArbitrageEdge edge) {
+        outgoingByFromAsset
+                .computeIfAbsent(edge.fromAsset(), key -> new ArrayList<>())
+                .add(edge);
+    }
+
+    private void searchCyclesFrom(
+            @NotNull String startAsset,
+            @NotNull String currentAsset,
+            @NotNull Map<String, List<ArbitrageEdge>> outgoingByFromAsset,
+            @NotNull Deque<ArbitrageEdge> path,
+            @NotNull Set<String> visitedAssets,
+            @NotNull Set<String> seenCycles,
+            @NotNull List<TriangularArbitrageOpportunity> opportunities
+    ) {
+        List<ArbitrageEdge> outgoing = outgoingByFromAsset.get(currentAsset);
+        if (outgoing == null || outgoing.isEmpty()) {
+            return;
+        }
+
+        for (ArbitrageEdge edge : outgoing) {
+            int nextLength = path.size() + 1;
+            boolean closesCycle = startAsset.equals(edge.toAsset());
+
+            if (closesCycle) {
+                if (nextLength < MIN_CYCLE_LENGTH || nextLength > MAX_CYCLE_LENGTH) {
+                    continue;
+                }
+
+                path.addLast(edge);
+                TriangularArbitrageOpportunity opportunity = buildOpportunityFromEdges(new ArrayList<>(path));
+                path.removeLast();
+
+                if (opportunity == null) {
+                    continue;
+                }
+
+                String canonicalKey = canonicalCycleKey(opportunity.assetsCycle());
+                if (seenCycles.add(canonicalKey)) {
+                    opportunities.add(opportunity);
+                }
+                continue;
+            }
+
+            if (nextLength >= MAX_CYCLE_LENGTH) {
+                continue;
+            }
+            if (visitedAssets.contains(edge.toAsset())) {
+                continue;
+            }
+
+            path.addLast(edge);
+            visitedAssets.add(edge.toAsset());
+            searchCyclesFrom(
+                    startAsset,
+                    edge.toAsset(),
+                    outgoingByFromAsset,
+                    path,
+                    visitedAssets,
+                    seenCycles,
+                    opportunities
+            );
+            visitedAssets.remove(edge.toAsset());
+            path.removeLast();
+        }
+    }
+
+    private @Nullable TriangularArbitrageOpportunity buildOpportunityFromEdges(@NotNull List<ArbitrageEdge> cycleEdges) {
+        int cycleLength = cycleEdges.size();
+        if (cycleLength < MIN_CYCLE_LENGTH || cycleLength > MAX_CYCLE_LENGTH) {
+            return null;
+        }
+
+        ArbitrageEdge first = cycleEdges.getFirst();
+        String startAsset = first.fromAsset();
+        String currentAsset = startAsset;
+
+        List<String> cycleAssets = new ArrayList<>(cycleLength + 1);
+        cycleAssets.add(startAsset);
+
+        Set<String> distinctAssets = new HashSet<>();
+        distinctAssets.add(startAsset);
+
+        double rateProduct = 1.0;
+        double totalWeight = 0.0;
+
+        for (int i = 0; i < cycleLength; i++) {
+            ArbitrageEdge edge = cycleEdges.get(i);
+            if (!currentAsset.equals(edge.fromAsset())) {
+                return null;
+            }
+
+            currentAsset = edge.toAsset();
+            cycleAssets.add(currentAsset);
+
+            rateProduct *= edge.rate();
+            totalWeight += edge.weight();
+
+            if (i < cycleLength - 1 && !distinctAssets.add(currentAsset)) {
+                return null;
+            }
+        }
+
+        if (!startAsset.equals(currentAsset)) {
+            return null;
+        }
+        if (distinctAssets.size() != cycleLength) {
+            return null;
+        }
+        if (rateProduct <= 1.0 + PROFIT_EPSILON) {
+            return null;
+        }
+        if (totalWeight >= -PROFIT_EPSILON) {
+            return null;
+        }
+
+        return new TriangularArbitrageOpportunity(
+                cycleAssets,
+                List.copyOf(cycleEdges),
+                rateProduct,
+                (rateProduct - 1.0) * 100.0,
+                totalWeight
+        );
+    }
+
+    private @NotNull String canonicalCycleKey(@NotNull List<String> cycleAssets) {
+        List<String> raw = new ArrayList<>(cycleAssets.subList(0, cycleAssets.size() - 1));
+        int size = raw.size();
+
+        List<String> best = null;
+        for (int shift = 0; shift < size; shift++) {
+            List<String> rotated = new ArrayList<>(size);
+            for (int i = 0; i < size; i++) {
+                rotated.add(raw.get((shift + i) % size));
+            }
+
+            if (best == null || compareLex(rotated, best) < 0) {
+                best = rotated;
+            }
+        }
+
+        return String.join("->", best) + "->" + best.getFirst();
+    }
+
+    private int compareLex(@NotNull List<String> a, @NotNull List<String> b) {
+        for (int i = 0; i < a.size(); i++) {
+            int cmp = a.get(i).compareTo(b.get(i));
+            if (cmp != 0) {
+                return cmp;
+            }
+        }
+        return 0;
     }
 
     public record ArbitrageEdge(

@@ -27,6 +27,7 @@ import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
+import xyz.cereshost.vesta.core.utils.LoaderIndicator;
 import xyz.cereshost.vesta.core.utils.candle.CandleIndicators;
 import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 
@@ -84,7 +85,7 @@ public class Main {
                 ChartUtils.showCandleChartWithTradeSnapshots("Resultados", telemetry.getMarket().getCandles().stream().toList(), telemetry.getMarket().getSymbol(), telemetry);
 
             }
-            case "trading" -> new TradingTickLoop(TYPE_MARKET, null, new AlfaStrategy(), new BinanceApiRest(false), new DiscordNotification()).startCandleLoop();
+            case "trading" -> new TradingTickLoop(TYPE_MARKET, null, new AlfaStrategy(), new BinanceApiRest(false, false), new DiscordNotification()).startCandleLoop();
             case "extract" -> IOMarket.extractFirstBin(Path.of(IOMarket.STORAGE_DIR + "\\" + TYPE_MARKET.symbol() +"\\trades"));
             case "diagnose" -> {
                 Market market = getMarket(false);
@@ -97,15 +98,13 @@ public class Main {
                 }
             }
             case "arbitrageTriangular" -> {
-                BinanceApi api = new BinanceApiRest(false);
-                TriangularArbitrage triangularArbitrage = new TriangularArbitrage(api);
-
-                while (true){
-                    long time = System.currentTimeMillis();
-                    List<TriangularArbitrage.TriangularArbitrageOpportunity> opportunities = triangularArbitrage.findTriangularArbitrageOpportunities();
+                BinanceApi api = new BinanceApiRest(false, true);
+                LoaderIndicator loaderIndicator = new LoaderIndicator(1);
+                loaderIndicator.setLabel("Buscando posibles arbitrajes...");
+                TriangularArbitrage triangularArbitrage = new TriangularArbitrage(api, opportunities -> {
+                    loaderIndicator.printAndNexStep();
                     if (opportunities.isEmpty()) {
-                        Vesta.warning("No se detectaron ciclos negativos triangulares con los precios actuales.");
-                        continue;
+                        return;
                     }
 
                     Vesta.info("Arbitrajes triangulares detectados: %d", opportunities.size());
@@ -126,8 +125,8 @@ public class Main {
                                     edge.rate());
                         }
                     }
-                    Vesta.info("Tiempo %.2f", (double)(System.currentTimeMillis() - time)/1000);
-                }
+                });
+                triangularArbitrage.startSearch(EXECUTOR);
             }
         }
     }

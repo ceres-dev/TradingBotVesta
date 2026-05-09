@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.util.concurrent.RateLimiter;
 import lombok.Getter;
 import lombok.Setter;
+import lombok.SneakyThrows;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.common.Vesta;
@@ -22,6 +23,7 @@ import xyz.cereshost.vesta.core.trading.Endpoints;
 import xyz.cereshost.vesta.core.trading.RateLimitType;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
+import xyz.cereshost.vesta.core.utils.LoaderIndicator;
 
 import java.io.IOException;
 import java.net.URI;
@@ -31,6 +33,8 @@ import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
 /**
@@ -52,19 +56,20 @@ public final class BinanceApiRest implements BinanceApi {
     @NotNull private MediaNotification mediaNotification = MediaNotification.empty();
     @NotNull private Consumer<Exception> exceptionHandler = e -> {};
 
-    public BinanceApiRest(boolean isTestNet) throws IOException {
+    public BinanceApiRest(boolean isTestNet, boolean useBest) throws IOException {
         IOdata.ApiKeysBinance apiKeysBinance = IOdata.loadApiKeysBinance();
         this.apiKey = apiKeysBinance.key();
         this.secretKey = apiKeysBinance.secret();
         this.futureBaseUrl = isTestNet ? Endpoints.DEMO_FAPI : Endpoints.FAPI;
-        this.spotBaseUrl = isTestNet ? Endpoints.API_TESTNET : Endpoints.API;
+        Endpoints best = getBestEndpoint();
+        this.spotBaseUrl = isTestNet ? Endpoints.API_TESTNET : Endpoints.API1;
     }
 
-    public BinanceApiRest(String apiKey, String secretKey, boolean isTestNet) {
+    public BinanceApiRest(String apiKey, String secretKey, boolean isTestNet, boolean useBest) {
         this.apiKey = apiKey;
         this.secretKey = secretKey;
         this.futureBaseUrl = isTestNet ? Endpoints.DEMO_FAPI : Endpoints.FAPI;
-        this.spotBaseUrl = isTestNet ? Endpoints.API_TESTNET : Endpoints.API;
+        this.spotBaseUrl = isTestNet ? Endpoints.API_TESTNET : Endpoints.API1;
     }
 
     @Override
@@ -538,5 +543,39 @@ public final class BinanceApiRest implements BinanceApi {
             return futureBaseUrl.getEndpoint();
         }
         throw new IllegalArgumentException("Base URL invalido: " +  endpoint);
+    }
+
+    @SneakyThrows
+    private Endpoints getBestEndpoint(){
+        HashMap<Endpoints, List<Long>> map = new HashMap<>();
+        LoaderIndicator loaderIndicator = new LoaderIndicator(1);
+        for (Endpoints endpoints : Arrays.stream(Endpoints.values()).filter(Endpoints::isSpot).filter(Endpoints::isReal).toList()) {
+            List<Long> list = map.computeIfAbsent(endpoints, key -> new ArrayList<>());
+            loaderIndicator.setLabel("Analizando la conexión con: " + endpoints.getEndpoint());
+            for (int i = 0; i < 5; i++){
+                long current = System.currentTimeMillis();
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(endpoints.getEndpoint() + "/api/v3/ping"))
+                        .method("GET", HttpRequest.BodyPublishers.noBody())
+                        .build();
+                client.send(request, HttpResponse.BodyHandlers.ofString()).body();
+                long diff = System.currentTimeMillis() - current;
+                list.add(diff);
+                loaderIndicator.printAndNexStep();
+            }
+        }
+        loaderIndicator.done();
+        HashMap<Endpoints, Double> result = new HashMap<>();
+        map.forEach((key, value) -> {
+            result.put(key, value.stream().mapToLong(Long::longValue).average().getAsDouble());
+        });
+        Map.Entry<Endpoints, Double> bestEntry = result.entrySet().stream().findFirst().orElse(null);
+        for (Map.Entry<Endpoints, Double> entry : result.entrySet()) {
+            if (entry.getValue() > bestEntry.getValue()) {
+                bestEntry = entry;
+            }
+        }
+        Vesta.info("Mejor conexión: %s (%dms)", bestEntry.getKey().getEndpoint(),  bestEntry.getValue().longValue());
+        return bestEntry.getKey();
     }
 }
