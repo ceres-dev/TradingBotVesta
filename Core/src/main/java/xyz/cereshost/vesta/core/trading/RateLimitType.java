@@ -4,5 +4,7 @@ public enum RateLimitType {
     REQUEST_WEIGHT,
     ORDERS,
     // Solo Spot
-    RAW_REQUESTS
+    RAW_REQUESTS,
+    // Solo webSocket
+    CONNECTIONS
 }

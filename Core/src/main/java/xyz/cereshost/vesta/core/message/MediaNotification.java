@@ -33,7 +33,7 @@ public interface MediaNotification {
 
     enum StatusType {
         STOPPED,
-        TRADING,
+        WORKING,
         WAITING
     }
 }

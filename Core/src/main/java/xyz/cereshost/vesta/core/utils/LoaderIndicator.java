@@ -39,4 +39,7 @@ public class LoaderIndicator {
         System.out.print("\rDone! " + label +"\n");
     }
 
+    public void clearLine() {
+        System.out.print("\r" + " ".repeat(100) + "\r");
+    }
 }

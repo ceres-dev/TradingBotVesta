@@ -10,6 +10,8 @@ import xyz.cereshost.vesta.core.Main;
 import xyz.cereshost.vesta.core.market.MarketStatus;
 import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
+import xyz.cereshost.vesta.core.trading.real.api.model.BookTicker;
+import xyz.cereshost.vesta.core.trading.real.api.model.ExchangeInfo;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -21,7 +23,7 @@ public class TriangularArbitrage {
     private static final double PROFIT_EPSILON = 1e-12;
     private static final double DEFAULT_FEE_RATE = 0.001; // 0.1% aprox
     private static final int MIN_CYCLE_LENGTH = 3;
-    private static final int MAX_CYCLE_LENGTH = 4;
+    private static final int MAX_CYCLE_LENGTH = 3;
 
     private final BinanceApi binanceApi;
     private final Consumer<List<TriangularArbitrageOpportunity>> onOpportunity;
@@ -36,11 +38,11 @@ public class TriangularArbitrage {
         executor.execute(() -> {
             while (started) {
                 try {
-                    CompletableFuture<Map<String, BinanceApi.BookTicker>> tickersFuture = CompletableFuture.supplyAsync(
+                    CompletableFuture<Map<String, BookTicker>> tickersFuture = CompletableFuture.supplyAsync(
                             () -> binanceApi.getBookTickers(null, false),
                             Main.EXECUTOR
                     );
-                    CompletableFuture<BinanceApi.ExchangeInfo> exchangeInfoFuture = CompletableFuture.supplyAsync(
+                    CompletableFuture<ExchangeInfo> exchangeInfoFuture = CompletableFuture.supplyAsync(
                             () -> binanceApi.getExchangeInfo(false),
                             Main.EXECUTOR
                     );
@@ -58,7 +60,8 @@ public class TriangularArbitrage {
             while (started) {
                 try {
                     Data localData = queue.take();
-                    onOpportunity.accept(findTriangularArbitrageOpportunities(localData.exchangeInfo(), localData.tickers()));
+                    List<TriangularArbitrageOpportunity> list = findTriangularArbitrageOpportunities(localData.exchangeInfo(), localData.tickers());
+                    executor.execute(() -> onOpportunity.accept(list));
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
@@ -72,14 +75,14 @@ public class TriangularArbitrage {
     }
 
     private record Data(
-            BinanceApi.ExchangeInfo exchangeInfo,
-            Map<String, BinanceApi.BookTicker> tickers
+            ExchangeInfo exchangeInfo,
+            Map<String, BookTicker> tickers
     ){}
 
     @SneakyThrows
-    private synchronized @NotNull List<TriangularArbitrageOpportunity> findTriangularArbitrageOpportunities(
-            BinanceApi.@NotNull ExchangeInfo  exchangeInfo,
-            @NotNull Map<String, BinanceApi.BookTicker> tickers
+    public synchronized @NotNull List<TriangularArbitrageOpportunity> findTriangularArbitrageOpportunities(
+            @NotNull ExchangeInfo exchangeInfo,
+            @NotNull Map<String, BookTicker> tickers
     ) {
 
         Map<String, List<ArbitrageEdge>> outgoingByFromAsset = new HashMap<>();
@@ -95,7 +98,7 @@ public class TriangularArbitrage {
             }
 
             String symbolName = symbolConfigurable.name();
-            BinanceApi.BookTicker ticker = tickers.get(symbolName);
+            BookTicker ticker = tickers.get(symbolName);
             if (ticker == null) {
                 continue;
             }
@@ -126,6 +129,7 @@ public class TriangularArbitrage {
                         symbolName,
                         baseAsset,
                         quoteAsset,
+                        baseAsset.hashCode(),
                         sellRate,
                         -Math.log(sellRate),
                         "SELL",
@@ -138,6 +142,7 @@ public class TriangularArbitrage {
                         symbolName,
                         quoteAsset,
                         baseAsset,
+                        baseAsset.hashCode(),
                         buyRate,
                         -Math.log(buyRate),
                         "BUY",
@@ -179,6 +184,8 @@ public class TriangularArbitrage {
                 .add(edge);
     }
 
+    public HashMap<String, Integer> hashCache = new HashMap<>();
+
     private void searchCyclesFrom(
             @NotNull String startAsset,
             @NotNull String currentAsset,
@@ -195,7 +202,7 @@ public class TriangularArbitrage {
 
         for (ArbitrageEdge edge : outgoing) {
             int nextLength = path.size() + 1;
-            boolean closesCycle = startAsset.equals(edge.toAsset());
+            boolean closesCycle = hashCache.computeIfAbsent(startAsset, String::hashCode) == (edge.toAsset().hashCode());
 
             if (closesCycle) {
                 if (nextLength < MIN_CYCLE_LENGTH || nextLength > MAX_CYCLE_LENGTH) {
@@ -331,6 +338,7 @@ public class TriangularArbitrage {
             String symbol,
             String fromAsset,
             String toAsset,
+            int toAssetHash,
             double rate,
             double weight,
             String action,

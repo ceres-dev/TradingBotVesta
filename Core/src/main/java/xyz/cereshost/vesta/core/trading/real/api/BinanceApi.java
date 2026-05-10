@@ -1,25 +1,28 @@
 package xyz.cereshost.vesta.core.trading.real.api;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.market.DireccionOperation;
 import xyz.cereshost.vesta.core.market.Symbol;
-import xyz.cereshost.vesta.core.exception.BinanceCodeException;
 import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.message.Notifiable;
-import xyz.cereshost.vesta.core.trading.RateLimitType;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
+import xyz.cereshost.vesta.core.trading.real.api.model.BookTicker;
+import xyz.cereshost.vesta.core.trading.real.api.model.ExchangeInfo;
+import xyz.cereshost.vesta.core.trading.real.api.model.OrderData;
+import xyz.cereshost.vesta.core.trading.real.api.model.PositionData;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.*;
-import java.util.concurrent.TimeUnit;
+import java.util.List;
+import java.util.Map;
+import java.util.StringJoiner;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 
 public interface BinanceApi extends Notifiable {
@@ -87,13 +90,15 @@ public interface BinanceApi extends Notifiable {
 
     @NotNull Double getBalance(@NotNull Symbol symbol);
 
-    @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
+    void signContract();
 
-    @NotNull JsonNode sendRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
+//    @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
+//
+//    @NotNull JsonNode sendRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
+//
+//    @NotNull JsonNode sendPublicRequest(@NotNull String method, @NotNull String endpoint, @NotNull TreeMap<String, String> params);
 
-    @NotNull JsonNode sendPublicRequest(@NotNull String method, @NotNull String endpoint, @NotNull TreeMap<String, String> params);
-
-    void checkRepose(Symbol symbol, JsonNode node, String method, String endpoint) throws BinanceCodeException;
+//    void checkRepose(Symbol symbol, JsonNode node, String method, String endpoint) throws BinanceCodeException;
 
     void setExceptionHandler(Consumer<Exception> consumer);
 
@@ -116,43 +121,5 @@ public interface BinanceApi extends Notifiable {
         }
         return hex.toString();
     }
-
-    record OrderData(
-            Long orderID,
-            Double price,
-            Double triggerPrice,
-            Double quantity,
-            Boolean isAlgoOrder,
-            TimeInForce timeInForce,
-            TypeOrder type,
-            DireccionOperation direccionOperation
-    ) {}
-
-    record PositionData(
-            Double entryPrice,
-            Double margen,
-            Integer leverage,
-            DireccionOperation direccionOperation
-    ){}
-
-    record BookTicker(
-            String symbol,
-            Double bidPrice,
-            Double bidQty,
-            Double askPrice,
-            Double askQty
-    ){}
-
-    record ExchangeInfo(
-            List<RateLimit> rateLimits,
-            Set<SymbolConfigurable> symbols
-    ){}
-
-    record RateLimit(
-            RateLimitType rateLimitType,
-            TimeUnit interval,
-            Integer intervalNum,
-            Integer limit
-    ){}
 
 }

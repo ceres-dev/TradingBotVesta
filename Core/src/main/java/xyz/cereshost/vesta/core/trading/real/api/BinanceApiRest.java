@@ -2,7 +2,6 @@ package xyz.cereshost.vesta.core.trading.real.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.util.concurrent.RateLimiter;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.SneakyThrows;
@@ -23,6 +22,7 @@ import xyz.cereshost.vesta.core.trading.Endpoints;
 import xyz.cereshost.vesta.core.trading.RateLimitType;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
+import xyz.cereshost.vesta.core.trading.real.api.model.*;
 import xyz.cereshost.vesta.core.utils.LoaderIndicator;
 
 import java.io.IOException;
@@ -33,8 +33,6 @@ import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 
 /**
@@ -43,7 +41,7 @@ import java.util.function.Consumer;
 
 @Getter
 @Setter
-public final class BinanceApiRest implements BinanceApi {
+public final class BinanceApiRest extends ParseJsonApi implements BinanceApi {
 
     private final String apiKey;
     private final String secretKey;
@@ -291,28 +289,7 @@ public final class BinanceApiRest implements BinanceApi {
         JsonNode root = future ?
                 sendPublicRequest("GET", "/fapi/v3/ticker/bookTicker", params) :
                 sendPublicRequest("GET", "/api/v3/ticker/bookTicker", params);
-        Map<String, BookTicker> bookTickers = new HashMap<>();
-
-        if (root.isArray()) {
-            for (JsonNode ticker : root) {
-                String s = ticker.get("symbol").asText();
-                bookTickers.put(s, new BookTicker(s,
-                        ticker.get("bidPrice").asDouble(),
-                        ticker.get("bidQty").asDouble(),
-                        ticker.get("askPrice").asDouble(),
-                        ticker.get("askQty").asDouble())
-                );
-            }
-        }else {
-            String s = root.get("symbol").asText();
-            bookTickers.put(s, new BookTicker(s,
-                    root.get("bidPrice").asDouble(),
-                    root.get("bidQty").asDouble(),
-                    root.get("askPrice").asDouble(),
-                    root.get("askQty").asDouble())
-            );
-        }
-        return bookTickers;
+        return parseBookTickers(root);
     }
 
     @Nullable private ExchangeInfo exchangeInfoFuture = null;
@@ -333,54 +310,10 @@ public final class BinanceApiRest implements BinanceApi {
         if (isFuture) exchangeInfo = sendPublicRequest("GET", "/api/v3/exchangeInfo", new TreeMap<>());
         else exchangeInfo = sendPublicRequest("GET", "/fapi/v1/exchangeInfo", new TreeMap<>());
 
-        Set<SymbolConfigurable> symbols = new HashSet<>();
-        for (JsonNode info : exchangeInfo.get("symbols")) {
-            String symbol = info.get("symbol").asText();
-            symbols.add(
-                    isFuture ?
-                            new SymbolConfigurable(
-                                    symbol,
-                                    info.asText().startsWith("TRADIFI_"),
-                                    true,
-                                    false,
-                                    info.get("pricePrecision").asInt(),
-                                    info.get("quotePrecision").asInt(),
-                                    MarketStatus.valueOf(info.get("status").asText()),
-                                    info.get("baseAsset").asText(),
-                                    info.get("quoteAsset").asText()
-                                    //info.get("isSpotTradingAllowed").booleanValue()
-                            ) :
-                            new SymbolConfigurable(
-                                    symbol,
-                                    false,
-                                    false,
-                                    true,
-                                    info.get("pricePrecision").asInt(),
-                                    info.get("quotePrecision").asInt(),
-                                    MarketStatus.valueOf(info.get("status").asText()),
-                                    info.get("baseAsset").asText(),
-                                    info.get("quoteAsset").asText()
-                                    //info.get("isSpotTradingAllowed").booleanValue()
-                            )
-            );
-        }
+        ExchangeInfo result = parseExchangeInfo(exchangeInfo, isFuture);
 
-        List<RateLimit> limits = new ArrayList<>();
-        for (JsonNode info : exchangeInfo.get("rateLimits")) {
-            limits.add(
-                    new RateLimit(
-                            RateLimitType.valueOf(info.get("rateLimitType").asText()),
-                            // Se agrega una "S" por que la unidad que entrega binance es en sigular, pero el Emun trabaja en prural
-                            TimeUnit.valueOf(info.get("interval").asText() + "S"),
-                            info.get("intervalNum").asInt(),
-                            info.get("limit").asInt()
-                    )
-            );
-        }
-        ExchangeInfo result = new ExchangeInfo(limits, symbols);
         if (isFuture) exchangeInfoFuture = result;
         else exchangeInfoSpot = result;
-
         return result;
     }
 
@@ -426,7 +359,11 @@ public final class BinanceApiRest implements BinanceApi {
     }
 
     @Override
-    public @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
+    public void signContract() {
+        sendSignedRequest("POST", "/fapi/v1/stock/contract", new TreeMap<>());
+    }
+
+    private @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params) throws BinanceApiSignedRequestException {
         params.put("timestamp", String.valueOf(System.currentTimeMillis()));
         params.put("recvWindow", "20000");
         try {
@@ -460,8 +397,7 @@ public final class BinanceApiRest implements BinanceApi {
         }
     }
 
-    @Override
-    public @NotNull JsonNode sendPublicRequest(@NotNull String method,
+    private @NotNull JsonNode sendPublicRequest(@NotNull String method,
                                                 @NotNull String endpoint,
                                                 @NotNull TreeMap<String, String> params) throws BinanceApiRequestException {
         try {
@@ -489,29 +425,6 @@ public final class BinanceApiRest implements BinanceApi {
         }
     }
 
-    @Override
-    public @NotNull JsonNode sendRequest(@NotNull String method, String endpoint, TreeMap<String, String> params) throws BinanceApiRequestException {
-        try {
-            params.put("timestamp", String.valueOf(System.currentTimeMillis()));
-            params.put("recvWindow", "20000");
-            String queryString = buildQueryString(params);
-            String finalUrl = futureBaseUrl + endpoint + "?" + queryString;
-
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(finalUrl))
-                    .method(method, HttpRequest.BodyPublishers.noBody())
-                    .build();
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(client.send(request, HttpResponse.BodyHandlers.ofString()).body());
-            checkRepose(Symbol.valueOf(params.get("symbol")), root, method, endpoint);
-            return root;
-        } catch (Exception e) {
-            exceptionHandler.accept(e);
-            throw new BinanceApiRequestException(e);
-        }
-    }
-
-    @Override
     public void checkRepose(Symbol symbol, @NotNull JsonNode node, @NotNull String method, @NotNull String endpoint) throws BinanceCodeException {
         if (node.has("code") && node.get("code").asInt() != 0) {
             int code = node.get("code").asInt();
@@ -549,10 +462,10 @@ public final class BinanceApiRest implements BinanceApi {
     private Endpoints getBestEndpoint(){
         HashMap<Endpoints, List<Long>> map = new HashMap<>();
         LoaderIndicator loaderIndicator = new LoaderIndicator(1);
-        for (Endpoints endpoints : Arrays.stream(Endpoints.values()).filter(Endpoints::isSpot).filter(Endpoints::isReal).toList()) {
+        for (Endpoints endpoints : Arrays.stream(Endpoints.values()).filter(Endpoints::isSpot).filter(Endpoints::isReal).filter(Endpoints::isApiRest).toList()) {
             List<Long> list = map.computeIfAbsent(endpoints, key -> new ArrayList<>());
             loaderIndicator.setLabel("Analizando la conexión con: " + endpoints.getEndpoint());
-            for (int i = 0; i < 5; i++){
+            for (int i = 0; i < 12; i++){
                 long current = System.currentTimeMillis();
                 HttpRequest request = HttpRequest.newBuilder()
                         .uri(URI.create(endpoints.getEndpoint() + "/api/v3/ping"))
@@ -571,7 +484,7 @@ public final class BinanceApiRest implements BinanceApi {
         });
         Map.Entry<Endpoints, Double> bestEntry = result.entrySet().stream().findFirst().orElse(null);
         for (Map.Entry<Endpoints, Double> entry : result.entrySet()) {
-            if (entry.getValue() > bestEntry.getValue()) {
+            if (entry.getValue() < bestEntry.getValue()) {
                 bestEntry = entry;
             }
         }

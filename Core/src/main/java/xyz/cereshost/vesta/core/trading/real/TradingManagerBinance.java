@@ -11,6 +11,8 @@ import xyz.cereshost.vesta.core.market.Symbol;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.trading.*;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
+import xyz.cereshost.vesta.core.trading.real.api.model.OrderData;
+import xyz.cereshost.vesta.core.trading.real.api.model.PositionData;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -307,12 +309,12 @@ public class TradingManagerBinance implements TradingManager {
     }
 
     public void signContract(){
-        binanceApi.sendSignedRequest("POST", "/fapi/v1/stock/contract", new TreeMap<>());
+        binanceApi.signContract();
     }
 
     public synchronized void sync(){
-        List<BinanceApi.OrderData> orders = binanceApi.getAllOrdersFuture(market.getSymbol());
-        BinanceApi.PositionData position = binanceApi.getPosition(market.getSymbol());
+        List<OrderData> orders = binanceApi.getAllOrdersFuture(market.getSymbol());
+        PositionData position = binanceApi.getPosition(market.getSymbol());
 //        if (position == null){
 //            for (BinanceApi.OrderData order : orders) {
 //                if (order.type().isExit()){

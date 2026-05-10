@@ -67,7 +67,7 @@ public class DiscordNotification implements MediaNotification {
                     presence.setStatus(OnlineStatus.DO_NOT_DISTURB);
                     presence.setActivity(Activity.of(Activity.ActivityType.CUSTOM_STATUS, String.format(message, param)));
                 }
-                case TRADING -> {
+                case WORKING -> {
                     presence.setStatus(OnlineStatus.ONLINE);
                     presence.setActivity(Activity.of(Activity.ActivityType.PLAYING, String.format(message, param)));
                 }

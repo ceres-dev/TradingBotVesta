@@ -277,7 +277,7 @@ public final class TradingTickLoop implements Notifiable {
         Symbol symbol = typeMarket.symbol();
         Optional<TradingManager.OpenPosition> openPosition = manager.getOpenPosition();
         if (openPosition.isPresent()) {
-            updateStatusType(StatusType.TRADING);
+            updateStatusType(StatusType.WAITING);
             TradingManager.OpenPosition open = openPosition.get();
             if (open.isUpDireccion()){
                 updateStatus("Operando Long en %s", symbol);

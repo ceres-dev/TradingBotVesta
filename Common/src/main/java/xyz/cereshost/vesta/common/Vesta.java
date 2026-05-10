@@ -32,11 +32,13 @@ public class Vesta {
     }
 
     public static void sendErrorException(String message, Exception exception) {
-        LOGGER.error(setFormatException(message, exception));
+//        LOGGER.error(setFormatException(message, exception));
+        exception.printStackTrace();
     }
 
     public static  void sendWaringException(String message, Exception exception) {
-        LOGGER.warn(setFormatException(message, exception));
+        //LOGGER.warn(setFormatException(message, exception));
+        exception.printStackTrace();
     }
 
     private static String setFormatException(String message, Exception exception) {
@@ -50,6 +52,7 @@ public class Vesta {
                 builder.append(element.toString()).append("\n\t");
             }
         }
+
         return String.format("%s [%s=%s] \n\t%s", message, exception.getClass().getSimpleName(), exception.getMessage(), builder);
     }
 }

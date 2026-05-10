@@ -25,6 +25,7 @@ import xyz.cereshost.vesta.core.trading.backtest.BackTestEngine;
 import xyz.cereshost.vesta.core.trading.real.TradingTickLoop;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceWebSocket;
 import xyz.cereshost.vesta.core.utils.BuilderData;
 import xyz.cereshost.vesta.core.utils.ChartUtils;
 import xyz.cereshost.vesta.core.utils.LoaderIndicator;
@@ -34,12 +35,11 @@ import xyz.cereshost.vesta.core.utils.candle.SequenceCandles;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.text.DecimalFormat;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class Main {
 
@@ -62,7 +62,8 @@ public class Main {
                 new FastSetupTrainingModel(),
                 new FastSetupPrediction(),
                 new Help(),
-                new Server()
+                new Server(),
+                new Arbitration()
         );
         handerCommand.dispatch(args);
 
@@ -96,37 +97,6 @@ public class Main {
                 for (int i : indexes) {
                     showPredictionSnapshot(market, new PredictionEngine(pair.getKey(), pair.getValue(), IOdata.loadModel(Device.gpu())), i, 20);
                 }
-            }
-            case "arbitrageTriangular" -> {
-                BinanceApi api = new BinanceApiRest(false, true);
-                LoaderIndicator loaderIndicator = new LoaderIndicator(1);
-                loaderIndicator.setLabel("Buscando posibles arbitrajes...");
-                TriangularArbitrage triangularArbitrage = new TriangularArbitrage(api, opportunities -> {
-                    loaderIndicator.printAndNexStep();
-                    if (opportunities.isEmpty()) {
-                        return;
-                    }
-
-                    Vesta.info("Arbitrajes triangulares detectados: %d", opportunities.size());
-                    for (int i = 0; i < opportunities.size(); i++) {
-                        TriangularArbitrage.TriangularArbitrageOpportunity opportunity = opportunities.get(i);
-                        Vesta.info("[%d] Ciclo %s | retorno bruto %.6f | profit %.4f%% | peso %.8f",
-                                i + 1,
-                                String.join(" -> ", opportunity.assetsCycle()),
-                                opportunity.rateProduct(),
-                                opportunity.profitPercent(),
-                                opportunity.totalWeight());
-                        for (TriangularArbitrage.ArbitrageEdge edge : opportunity.edges()) {
-                            Vesta.info("    %s %s via %s @ %.10f -> rate %.10f",
-                                    edge.action(),
-                                    edge.fromAsset() + "/" + edge.toAsset(),
-                                    edge.symbol(),
-                                    edge.referencePrice(),
-                                    edge.rate());
-                        }
-                    }
-                });
-                triangularArbitrage.startSearch(EXECUTOR);
             }
         }
     }
