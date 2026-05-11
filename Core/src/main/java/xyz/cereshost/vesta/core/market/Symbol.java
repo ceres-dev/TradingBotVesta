@@ -18,15 +18,18 @@ public interface Symbol {
     @NotNull Boolean isQuoteUSDC();
 
     @Contract(pure = true)
-    @NotNull Boolean isTradFi();
+    @NotNull Boolean getIsTradFi();
 
     @Contract(pure = true)
-    default @NotNull Boolean isFuture() {
+    @NotNull Boolean getIsAllowTrading();
+
+    @Contract(pure = true)
+    default @NotNull Boolean getIsFuture() {
         return isQuoteUSDC() || isQuoteUSDT();
     }
 
     @Contract(pure = true)
-    default @NotNull Boolean isSpot(){
+    default @NotNull Boolean getIsSpot(){
         return true;
     }
 

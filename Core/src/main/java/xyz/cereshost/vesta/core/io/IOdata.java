@@ -4,6 +4,7 @@ import ai.djl.Device;
 import ai.djl.Model;
 import ai.djl.util.Pair;
 import com.google.gson.JsonIOException;
+import lombok.SneakyThrows;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import xyz.cereshost.vesta.core.market.Symbol;
@@ -379,7 +380,8 @@ public class IOdata {
 
     public record ApiKeysBinance(String key, String secret){}
 
-    public static ApiKeysBinance loadApiKeysBinance() throws IOException {
+    @SneakyThrows
+    public static ApiKeysBinance loadApiKeysBinance() {
         Path path = Paths.get("apiKeys.properties");
         if (Files.exists(path)){
             Properties properties = new Properties();
@@ -392,6 +394,8 @@ public class IOdata {
 
             try (OutputStream os = Files.newOutputStream(path)) {
                 props.store(os, "apiKeys");
+            }catch (IOException e) {
+                return new ApiKeysBinance("", "");
             }
             return new ApiKeysBinance("", "");
         }

@@ -1,6 +1,5 @@
 package xyz.cereshost.vesta.core.market;
 
-import lombok.experimental.Delegate;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
 
@@ -815,8 +814,13 @@ public enum SymbolFutures implements Symbol {
         return this.symbolConfigurable.isQuoteUSDC();
     }
 
-    public @NotNull Boolean isTradFi() {
-        return this.symbolConfigurable.isTradFi();
+    public @NotNull Boolean getIsTradFi() {
+        return this.symbolConfigurable.getIsTradFi();
+    }
+
+    @Override
+    public @NotNull Boolean getIsAllowTrading() {
+        return this.symbolConfigurable.getIsAllowTrading();
     }
 
     public void configure(BinanceApi binanceApi) {
@@ -824,7 +828,7 @@ public enum SymbolFutures implements Symbol {
     }
 
     public @NotNull Boolean getTradFi() {
-        return this.symbolConfigurable.getTradFi();
+        return this.symbolConfigurable.getIsTradFi();
     }
 
     public @NotNull Boolean getIsFuture() {
@@ -853,14 +857,6 @@ public enum SymbolFutures implements Symbol {
 
     public @NotNull String getQuoteAsset() {
         return this.symbolConfigurable.getQuoteAsset();
-    }
-
-    public @NotNull Boolean isFuture() {
-        return this.symbolConfigurable.isFuture();
-    }
-
-    public @NotNull Boolean isSpot() {
-        return this.symbolConfigurable.isSpot();
     }
 
     public String formatPrice(@NotNull Double price) {

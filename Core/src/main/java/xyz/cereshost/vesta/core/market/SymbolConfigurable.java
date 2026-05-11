@@ -9,16 +9,15 @@ public class SymbolConfigurable implements Symbol{
     @NotNull private final String symbol;
     @NotNull private final Boolean shouldFuture;
 
-    @NotNull @Getter private Boolean tradFi = false;
+    @NotNull @Getter private Boolean isTradFi = false;
     @NotNull @Getter private Boolean isFuture = true;
     @NotNull @Getter private Boolean isSpot = true;
+    @NotNull @Getter private Boolean isAllowTrading = true;
     @NotNull @Getter private Integer pricePrecision = 2;
     @NotNull @Getter private Integer quantityPrecision = 2;
     @NotNull @Getter private MarketStatus marketStatus;
     @NotNull @Getter private String baseAsset = "?";
     @NotNull @Getter private String quoteAsset = "?";
-
-
 
     public SymbolConfigurable(@NotNull String symbol) {
         this.symbol = symbol;
@@ -33,20 +32,22 @@ public class SymbolConfigurable implements Symbol{
     }
 
     public SymbolConfigurable(@NotNull String symbol,
-                              @NotNull Boolean tradFi,
+                              @NotNull Boolean isTradFi,
                               @NotNull Boolean isFuture,
                               @NotNull Boolean isSpot,
                               @NotNull Integer pricePrecision,
                               @NotNull Integer quantityPrecision,
                               @NotNull MarketStatus marketStatus,
                               @NotNull String baseAsset,
-                              @NotNull String quoteAsset
+                              @NotNull String quoteAsset,
+                              @NotNull Boolean spotTradingAllowed
     ) {
         this.symbol = symbol;
         this.shouldFuture = isFuture;
-        this.tradFi = tradFi;
+        this.isTradFi = isTradFi;
         this.isFuture = isFuture;
         this.isSpot = isSpot;
+        this.isAllowTrading = spotTradingAllowed;
         this.pricePrecision = pricePrecision;
         this.quantityPrecision = quantityPrecision;
         this.marketStatus = marketStatus;
@@ -69,11 +70,6 @@ public class SymbolConfigurable implements Symbol{
         return quoteAsset.equals("USDC");
     }
 
-    @Override
-    public @NotNull Boolean isTradFi() {
-        return tradFi;
-    }
-
     private boolean isConfigured = false;
 
     @Override
@@ -81,9 +77,9 @@ public class SymbolConfigurable implements Symbol{
         if (isConfigured) return;
         isConfigured = true;
         SymbolConfigurable symbolConfigurable = binanceApi.getSymbolConfigured(symbol, shouldFuture);
-        tradFi = symbolConfigurable.isTradFi();
-        isFuture = symbolConfigurable.isFuture();
-        isSpot = symbolConfigurable.isSpot();
+        isTradFi = symbolConfigurable.getIsTradFi();
+        isFuture = symbolConfigurable.getIsFuture();
+        isSpot = symbolConfigurable.getIsSpot();
         pricePrecision = symbolConfigurable.getPricePrecision();
         quantityPrecision = symbolConfigurable.getQuantityPrecision();
         marketStatus = symbolConfigurable.getMarketStatus();

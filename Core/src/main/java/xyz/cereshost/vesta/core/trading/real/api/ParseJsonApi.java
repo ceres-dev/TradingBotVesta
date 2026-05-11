@@ -1,6 +1,8 @@
 package xyz.cereshost.vesta.core.trading.real.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.experimental.UtilityClass;
 import org.jetbrains.annotations.NotNull;
 import xyz.cereshost.vesta.core.market.MarketStatus;
 import xyz.cereshost.vesta.core.market.SymbolConfigurable;
@@ -8,13 +10,17 @@ import xyz.cereshost.vesta.core.trading.RateLimitType;
 import xyz.cereshost.vesta.core.trading.real.api.model.BookTicker;
 import xyz.cereshost.vesta.core.trading.real.api.model.ExchangeInfo;
 import xyz.cereshost.vesta.core.trading.real.api.model.RateLimit;
+import xyz.cereshost.vesta.core.trading.real.api.model.Ticker24H;
 
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
-public abstract class ParseJsonApi {
+@UtilityClass
+public class ParseJsonApi {
 
-    protected @NotNull ExchangeInfo parseExchangeInfo(@NotNull JsonNode node, @NotNull Boolean isFuture) {
+    public ObjectMapper mapper = new ObjectMapper();
+
+    public @NotNull ExchangeInfo parseExchangeInfo(@NotNull JsonNode node, @NotNull Boolean isFuture) {
         Set<SymbolConfigurable> symbols = new HashSet<>();
         for (JsonNode info : node.get("symbols")) {
             String symbol = info.get("symbol").asText();
@@ -29,8 +35,8 @@ public abstract class ParseJsonApi {
                                     info.get("quotePrecision").asInt(),
                                     MarketStatus.valueOf(info.get("status").asText()),
                                     info.get("baseAsset").asText(),
-                                    info.get("quoteAsset").asText()
-                                    //info.get("isSpotTradingAllowed").booleanValue()
+                                    info.get("quoteAsset").asText(),
+                                    Objects.equals(info.get("status").asText(), "TRADING")
                             ) :
                             new SymbolConfigurable(
                                     symbol,
@@ -41,8 +47,8 @@ public abstract class ParseJsonApi {
                                     info.get("quotePrecision").asInt(),
                                     MarketStatus.valueOf(info.get("status").asText()),
                                     info.get("baseAsset").asText(),
-                                    info.get("quoteAsset").asText()
-                                    //info.get("isSpotTradingAllowed").booleanValue()
+                                    info.get("quoteAsset").asText(),
+                                    info.get("isSpotTradingAllowed").booleanValue()
                             )
             );
         }
@@ -84,6 +90,23 @@ public abstract class ParseJsonApi {
             );
         }
         return bookTickers;
+    }
+
+    public Set<Ticker24H> parseTicker24H(JsonNode node) {
+        HashSet<Ticker24H> ticker24Hs = new HashSet<>();
+        for (JsonNode ticker : node) {
+            Iterator<String> iterator = ticker.fieldNames();
+            ticker24Hs.add(new Ticker24H(
+                    ticker.get("symbol").asText(),
+                    ticker.get("priceChange").doubleValue(),
+                    ticker.get("priceChangePercent").doubleValue(),
+                    ticker.has("quoteVolume") ?
+                            ticker.get("quoteVolume").asDouble() : ticker.get("volume").asDouble(),
+                    ticker.has("baseVolume") ?
+                            ticker.get("baseVolume").asDouble() : ticker.get("volume").asDouble()
+            ));
+        }
+        return ticker24Hs;
     }
 
 

@@ -7,14 +7,15 @@ import xyz.cereshost.vesta.core.command.BaseCommand;
 import xyz.cereshost.vesta.core.message.DiscordNotification;
 import xyz.cereshost.vesta.core.message.MediaNotification;
 import xyz.cereshost.vesta.core.trading.abitrage.TriangularArbitrage;
-import xyz.cereshost.vesta.core.trading.real.api.BinanceApi;
-import xyz.cereshost.vesta.core.trading.real.api.BinanceApiRest;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceWebSocketFull;
+import xyz.cereshost.vesta.core.trading.real.api.BinanceWebSocketRequest;
 import xyz.cereshost.vesta.core.utils.LoaderIndicator;
 
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class Arbitration extends BaseCommand {
@@ -27,14 +28,14 @@ public class Arbitration extends BaseCommand {
     @Override
     public void execute(Arguments arguments) throws Exception {
 
-        BinanceApi api = new BinanceApiRest(false, true);
+        BinanceWebSocketFull api = new BinanceWebSocketFull(false);
 
-        LoaderIndicator loaderIndicator = new LoaderIndicator(1);
+        LoaderIndicator loaderIndicator = new LoaderIndicator(5);
         loaderIndicator.setLabel("Buscado Arbitrajes...");
 
         AtomicLong windowStart = new AtomicLong(-1);
 
-        MediaNotification mediaNotification = new DiscordNotification();
+        MediaNotification mediaNotification = MediaNotification.empty();
         mediaNotification.updateStatusType(MediaNotification.StatusType.WORKING);
         mediaNotification.updateStatus("Analizado todos los mercados");
         TriangularArbitrage triangularArbitrage = new TriangularArbitrage(api, opportunities -> {
@@ -79,7 +80,7 @@ public class Arbitration extends BaseCommand {
                         Vesta.info(
                                 "    %s %s via %s @ %.10f -> rate %.10f",
                                 edge.action(),
-                                edge.fromAsset() + "/" + edge.toAsset(),
+                                edge.fromAsset().symbol + "/" + edge.toAsset().symbol,
                                 edge.symbol(),
                                 edge.referencePrice(),
                                 edge.rate()
@@ -90,7 +91,6 @@ public class Arbitration extends BaseCommand {
             lastOpportunities.clear();
             lastOpportunities.addAll(current);
         });
-
         triangularArbitrage.startSearch(Main.EXECUTOR);
     }
 
@@ -103,7 +103,7 @@ public class Arbitration extends BaseCommand {
 
     private void updateLoader(LoaderIndicator loaderIndicator) {
         long time = System.currentTimeMillis();
-        if (deltas.size() > 15) deltas.poll();
+        if (deltas.size() > 60) deltas.poll();
         deltas.offer(time - start.get());
         start.set(time);
         double avg = deltas.stream().mapToLong(Long::longValue).average().getAsDouble();
@@ -111,14 +111,13 @@ public class Arbitration extends BaseCommand {
         loaderIndicator.printAndNexStep();
     }
 
-    private int counter = 0;
+    private long coolDown = System.currentTimeMillis();
 
     public void updateStatus(MediaNotification media) {
-        if (counter < 25) {
-            counter++;
-            return;
+        long time = System.currentTimeMillis();
+        if (coolDown < time) {
+            media.updateStatus("Buscado Arbitrajes... %.2fu/s",1000 / deltas.stream().mapToLong(Long::longValue).average().getAsDouble());
+            coolDown = time + TimeUnit.SECONDS.toMillis(15);
         }
-        media.updateStatus("Buscado Arbitrajes... %.2fu/s",1000 / deltas.stream().mapToLong(Long::longValue).average().getAsDouble());
-        counter = 0;
     }
 }

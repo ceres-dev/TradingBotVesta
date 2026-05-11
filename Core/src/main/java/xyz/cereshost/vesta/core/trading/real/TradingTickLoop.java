@@ -103,7 +103,7 @@ public final class TradingTickLoop implements Notifiable {
     public boolean isClose = false;
 
     public void startCandleLoop() {
-        if (typeMarket.symbol().isTradFi()){
+        if (typeMarket.symbol().getIsTradFi()){
             manager.signContract();
         }
         if (localWarmupMarket != null) {

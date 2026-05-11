@@ -9,20 +9,14 @@ import xyz.cereshost.vesta.core.market.SymbolConfigurable;
 import xyz.cereshost.vesta.core.message.Notifiable;
 import xyz.cereshost.vesta.core.trading.TimeInForce;
 import xyz.cereshost.vesta.core.trading.TypeOrder;
-import xyz.cereshost.vesta.core.trading.real.api.model.BookTicker;
-import xyz.cereshost.vesta.core.trading.real.api.model.ExchangeInfo;
-import xyz.cereshost.vesta.core.trading.real.api.model.OrderData;
-import xyz.cereshost.vesta.core.trading.real.api.model.PositionData;
+import xyz.cereshost.vesta.core.trading.real.api.model.*;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
-import java.util.List;
-import java.util.Map;
-import java.util.StringJoiner;
-import java.util.TreeMap;
+import java.util.*;
 import java.util.function.Consumer;
 
 public interface BinanceApi extends Notifiable {
@@ -90,6 +84,8 @@ public interface BinanceApi extends Notifiable {
 
     @NotNull Double getBalance(@NotNull Symbol symbol);
 
+    @NotNull Set<Ticker24H> getTicker24H(@Nullable Symbol symbol);
+
     void signContract();
 
 //    @NotNull JsonNode sendSignedRequest(@NotNull String method, String endpoint, TreeMap<String, String> params);
@@ -102,7 +98,7 @@ public interface BinanceApi extends Notifiable {
 
     void setExceptionHandler(Consumer<Exception> consumer);
 
-    default String buildQueryString(@NotNull TreeMap<String, String> params) {
+    default String buildQueryString(@NotNull Map<String, String> params) {
         StringJoiner sj = new StringJoiner("&");
         for (Map.Entry<String, String> entry : params.entrySet()) {
             sj.add(entry.getKey() + "=" + entry.getValue());
